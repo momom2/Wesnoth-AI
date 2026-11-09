@@ -259,12 +259,13 @@ class PaddedOutput:
         return PaddedOutput(**kw)
 
     def float32(self) -> "PaddedOutput":
-        """Cast bf16 autocast outputs back to float32 (numpy consumers
-        never see bf16, as in `forward`). The memory is float32 already."""
+        """Cast bf16 or fp16 autocast outputs back to float32 (numpy
+        consumers never see either, as in `forward`). The memory is float32
+        already."""
         kw = {f: getattr(self, f) for f in self._PLAIN_FIELDS}
         for f in self._TENSOR_FIELDS:
             v = getattr(self, f)
-            kw[f] = (v.float() if v is not None and v.dtype == torch.bfloat16 else v)
+            kw[f] = (v.float() if v is not None and v.dtype in (torch.bfloat16, torch.float16) else v)
         return PaddedOutput(**kw)
 
     def sample(self, b: int) -> ModelOutput:

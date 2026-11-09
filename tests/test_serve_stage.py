@@ -256,6 +256,92 @@ def test_a_server_without_memory_refuses_a_served_state(leaves, server):
             serve(server, [req])
 
 
+def test_the_waiter_polls_a_launched_batch_and_never_synchronizes():
+    """The pipelined waiter polls the batch's done event: an event's
+    synchronize spins a core on HIP for Windows
+    (training/metrics/pipelined_serve_20261029, "The CPU")."""
+    from tools.serve_launched import EagerBatch
+
+    class Event:
+        polls = 0
+
+        def query(self):
+            self.polls += 1
+            return self.polls >= 3
+
+        def synchronize(self):
+            raise AssertionError("the waiter synchronized on the event")
+
+    done = Event()
+    batch = EagerBatch(dev=torch.device("cuda"), done=done, commit=None, stats=None, events=None,
+                       parsed=None, out_layout=None, out_host=torch.empty(0), names=[], memory_arg=None,
+                       capacity=0, actor_kind=torch.empty(0), a_max=0, versions=None, keep=())
+    batch.wait()
+    assert done.polls == 3
+
+
+def test_launched_batches_overlap_and_keep_the_memory(leaves, server):
+    """The pipelined loop's order on the memory books (tools/serve_pipelined.py):
+    batch B launched before batch A completes, A's next launched after A's
+    replies and before B completes, and so on. Each batch's replies are the
+    bytes `serve_requests` gives it in the serial order, the versions advance
+    by one per decision, a read of a version not held is refused alone in a
+    launched batch, and a connection that closes while its request runs
+    leaves the others' states served. (On the CPU the device work runs at
+    the launch; this checks the books, which commit at the launch so that
+    the next batch's plan does not discard them.)"""
+    from tools.serve_loop import STATUS_OK, reply_head
+    from tools.serve_stage import ServerMemory, launch_requests, serve_requests
+    from wesnoth_ai.byte_wire import decode_replies_with_versions
+    from wesnoth_ai.memory import MemoryState
+    rid = iter(range(1000))
+
+    def batch(k, decisions):
+        reqs = []
+        for cid, key, version in decisions:
+            raw, masks = leaves[(4 * k + cid) % len(leaves)]
+            reqs.append(_request(next(rid), [(raw, masks, MemoryState(SLOTS, None))], served=[(key, version)],
+                                 cid=cid))
+        return reqs
+
+    # In launch order. Connections 1, 3 play in A, 2, 4 in B; 4 closes while
+    # its request in B1 runs and 6 starts a game in B2; 5 names a version
+    # nobody wrote.
+    order = []
+    for k in range(4):
+        order.append((f"A{k}", batch(k, [(1, 0, k), (3, 0, k)] + ([(5, 0, 3)] if k == 2 else []))))
+        order.append((f"B{k}", batch(k, [(2, 0, k), (4, 0, k)] if k < 2 else [(2, 0, k), (6, 0, k - 2)])))
+
+    serial_memory = ServerMemory(server._model, CPU)
+    serial = {}
+    for name, reqs in order:
+        serial[name] = serve_requests(server, reqs, memory=serial_memory, cids=[r.cid for r in reqs])
+        if name == "B1":
+            serial_memory.release_connection(4)
+    memory = ServerMemory(server._model, CPU)
+    piped, inflight = {}, None
+    for name, reqs in order:
+        launched = launch_requests(server, reqs, memory=memory, cids=[r.cid for r in reqs])
+        if name == "B1":
+            memory.release_connection(4)              # closed while B1 runs
+        if inflight is not None:
+            piped[inflight[0]] = inflight[1].complete()
+        inflight = (name, launched)
+    piped[inflight[0]] = inflight[1].complete()
+
+    assert piped == serial
+    for name, reqs in order:
+        k = int(name[1])
+        for req, reply in zip(reqs, piped[name]):
+            if req.cid == 5:
+                assert reply_head(reply)[1] != STATUS_OK and b"not held" in reply
+                continue
+            assert reply_head(reply)[1] == STATUS_OK, (name, req.cid, bytes(reply[16:200]))
+            _, versions = decode_replies_with_versions(bytearray(reply), 16)
+            assert versions == [k + 1 - (2 if req.cid == 6 else 0)]
+    assert memory.summary()["held"] == serial_memory.summary()["held"] == 4
+
+
 def test_the_client_refuses_a_state_it_did_not_hand_out():
     """A served state names its client: another client refuses to send it,
     and a server that keeps no states refuses it too."""

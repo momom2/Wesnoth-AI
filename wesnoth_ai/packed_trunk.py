@@ -37,10 +37,15 @@ most 256 (633-635); sm80 or newer (567). The output is
 F.scaled_dot_product_attention applies as well. torch 2.10 keeps the same
 positional signature (checked on the local wheel).
 
-Outside the kernel's domain (CPU, fp32) the same packed bookkeeping runs
+On a ROCm build the flash kernel is not used; fp16 calls go to the HIP
+varlen kernel of wesnoth_ai/hip_kernels.py, which takes the same
+arguments, and those that want a gradient to the same kernel with its
+backward (wesnoth_ai/hip_attention_grad.py).
+
+Outside the kernels' domain (CPU, fp32) the same packed bookkeeping runs
 with F.scaled_dot_product_attention per segment, so the layout is tested
-without a GPU; production callers get the packed trunk only where the
-flash kernel applies (WesnothModel._packed_trunk_applies).
+without a GPU; production callers get the packed trunk only where a
+varlen kernel applies (WesnothModel._packed_trunk_applies).
 
 Compiled variant (design note section 13): `CompiledPackedTrunk` runs
 `torch.compile(dynamic=True, fullgraph=True)` over `packed_trunk_layers`,
@@ -67,6 +72,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from wesnoth_ai.hip_attention_grad import hip_varlen_attention_trainable, hip_varlen_backward_applies
+from wesnoth_ai.hip_kernels import hip_varlen_applies, hip_varlen_attention
 
 log = logging.getLogger(__name__)
 
@@ -445,8 +453,37 @@ def _contiguous_strides(shape: Tuple[int, ...]) -> Tuple[int, ...]:
 
 def flash_varlen_applies(device: torch.device, dtype: torch.dtype) -> bool:
     """Whether the flash varlen kernel serves this device and dtype
-    (flash_api.cpp:567-575: CUDA, fp16 or bf16)."""
-    return device.type == "cuda" and dtype in _FLASH_DTYPES
+    (flash_api.cpp:567-575: CUDA, fp16 or bf16). A ROCm build reports its
+    GPUs as "cuda" too, but its flash kernel is not this one and has no
+    kernel for some of them (gfx1032, 2026-10-28): there the HIP kernel
+    (wesnoth_ai/hip_kernels.py) serves instead."""
+    return device.type == "cuda" and torch.version.hip is None and dtype in _FLASH_DTYPES
+
+
+def varlen_attention_applies(device: torch.device, dtype: torch.dtype,
+                             head_dim: Optional[int] = None) -> bool:
+    """Whether a varlen kernel serves this device and dtype: flash on
+    CUDA, the HIP kernel on a ROCm build (fp16, its head sizes)."""
+    return flash_varlen_applies(device, dtype) or hip_varlen_applies(device, dtype, head_dim)
+
+
+def _wants_grad(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> bool:
+    return torch.is_grad_enabled() and (q.requires_grad or k.requires_grad or v.requires_grad)
+
+
+def _hip_serves(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> bool:
+    """The HIP inference kernel takes the call: it applies, and no gradient
+    is wanted."""
+    if _wants_grad(q, k, v):
+        return False
+    return hip_varlen_applies(q.device, q.dtype, q.shape[-1])
+
+
+def _hip_trains(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> bool:
+    """The HIP kernel with its backward takes the call: a gradient is
+    wanted, and the forward kernel and the backward apply (a ROCm build,
+    fp16, an instantiated head size, both built and self-tested)."""
+    return _wants_grad(q, k, v) and hip_varlen_backward_applies(q.device, q.dtype, q.shape[-1])
 
 
 def packed_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
@@ -455,6 +492,11 @@ def packed_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
     [total, heads, head_dim]; the result has the same shape."""
     if flash_varlen_applies(q.device, q.dtype):
         return _flash_varlen(q, k, v, index.cu_seqlens, index.max_len)
+    if _hip_serves(q, k, v):
+        return hip_varlen_attention(q, k, v, index.cu_seqlens, index.max_len)
+    if _hip_trains(q, k, v):
+        return hip_varlen_attention_trainable(q, k, v, index.cu_seqlens, index.max_len,
+                                              rows=int(index.cu_host[-1]))
     return _segment_sdpa(q, k, v, index.cu_host)
 
 
@@ -524,7 +566,8 @@ def packed_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor,
     dropout. Differentiable: the flash varlen kernel's backward is
     defined for its query, key and value (torch 2.5.1
     tools/autograd/derivatives.yaml:2862-2864,
-    `_flash_attention_backward_symint` with the cumulative lengths)."""
+    `_flash_attention_backward_symint` with the cumulative lengths), and
+    so is the HIP kernel's on ROCm (wesnoth_ai/hip_attention_grad.py)."""
     for layer in encoder.layers:
         x = layer.norm1(x + _self_attention(layer.self_attn, x, index))
         x = layer.norm2(x + layer.linear2(layer.activation(layer.linear1(x))))
@@ -573,6 +616,10 @@ def _packed_attention_impl(q, k, v, cu_seqlens, max_len: int) -> torch.Tensor:
     if flash_varlen_applies(q.device, q.dtype):
         q, k, v = (t if t.stride(-1) == 1 else t.contiguous() for t in (q, k, v))
         return _flash_varlen(q, k, v, cu_seqlens, int(max_len)).contiguous()
+    if _hip_serves(q, k, v):
+        return hip_varlen_attention(q, k, v, cu_seqlens, int(max_len))
+    if _hip_trains(q, k, v):
+        return hip_varlen_attention_trainable(q, k, v, cu_seqlens, int(max_len))
     return _segment_sdpa(q, k, v, cu_seqlens.tolist())
 
 

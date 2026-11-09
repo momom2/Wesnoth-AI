@@ -279,6 +279,30 @@ def _effective_precision(args, field: str) -> bool:
     return device == "cuda"
 
 
+def precision_wants(args) -> dict:
+    """What the resume pre-scan expects each precision field of a result
+    file to read under this batch's flags; None where it cannot know
+    before the servers report (no explicit flag, --device auto: the
+    per-game guard still protects). The fp16 servers autocast in place of
+    bf16, so their games record infer_bf16 False (the resume of
+    2026-10-29 was refused on every game without this)."""
+    wants = {}
+    for fld, flag in (("infer_bf16", args.infer_bf16), ("infer_compile", args.infer_compile)):
+        want = flag if flag is not None else {"cuda": True, "cpu": False}.get(args.device)
+        if fld == "infer_compile" and args.shared_inference:
+            # The games record the server's setting (its hello's
+            # compile_packed), which --compile-packed turns on.
+            want = bool(args.compile_packed)
+        if fld == "infer_bf16" and args.infer_fp16:
+            want = False
+        wants[fld] = want
+    for fld, flag in (("infer_bf16_residual", args.bf16_residual), ("infer_fp16", args.infer_fp16),
+                      ("infer_fused_relu", args.fused_relu), ("infer_fp8_a", args.fp8_inference_a),
+                      ("infer_fp8_b", args.fp8_inference_b)):
+        wants[fld] = bool(flag and args.shared_inference)
+    return wants
+
+
 def slot_for(i: int, seed_base: int) -> Tuple[int, int]:
     """(side_a, seed) for BASE slot index i."""
     return (1 if i % 2 == 0 else 2), seed_base + i
@@ -451,10 +475,11 @@ def _log_server_stats(stats: dict) -> None:
             log.error("inference server %s stopped serving on a device fault:\n%s",
                       Path(spec).name, st["fatal"][-2000:])
         log.info("inference server %s: %d requests in %d batches, mean batch "
-                 "%.2f, hist %s; idle %.1fs window %.1fs (reads %.1fs) infer %.1fs "
+                 "%.2f, hist %s; idle %.1fs (busy-wait %.1fs) window %.1fs (reads %.1fs) infer %.1fs "
                  "reply %.1fs of %.1fs wall (gpu %.1fs); host seconds by stage %s",
                  Path(spec).name, st["requests"], st["batches"], st["mean_batch"],
-                 st["batch_hist"], st["idle_s"], st["window_s"], st.get("recv_s", 0.0),
+                 st["batch_hist"], st["idle_s"], st.get("busy_wait_s", 0.0), st["window_s"],
+                 st.get("recv_s", 0.0),
                  st["infer_s"], st["reply_s"], st["wall_s"], st["gpu_ms"] / 1000.0,
                  st.get("stage_s", {}))
 
@@ -541,13 +566,6 @@ def main(argv: List[str]) -> int:
                          "0 = argmax). Default None = legacy sampler.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
-    ap.add_argument("--raw-end-turn-a", choices=("joint", "actor"), default="joint",
-                    help="Player A's end_turn decode (elo_eval_game "
-                         "--raw-end-turn-a): 'actor' = end_turn only when its "
-                         "actor mass leads every actor marginal. Procedure "
-                         "tag '+endm'.")
-    ap.add_argument("--raw-end-turn-b", choices=("joint", "actor"), default="joint",
-                    help="Player B (see --raw-end-turn-a).")
     ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
                     help="Offset on player A's end_turn actor logit (procedure "
                          "tag '+eo<x>').")
@@ -676,6 +694,10 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server replays each priors batch from a "
                          "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
                          "+ packed trunk), one launch per batch instead of ~150.")
+    ap.add_argument("--log-decisions", action="store_true",
+                    help="Both raw players log their decisions and each game record carries "
+                         "the log (elo_eval_game --log-decisions); an outdir never mixes "
+                         "logged and unlogged games.")
     ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
                     help="How a game's simulator refreshes its view after each command: rebuilding "
                          "only what the command changed (wesnoth_core.ViewCache) or the whole view; "
@@ -693,6 +715,12 @@ def main(argv: List[str]) -> int:
                          "rounding, so it is for self-play generation, never a strength match; "
                          "the games record it (infer_bf16_residual) and an outdir never mixes "
                          "it.")
+    ap.add_argument("--infer-fp16", action="store_true",
+                    help="Shared inference: the servers autocast to float16 instead of bfloat16 "
+                         "(eval_inference_server --infer-fp16), for a GPU without bf16 matrix units; "
+                         "on a ROCm build the packed trunk then runs the HIP varlen kernel "
+                         "(wesnoth_ai/hip_kernels.py). Another rounding than bf16's: the games "
+                         "record it (infer_fp16) and an outdir never mixes it.")
     ap.add_argument("--fused-relu", action="store_true",
                     help="Shared inference: the servers run the packed trunk's first "
                          "feed-forward linear, its bias and the ReLU in one cuBLASLt call. It may "
@@ -726,6 +754,11 @@ def main(argv: List[str]) -> int:
                          "cost, so a second process on the same GPU raises the "
                          "ceiling; games are handed to servers round-robin. "
                          "Costs one model copy of VRAM per extra process.")
+    ap.add_argument("--inference-pipelined", action=argparse.BooleanOptionalAction, default=False,
+                    help="Shared inference: each server launches its next batch before completing the "
+                         "one on the device and collects it while the device runs "
+                         "(eval_inference_server --pipelined, tools/serve_pipelined.py). A timing "
+                         "switch: the same replies for a given batch; recorded in each server's info.")
     ap.add_argument("--inference-window-ms", type=float, default=1.5,
                     help="Shared inference: after a first request, how long "
                          "the server collects more before one forward.")
@@ -752,12 +785,16 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
-    from tools.eval_procedure import end_turn_refusal
+    from tools.eval_procedure import decision_log_refusal, end_turn_refusal
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
         _why = end_turn_refusal(_side, _spec, _sims, _temp,
-                                getattr(args, f"raw_end_turn_{_side}"),
                                 getattr(args, f"raw_end_turn_offset_{_side}"))
+        if _why is not None:
+            ap.error(_why)
+    if args.log_decisions:
+        _why = decision_log_refusal((("a", args.spec_a, sims_a, args.raw_temperature_a),
+                                     ("b", args.spec_b, sims_b, args.raw_temperature_b)))
         if _why is not None:
             ap.error(_why)
     if args.label_a == args.label_b:
@@ -776,6 +813,9 @@ def main(argv: List[str]) -> int:
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
+    if args.infer_fp16 and (args.device == "cpu" or not args.shared_inference or args.infer_bf16):
+        ap.error("--infer-fp16 is the shared servers' precision: with --shared-inference on a cuda "
+                 "device, in place of --infer-bf16")
     _any_tcs = (
         (sims_a > 0 and not args.plan_a
          and not (args.no_turn_search or args.no_turn_search_a))
@@ -927,7 +967,6 @@ def main(argv: List[str]) -> int:
     want = tuple(procedure_of(sims, getattr(args, f"plan_{side}"),
                               args.no_turn_search or getattr(args, f"no_turn_search_{side}"),
                               getattr(args, f"raw_temperature_{side}"), getattr(args, f"gumbel_root_{side}"),
-                              raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
                               raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"))
                  for side, sims in (("a", sims_a), ("b", sims_b)))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
@@ -972,6 +1011,11 @@ def main(argv: List[str]) -> int:
             raise SystemExit(
                 f"{f.name} was played with a {prev.get('max_actions_per_side')}-action cap per "
                 f"side, this run with {_cap}: the cap is a second horizon -- fresh outdir.")
+        if bool(prev.get("decisions_logged", False)) != args.log_decisions:
+            raise SystemExit(
+                f"{f.name} was played with decisions_logged={bool(prev.get('decisions_logged', False))} "
+                f"but this run uses {args.log_decisions}: an outdir's games either all carry "
+                f"their decision log or none does. Use a fresh outdir.")
         # Absent field = 1: every pre-flag result was B=1.
         if prev.get("mcts_batch", 1) != args.mcts_batch_size:
             raise SystemExit(
@@ -999,30 +1043,8 @@ def main(argv: List[str]) -> int:
                 f"uses {_want_cs}: the shared stream gives every game "
                 f"the same luck vector, so the two are different "
                 f"estimands. Use a fresh outdir.")
-        # Precision/compile pre-scan: the effective value is known
-        # here only when the flag is explicit or the device is
-        # forced; otherwise the per-game guard still protects.
-        for _fld, _flag in (("infer_bf16", args.infer_bf16),
-                            ("infer_compile", args.infer_compile)):
-            _want = (_flag if _flag is not None
-                     else {"cuda": True, "cpu": False}.get(args.device))
-            if _fld == "infer_compile" and args.shared_inference:
-                # The games record the server's setting (its hello's
-                # compile_packed), which --compile-packed turns on.
-                _want = bool(args.compile_packed)
-            if _want is not None \
-                    and bool(prev.get(_fld, False)) != _want:
-                raise SystemExit(
-                    f"{f.name} was played with {_fld}="
-                    f"{bool(prev.get(_fld, False))} but this run "
-                    f"uses {_want}: numerics differ, refusing to "
-                    f"mix. Use a fresh outdir.")
-        for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
-                            ("infer_fused_relu", args.fused_relu),
-                            ("infer_fp8_a", args.fp8_inference_a),
-                            ("infer_fp8_b", args.fp8_inference_b)):
-            _want = bool(_want and args.shared_inference)
-            if bool(prev.get(_fld, False)) != _want:
+        for _fld, _want in precision_wants(args).items():
+            if _want is not None and bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
                     f"{f.name} was played with {_fld}={bool(prev.get(_fld, False))} but this run "
                     f"uses {_want}: numerics differ, refusing to mix. Use a fresh outdir.")
@@ -1124,18 +1146,21 @@ def main(argv: List[str]) -> int:
                         graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
                         server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
                         bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
-                        fp8=fp8, timeline_s=float(args.inference_timeline_s),
+                        fp8=fp8, fp16=bool(args.infer_fp16),
+                        pipelined=bool(args.inference_pipelined),
+                        timeline_s=float(args.inference_timeline_s),
                         profile_batches=int(args.inference_profile_batches),
                         profile_after=int(args.inference_profile_after))
                     servers[key].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)
-            infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))
+            infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]),
+                      bool(h.info.get("infer_fp16", False)))
                      for hs in servers.values() for h in hs}
             if len(infos) != 1:
                 raise SystemExit(f"the inference servers disagree on precision "
                                  f"{sorted(infos)}; one match, one numerics path")
-            shared_bf16, shared_packed = infos.pop()
+            shared_bf16, shared_packed, _shared_fp16 = infos.pop()
             # The games record the checkpoint their server loaded; the
             # pre-scan and the timeout artifacts use the driver's read.
             for (spec, _fp8), hs in servers.items():
@@ -1209,10 +1234,7 @@ def main(argv: List[str]) -> int:
         if args.raw_temperature_b is not None:
             cmd += ["--raw-temperature-b", str(args.raw_temperature_b)]
         for side in ("a", "b"):
-            rule = getattr(args, f"raw_end_turn_{side}")
             offset = getattr(args, f"raw_end_turn_offset_{side}")
-            if rule != "joint":
-                cmd += [f"--raw-end-turn-{side}", rule]
             if offset:
                 cmd += [f"--raw-end-turn-offset-{side}", str(offset)]
             memory = getattr(args, f"memory_{side}")
@@ -1222,6 +1244,8 @@ def main(argv: List[str]) -> int:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if args.view_refresh != "incremental":
             cmd += ["--view-refresh", args.view_refresh]
+        if args.log_decisions:
+            cmd.append("--log-decisions")
         if servers:
             # The servers' effective precision, stated explicitly so
             # the game records what ran (elo_eval_game checks it
@@ -1305,6 +1329,7 @@ def main(argv: List[str]) -> int:
                                else _effective_precision(args, "infer_compile")),
              "infer_bf16_residual": bool(args.bf16_residual and servers),
              "infer_fused_relu": bool(args.fused_relu and servers),
+             "infer_fp16": bool(args.infer_fp16 and servers),
              "infer_fp8_a": bool(args.fp8_inference_a and servers),
              "infer_fp8_b": bool(args.fp8_inference_b and servers),
              "shared_inference": bool(servers),

@@ -365,3 +365,21 @@ def test_ts_args_choice_typo_refused(tmp_path):
               "--outdir", str(tmp_path / "o"), "--games", "2",
               "--mcts-sims", "8",
               "--ts-args", "--turn-boundary-frame movr"])
+
+
+def test_resume_prescan_expects_an_fp16_server_games_precision():
+    """A match served in fp16 (--infer-fp16) resumes over its own games:
+    they record infer_bf16 False and infer_fp16 True, and the pre-scan
+    expects exactly that on cuda (on 2026-10-29 it expected bf16 and
+    refused every game of the local stage 1's first match)."""
+    from argparse import Namespace
+    from tools.run_elo_batch import precision_wants
+    base = dict(infer_bf16=None, infer_compile=None, device="cuda", shared_inference=True,
+                compile_packed=False, bf16_residual=False, fused_relu=False,
+                fp8_inference_a=False, fp8_inference_b=False)
+    fp16 = precision_wants(Namespace(**base, infer_fp16=True))
+    assert fp16["infer_bf16"] is False and fp16["infer_fp16"] is True
+    bf16 = precision_wants(Namespace(**base, infer_fp16=False))
+    assert bf16["infer_bf16"] is True and bf16["infer_fp16"] is False
+    auto = precision_wants(Namespace(**{**base, "device": "auto"}, infer_fp16=False))
+    assert auto["infer_bf16"] is None

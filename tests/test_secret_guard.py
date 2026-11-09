@@ -10,8 +10,8 @@ from __future__ import annotations
 import io
 import json
 import os
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import quote
 
@@ -139,16 +139,70 @@ def test_the_hook_reads_utf8_and_answers_ascii(monkeypatch):
     assert answer["hookSpecificOutput"]["updatedToolOutput"] == {"content": f"été {P}"}
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="no bash")
+# The bash Claude Code runs commands with, as the installer finds it: on
+# Windows, a bare `bash` on PATH can be WSL's launcher, not Git Bash.
+BASH = sg_install.find_bash()
+needs_bash = pytest.mark.skipif(BASH is None, reason="no bash")
+
+
+def _guard(command, env=None, **kwargs):
+    env = dict(os.environ if env is None else env, SG_TEST_TOKEN=SENTINEL)
+    return subprocess.run([BASH, (GUARD / "guard_shell.sh").as_posix(), command], env=env, timeout=60, **kwargs)
+
+
+@needs_bash
 def test_the_shell_prefix_redacts_both_streams_and_keeps_the_status():
-    env = dict(os.environ, SG_TEST_TOKEN=SENTINEL)
-    run = subprocess.run(
-        [shutil.which("bash"), (GUARD / "guard_shell.sh").as_posix(),
-         f"read line; echo \"in:$line\"; echo out {SENTINEL}; echo err {SENTINEL} >&2; exit 5"],
-        input=b"hello\n", env=env, capture_output=True, timeout=60)
+    run = _guard(f"read line; echo \"in:$line\"; echo out {SENTINEL}; echo err {SENTINEL} >&2; exit 5",
+                 input=b"hello\n", capture_output=True)
     assert run.returncode == 5
     assert run.stdout.decode() == f"in:hello\nout {P}\n"
     assert run.stderr.decode() == f"err {P}\n"
+
+
+def _script(path: Path, body: str) -> None:
+    path.write_bytes(("#!/bin/sh\n" + body + "\n").encode())       # LF ends on every platform
+    path.chmod(0o755)
+
+
+@needs_bash
+def test_the_shell_prefix_runs_nothing_without_a_working_python(tmp_path):
+    """Every name the prefix tries is the Microsoft Store's alias (it prints
+    an advert and exits): the command is not run and the prefix says so. A
+    broken `python` is passed over for a working `python3`, and
+    SECRET_GUARD_PYTHON names the interpreter outright."""
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    for name in ("python", "python3", "py"):
+        _script(stubs / name, "echo 'Python was not found; run without arguments to install "
+                              "from the Microsoft Store' >&2\nexit 49")
+    env = dict(os.environ, PATH=str(stubs) + os.pathsep + os.environ["PATH"])
+    env.pop("SECRET_GUARD_PYTHON", None)
+    marker = tmp_path / "ran"
+    run = _guard(f"echo > '{marker.as_posix()}'; echo out {SENTINEL}", env=env, capture_output=True)
+    assert run.returncode == 126 and run.stdout == b"" and not marker.exists()
+    assert "not run" in run.stderr.decode() and SENTINEL not in run.stderr.decode()
+
+    real = Path(sys.executable).as_posix()
+    _script(stubs / "python3", f'exec "{real}" "$@"')
+    run = _guard(f"echo out {SENTINEL}; exit 4", env=env, capture_output=True)
+    assert (run.returncode, run.stdout.decode()) == (4, f"out {P}\n")
+
+    _script(stubs / "python3", "exit 49")
+    run = _guard(f"echo out {SENTINEL}; exit 4", env=dict(env, SECRET_GUARD_PYTHON=real), capture_output=True)
+    assert (run.returncode, run.stdout.decode()) == (4, f"out {P}\n")
+
+
+@needs_bash
+def test_the_shell_prefix_returns_after_its_last_stderr_line(tmp_path):
+    """A reader that takes the stderr when the prefix exits (a file, not a
+    pipe read to its end) has all of it: the prefix waits for its stderr
+    filter, which waits for a background job still holding the stream."""
+    err = tmp_path / "err.txt"
+    with open(err, "wb") as f:
+        run = _guard(f"(sleep 2; echo late {SENTINEL} >&2) >/dev/null & echo out {SENTINEL}; exit 3",
+                     stdout=subprocess.PIPE, stderr=f)
+    assert run.returncode == 3 and run.stdout.decode() == f"out {P}\n"
+    assert err.read_bytes().decode() == f"late {P}\n"
 
 
 def test_the_installer_merges_its_settings_and_removes_exactly_them(tmp_path):
@@ -161,9 +215,19 @@ def test_the_installer_merges_its_settings_and_removes_exactly_them(tmp_path):
     merged = json.loads(path.read_text())
     assert merged["env"]["CLAUDE_CODE_SHELL_PREFIX"] == (target / "guard_shell.sh").as_posix()
     assert len(merged["hooks"]["PostToolUse"]) == 2 and merged["hooks"]["PostToolUseFailure"]
+    hook = merged["hooks"]["PostToolUse"][1]["hooks"][0]
+    assert Path(hook["command"]).is_absolute(), "a bare name is looked up on PATH when the hook fires"
     sg_install.write_settings(path, target)                      # a second run replaces, never duplicates
     assert len(json.loads(path.read_text())["hooks"]["PostToolUse"]) == 2
     assert sg_install.remove_from(json.loads(path.read_text())) == mine
+
+
+@needs_bash
+def test_the_installed_copy_passes_the_installers_check(tmp_path):
+    """The check runs the copy as the settings will: the shell prefix under
+    the bash Claude Code uses, the hook on the command the settings name."""
+    sg_install.install(tmp_path)
+    assert sg_install.check(tmp_path) == []
 
 
 def test_no_checkpoint_load_unpickles_arbitrary_objects():

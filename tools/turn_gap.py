@@ -79,7 +79,7 @@ from tools.bench_states import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
 from tools.eval_procedure import procedure_of
 from tools.eval_players import _PolicyPair, _play_one_eval_game
 from tools.mcts import fork_guard
-from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
+from tools.raw_player import RawPolicyPlayer
 from tools.selfplay_game import _would_recruit_bounce
 from tools.wesnoth_sim import WesnothSim
 from wesnoth_ai.classes import GameState, opponent_of, state_key
@@ -130,7 +130,6 @@ class GapConfig:
     # sampled alternatives, the continue edits and both sides of the
     # playouts (tools/raw_player.py). The reference player's decode is
     # configs/reference_player.json's (`--reference`).
-    end_turn_rule: str = "joint"
     end_turn_offset: float = 0.0
     # The memory slots every player uses (tools/raw_player.py), None for a
     # model without a memory. With one, each position's players start from
@@ -142,8 +141,6 @@ class GapConfig:
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
             raise ValueError("k_alternatives >= 0, playouts >= 1, cap_turns >= 1")
-        if self.end_turn_rule not in END_TURN_RULES:
-            raise ValueError(f"end_turn_rule must be one of {END_TURN_RULES}")
         if self.rounds < 0 or self.drop_z < 0.0 or self.stop_z < 0.0:
             raise ValueError("rounds >= 0, drop_z >= 0, stop_z >= 0")
         if self.temperature < 0.0 or self.playout_temperature < 0.0:
@@ -157,17 +154,15 @@ class GapConfig:
 def procedure_tag(cfg: GapConfig, temperature: float) -> str:
     """The raw player's procedure tag under cfg's decode at
     `temperature` (tools/eval_procedure.py): `raw:t0` for the base
-    turn, `raw:t1` for the sampled alternatives, `+endm` / `+eo<x>`
-    appended when the decode has them."""
-    return procedure_of(0, False, False, temperature, raw_end_turn=cfg.end_turn_rule,
-                        raw_end_turn_offset=cfg.end_turn_offset)
+    turn, `raw:t1` for the sampled alternatives, `+eo<x>` appended when
+    the decode has an end_turn offset."""
+    return procedure_of(0, False, False, temperature, raw_end_turn_offset=cfg.end_turn_offset)
 
 
 def player_for(policy, cfg: GapConfig, temperature: float, *,
                seed: Optional[int] = None, forbid_end_turn: bool = False) -> RawPolicyPlayer:
     """A raw player over `policy` under cfg's decode and memory."""
     return RawPolicyPlayer(policy, temperature, seed=seed, forbid_end_turn=forbid_end_turn,
-                           end_turn_rule=cfg.end_turn_rule,
                            end_turn_offset=cfg.end_turn_offset, memory_slots=cfg.memory)
 
 
@@ -1119,13 +1114,17 @@ def _check_decode_matches(cfg: GapConfig, screen_cfg: Dict) -> None:
     """A confirmation grades the screen's turns under the screen's
     decode: the playouts and the value reads would otherwise measure
     another player than the one that proposed the turns. Screen files
-    from before the decode fields carry the joint decode at offset 0."""
-    screen = (str(screen_cfg.get("end_turn_rule", "joint")),
-              float(screen_cfg.get("end_turn_offset", 0.0)))
-    if screen != (cfg.end_turn_rule, cfg.end_turn_offset):
-        raise SystemExit(f"--confirm-from: the screen ran the decode {screen} and this run "
-                         f"{(cfg.end_turn_rule, cfg.end_turn_offset)}; pass the screen's "
-                         f"--raw-end-turn / --raw-end-turn-offset (or --reference)")
+    from before the decode fields carry offset 0. A screen file whose
+    `end_turn_rule` is not "joint" decided end_turn at the actor level,
+    which no player here plays."""
+    if str(screen_cfg.get("end_turn_rule", "joint")) != "joint":
+        raise SystemExit(f"--confirm-from: the screen decided end_turn by the rule "
+                         f"{screen_cfg['end_turn_rule']!r}; the players here decide it jointly")
+    screen = float(screen_cfg.get("end_turn_offset", 0.0))
+    if screen != cfg.end_turn_offset:
+        raise SystemExit(f"--confirm-from: the screen ran the decode at end_turn offset {screen} "
+                         f"and this run at {cfg.end_turn_offset}; pass the screen's "
+                         f"--raw-end-turn-offset (or --reference)")
 
 
 def _apply_reference(args) -> Optional[Dict]:
@@ -1134,16 +1133,15 @@ def _apply_reference(args) -> Optional[Dict]:
     reference's record for the provenance, None without the flag."""
     if not args.reference:
         return None
-    if args.checkpoint is not None or args.raw_end_turn != "joint" or args.raw_end_turn_offset:
+    if args.checkpoint is not None or args.raw_end_turn_offset:
         raise SystemExit("--reference carries its own checkpoint and decode: drop "
-                         "--checkpoint, --raw-end-turn and --raw-end-turn-offset")
+                         "--checkpoint and --raw-end-turn-offset")
     ref = reference_player.load()
     decode = ref["decode"]
     if int(decode.get("mcts_sims", 0)) != 0 or float(decode.get("raw_temperature", 0.0)) != 0.0:
         raise SystemExit(f"the reference decode {decode} is not a raw argmax player; the "
                          f"base turn of this measurement is the argmax turn")
     args.checkpoint = str(reference_player.ensure_checkpoint(ref))
-    args.raw_end_turn = str(decode.get("raw_end_turn", "joint"))
     args.raw_end_turn_offset = float(decode.get("raw_end_turn_offset", 0.0))
     return {k: ref.get(k) for k in ("label", "checkpoint_hf", "procedure_tag")}
 
@@ -1176,9 +1174,6 @@ def main(argv) -> int:
                     help="The reference player of configs/reference_player.json: its "
                          "checkpoint (fetched when missing) and its decode. Excludes "
                          "--checkpoint and the decode flags.")
-    ap.add_argument("--raw-end-turn", choices=END_TURN_RULES, default="joint",
-                    help="How every player decides end_turn (tools/raw_player.py): "
-                         "the joint argmax or sample, or at the actor level.")
     ap.add_argument("--raw-end-turn-offset", type=float, default=0.0,
                     help="Every player's end_turn logit offset (0 = none).")
     ap.add_argument("--summarize", type=Path, default=None,
@@ -1295,7 +1290,6 @@ def main(argv) -> int:
                     seed=args.seed, rounds=args.rounds, drop_z=args.drop_z,
                     stop_z=args.stop_z, stop_margin=args.stop_margin,
                     threshold=args.gap_threshold,
-                    end_turn_rule=args.raw_end_turn,
                     end_turn_offset=args.raw_end_turn_offset)
     replays: Dict[int, Dict] = {}
     if args.confirm_from is not None:

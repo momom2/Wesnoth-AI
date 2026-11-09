@@ -38,6 +38,7 @@ obs8's, parameter for parameter.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -53,9 +54,13 @@ from wesnoth_ai.model_output import (
 from wesnoth_ai.packed_trunk import (
     CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
     batch_counts,
-    build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
-    packed_trunk, padded_gather_index,
+    build_packed_layout, check_packed_trunk_supported, host_to_device,
+    packed_trunk, padded_gather_index, varlen_attention_applies,
 )
+from wesnoth_ai.hip_elementwise import (
+    hip_add_layer_norm, hip_add_layer_norm_applies, hip_bias_relu_, hip_elementwise_bias_applies,
+)
+from wesnoth_ai.hip_kernels import hip_varlen_applies, hip_varlen_attention, hip_varlen_bias_applies
 from wesnoth_ai.material import MATERIAL_SCALE
 from wesnoth_ai.profile_regions import region
 from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting_stream,
@@ -66,11 +71,17 @@ from wesnoth_ai.trunk_modes import CompiledBlock, TrunkMode, check_trunk_mode_su
 from wesnoth_ai.fp8_inference import Fp8TrunkWeights, check_fp8_inference_supported, make_fp8_trunk_layers
 
 __all__ = [
-    "WesnothModel",
+    "WesnothModel", "autocast_dtype",
     # Re-exports: importers and pickles address these through this module.
     "ModelOutput", "PaddedOutput", "TokenKind", "ActorKind", "UnitActionType",
     "MAX_ATTACKS", "VALUE_N_ATOMS", "VALUE_V_MIN", "VALUE_V_MAX", "random_padded_streams",
 ]
+
+
+def autocast_dtype(model) -> torch.dtype:
+    """The dtype of `model`'s inference autocast (its
+    `infer_autocast_dtype`; bfloat16 for a model built before it existed)."""
+    return getattr(model, "infer_autocast_dtype", torch.bfloat16)
 
 
 def _check_packed_index(prebuilt: PackedEmbeddedIndex, sizes, sightings, mem) -> None:
@@ -154,10 +165,26 @@ class WesnothModel(nn.Module):
         # Packed varlen trunk for batched inference (docs/
         # gpu_forward_design_20260904.md section 5.3; wesnoth_ai/
         # packed_trunk.py). Off until measured on the box. When on, it
-        # serves only the calls the flash varlen kernel can take (CUDA,
-        # bf16/fp16; see _packed_trunk_applies); every other call keeps
-        # the padded trunk.
+        # serves only the calls a varlen kernel can take (flash on CUDA,
+        # bf16/fp16; the HIP kernel on ROCm, fp16; see
+        # _packed_trunk_applies); every other call keeps the padded trunk.
         self.infer_packed_trunk = False
+        # Whether the fused fp16 loop folds the linears' biases into its
+        # kernels (_run_hip_fp16_trunk). Off by default since 2026-10-30:
+        # the fold hung the RX 6600 through the policy-gradient tools'
+        # Python-built layout (2026-10-29, training/metrics/pg_fp16_20261030),
+        # its cause is not found, and a hang costs a reboot. The unfolded
+        # loop is the one that served stage 1; the server's A/B measured the
+        # fold within a +17% (training/metrics/pipelined_serve_20261029).
+        # A caller that has checked its route sets it True.
+        self.fold_biases = False
+        # The dtype of the inference autocast that infer_autocast_bf16 (and
+        # a caller's autocast_bf16) switches on: bfloat16, or float16 on a
+        # GPU without bf16 matrix units (an RDNA2 card runs bf16 matmuls at
+        # a fifth of fp16's rate, training/metrics/local_gpu_20261028; the
+        # server's --infer-fp16). The bf16-only modes below stay off under
+        # float16 (_bf16_inference).
+        self.infer_autocast_dtype = torch.bfloat16
         # Compiled variant of the packed trunk (design note section 13;
         # packed_trunk.CompiledPackedTrunk): the layer loop as one
         # inductor graph over a native-dtype (bf16 on CUDA) copy of the
@@ -320,13 +347,14 @@ class WesnothModel(nn.Module):
                 and not self.training
                 and encoded.hex_tokens.device.type == "cuda"):
             import dataclasses
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            low = autocast_dtype(self)
+            with torch.autocast("cuda", dtype=low):
                 out = self._forward_impl(encoded)
             return dataclasses.replace(out, **{
                 f.name: v.float()
                 for f in dataclasses.fields(out)
                 if isinstance((v := getattr(out, f.name)), torch.Tensor)
-                and v.dtype == torch.bfloat16})
+                and v.dtype == low})
         return self._forward_impl(encoded)
 
     def _forward_impl(self, encoded: "EncodedState") -> ModelOutput:
@@ -496,7 +524,7 @@ class WesnothModel(nn.Module):
         use_bf16 = (getattr(self, "infer_autocast_bf16", False)
                     if autocast_bf16 is None else bool(autocast_bf16))
         if use_bf16 and not self.training and device.type == "cuda":
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("cuda", dtype=autocast_dtype(self)):
                 out = self._forward_padded_impl(encoded_list, packed, memory)
             return out.float32()
         return self._forward_padded_impl(encoded_list, packed, memory)
@@ -601,15 +629,17 @@ class WesnothModel(nn.Module):
     def _packed_trunk_applies(self, x: torch.Tensor) -> bool:
         """The packed trunk serves a call when it is switched on, the
         model is in eval mode, and the in-projections will produce a
-        dtype the flash varlen kernel takes on CUDA: bf16/fp16 inputs, or
+        dtype a varlen kernel takes on the device: bf16/fp16 inputs, or
         fp32 inputs under a bf16/fp16 autocast (torch.is_autocast_enabled
         takes the device type: torch 2.5.1 torch/csrc/autograd/init.cpp
-        :559-580). Everything else keeps the padded trunk."""
+        :559-580), flash on CUDA and the HIP kernel on ROCm (fp16).
+        Everything else keeps the padded trunk."""
         if not (getattr(self, "infer_packed_trunk", False) and not self.training
                 and x.device.type == "cuda"):
             return False
         dtype = torch.get_autocast_dtype("cuda") if torch.is_autocast_enabled("cuda") else x.dtype
-        return flash_varlen_applies(x.device, dtype)
+        head_dim = self.d_model // self.encoder.layers[0].self_attn.num_heads
+        return varlen_attention_applies(x.device, dtype, head_dim)
 
     def _forward_streams_packed(self, hex_batch, unit_batch, recruit_batch, global_batch,
                                 end_turn_batch, sizes,
@@ -826,9 +856,12 @@ class WesnothModel(nn.Module):
     def _inference_layers(self, x: torch.Tensor, index) -> torch.Tensor:
         """The packed trunk's layers on x [total, d] for _packed_trunk_heads:
         the fp8 loop or the inference trunk modes where they apply, the
-        compiled loop with infer_compile_packed, _packed_layers otherwise."""
+        compiled loop with infer_compile_packed, the fused fp16 loop on a
+        ROCm GPU, _packed_layers otherwise."""
         if self.infer_fp8 and self._bf16_inference(x):
             return self._run_fp8_trunk(x, index)
+        if not self.infer_compile_packed and self._hip_fp16_inference(x):
+            return self._run_hip_fp16_trunk(x, index)
         mode = self._inference_trunk_mode(x)
         if mode is not None:
             return self._run_inference_trunk_mode(x, index, mode)
@@ -860,6 +893,14 @@ class WesnothModel(nn.Module):
         result = super().load_state_dict(state_dict, strict=strict, assign=assign)
         self._weights_version += 1
         return result
+
+    def weights_changed(self) -> None:
+        """The parameters were written in place, not through load_state_dict
+        (tools/pg_eval.py's moved copies): the frozen weight copies of the
+        packed trunks refresh at their next use. A deep copy carries the
+        source's copies, so without this a moved copy's fused fp16 loop
+        would serve the source's weights."""
+        self._weights_version += 1
 
     def configure_packed_compile(self, *, backend="inductor",
                                  mode: Optional[str] = None) -> CompiledPackedTrunk:
@@ -931,6 +972,77 @@ class WesnothModel(nn.Module):
         dev = x.device.type
         return (not self.training and torch.is_autocast_enabled(dev)
                 and torch.get_autocast_dtype(dev) == torch.bfloat16)
+
+    def _hip_fp16_inference(self, x: torch.Tensor) -> bool:
+        """Eval mode under an fp16 autocast on a GPU the HIP kernels serve at
+        this width (wesnoth_ai/hip_kernels.py: a ROCm build), with affine
+        layer norms, and no gradient wanted (the fused loop has no backward
+        and reads a frozen copy of the weights; a pass that differentiates
+        an eval-mode forward, tools/pg_pass.py, takes packed_trunk): where
+        _run_hip_fp16_trunk applies."""
+        if self.training or x.device.type != "cuda" or not torch.is_autocast_enabled("cuda") \
+                or torch.get_autocast_dtype("cuda") != torch.float16:
+            return False
+        if torch.is_grad_enabled() and (x.requires_grad
+                                        or any(p.requires_grad for p in self.encoder.parameters())):
+            return False
+        norms = [n for layer in self.encoder.layers for n in (layer.norm1, layer.norm2)]
+        if any(n.weight is None or n.bias is None for n in norms):
+            return False
+        head_dim = self.d_model // self.encoder.layers[0].self_attn.num_heads
+        return (hip_add_layer_norm_applies(x.device, self.d_model)
+                and hip_varlen_applies(x.device, torch.float16, head_dim))
+
+    def _run_hip_fp16_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The packed trunk's layers in the fp16 autocast's numerics on fused
+        kernels: the linears on an fp16 copy of the weights (the autocast
+        casts the same values every call), the attention by the HIP varlen
+        kernel, and each residual add with its layer norm and the result's
+        fp16 rounding (the next linear's input) in one kernel, the residual
+        stream in float32 as under the autocast. Per layer of a 48-leaf
+        batch on the RX 6600 the add, norm and cast took 0.97 ms unfused and
+        0.52 fused (2026-10-28).
+
+        The linears run without their biases, each added by the kernel that
+        reads the output (ROCm's addmm adds a bias in a pass of its own,
+        training/metrics/hip_bias_fold_20261029/README.md): the
+        in-projection's as the attention loads q, k and v, the
+        out-projection's and the second feed-forward linear's in the add and
+        norm, and the first feed-forward linear's in one bias and ReLU pass
+        where the activation is a ReLU. Where the attention's bias variant
+        or the row-wise kernels' bias variants are not served, the linears
+        take their biases as before. Returns float32 rows."""
+        w = self._weight_copy(torch.float16, torch.float32, x.device)
+        total = x.shape[0]
+        fold = (getattr(self, "fold_biases", False)
+                and hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
+                and hip_elementwise_bias_applies(x.device, self.d_model))
+        with torch.autocast("cuda", enabled=False):
+            h32 = x.float()
+            h16 = h32.half()
+            for layer, (qkv_w, qkv_b, out_w, out_b, ln1_w, ln1_b, ff1_w, ff1_b, ff2_w, ff2_b,
+                        ln2_w, ln2_b) in zip(self.encoder.layers, w.layers):
+                _, heads, head_dim, E = qkv_w.shape
+                qkv = F.linear(h16, qkv_w.view(3 * E, E),
+                               None if fold or qkv_b is None else qkv_b.view(3 * E))
+                q, k, v = qkv.view(total, 3, heads, head_dim).unbind(1)
+                ctx = hip_varlen_attention(q, k, v, index.cu_seqlens, index.max_len,
+                                           bias=qkv_b if fold else None)
+                sa = F.linear(ctx.view(total, E), out_w, None if fold else out_b)
+                h32, h16 = hip_add_layer_norm(h32, sa, ln1_w, ln1_b, layer.norm1.eps,
+                                              y_bias=out_b if fold else None)
+                if (fold and ff1_b is not None and ff1_w.shape[0] % 8 == 0
+                        and (layer.activation is F.relu or isinstance(layer.activation, nn.ReLU))):
+                    a = hip_bias_relu_(F.linear(h16, ff1_w), ff1_b)
+                else:
+                    a = layer.activation(F.linear(h16, ff1_w, ff1_b))
+                ff = F.linear(a, ff2_w, None if fold else ff2_b)
+                h32, h16 = hip_add_layer_norm(h32, ff, ln2_w, ln2_b, layer.norm2.eps,
+                                              y_bias=ff2_b if fold else None)
+            if w.final_norm is not None:
+                h32 = F.layer_norm(h32, (h32.shape[-1],), w.final_norm[0], w.final_norm[1],
+                                   self.encoder.norm.eps)
+        return h32
 
     def _inference_trunk_mode(self, x: torch.Tensor) -> Optional[TrunkMode]:
         """infer_bf16_residual and infer_fused_relu as a trainer's trunk mode,
@@ -1016,6 +1128,22 @@ class WesnothModel(nn.Module):
             w.refresh(self.encoder, self._weights_version)
         return w
 
+    @contextlib.contextmanager
+    def keeping_head_inputs(self, sink: List[dict]):
+        """Within the block, each call of the heads appends its arguments to
+        `sink`, whichever trunk produced them, so `heads_from` can run
+        another network's heads on this trunk's rows: networks that differ
+        in their heads' parameters alone share one trunk (tools/pg_eval.py)."""
+        previous, self._head_sink = getattr(self, "_head_sink", None), sink
+        try:
+            yield sink
+        finally:
+            self._head_sink = previous
+
+    def heads_from(self, inputs: dict) -> "PaddedOutput":
+        """This network's heads on arguments `keeping_head_inputs` kept."""
+        return self._heads(**inputs)
+
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx, material: Optional[torch.Tensor] = None,
                memory_padded: Optional[torch.Tensor] = None,
@@ -1024,6 +1152,11 @@ class WesnothModel(nn.Module):
         [B, H_max, d] and global [B, 1, d] rows, whichever trunk produced
         them; the belief head on the hex rows when the model has one.
         The new memory states ride along."""
+        sink = getattr(self, "_head_sink", None)
+        if sink is not None:
+            sink.append(dict(actor_ctx=actor_ctx, hex_ctx=hex_ctx, global_ctx=global_ctx, actor_kind=actor_kind,
+                             sizes=sizes, unit_ctx=unit_ctx, material=material, memory_padded=memory_padded,
+                             memory_counts=memory_counts))
         d = self.d_model
         device, dtype = actor_ctx.device, actor_ctx.dtype
         B, A_max, _ = actor_ctx.shape

@@ -1,0 +1,896 @@
+
+=== final_match/games
+  labels [('final_round3', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 6985), not decisive {'timeout': 19}: +31.8 +- 3.1
+
+  by A's seat
+    side 1                                        n=  6400    +42.8 +-   4.4
+    side 2                                        n=  6400    +21.0 +-   4.4
+    side 1 - side 2: +21.8 +- 6.2 (+3.5 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2175    -19.7 +-   7.5
+    Loyalists                                     n=  2166   +138.0 +-   8.1
+    Drakes                                        n=  2140    -55.0 +-   7.6
+    Rebels                                        n=  2122    +72.1 +-   7.7
+    Undead                                        n=  2099    -46.1 +-   7.7
+    Northerners                                   n=  2098   +112.0 +-   8.0
+    spread: 6 cells, sd 84.4 against mean SE 7.7; chi2 583.3 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2209   +111.8 +-   7.8
+    Undead                                        n=  2136   +115.0 +-   7.9
+    Loyalists                                     n=  2129    -90.3 +-   7.8
+    Knalgan Alliance                              n=  2118    +79.8 +-   7.7
+    Rebels                                        n=  2117     +5.4 +-   7.6
+    Northerners                                   n=  2091    -28.1 +-   7.6
+    spread: 6 cells, sd 83.4 against mean SE 7.7; chi2 573.7 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +28.4 +-  5.4; strength   -83.4 +-  5.4
+    Knalgan Alliance                              edge   +30.1 +-  5.4; strength   -49.7 +-  5.4
+    Loyalists                                     edge   +23.9 +-  5.6; strength  +114.2 +-  5.6
+    Northerners                                   edge   +41.9 +-  5.5; strength   +70.1 +-  5.5
+    Rebels                                        edge   +38.7 +-  5.4; strength   +33.3 +-  5.4
+    Undead                                        edge   +34.4 +-  5.5; strength   -80.5 +-  5.5
+
+  mirror against not
+    not mirror                                    n= 10703    +31.3 +-   3.4
+    mirror                                        n=  2097    +34.7 +-   7.6
+
+  by map
+    The_Walls_of_Pyrennis                         n=   637    +27.9 +-  13.8
+    Fallenstar_Lake                               n=   636     +8.7 +-  13.8
+    Aethermaw                                     n=   624    +25.7 +-  13.9
+    Silverhead_Crossing                           n=   622    +29.1 +-  14.0
+    Hamlets                                       n=   621    +29.7 +-  14.0
+    Tombs_of_Kesorak                              n=   620    +21.3 +-  14.0
+    The_Freelands                                 n=   618    +19.1 +-  14.0
+    Howling_Ghost_Badlands                        n=   615    +20.9 +-  14.0
+    Arcanclave_Citadel                            n=   615    +65.7 +-  14.3
+    Sullas_Ruins                                  n=   614    +39.8 +-  14.1
+    Clearing_Gushes                               n=   612    +41.1 +-  14.1
+    Basilisk                                      n=   606    +32.2 +-  14.2
+    thousand_stings_garrison                      n=   606    +31.0 +-  14.2
+    Weldyn_Channel                                n=   605    +24.7 +-  14.2
+    Den_of_Onis                                   n=   598    +64.6 +-  14.5
+    Ruphus_Isle                                   n=   597    +20.4 +-  14.2
+    elensefar_courtyard                           n=   597    +49.8 +-  14.4
+    Sablestone_Delta                              n=   595    +48.8 +-  14.4
+    Hellhole                                      n=   595    +22.8 +-  14.3
+    Swamp_of_Dread                                n=   588    +24.9 +-  14.4
+    Ruined_Passage                                n=   579    +23.4 +-  14.5
+    spread: 21 cells, sd 14.8 against mean SE 14.1; chi2 21.5 on 20 df
+
+=== tail_match/games
+  labels [('final_round3t1', 'own2t1')]
+  procedures [('raw:t1', 1.0, 'raw:t1', 1.0)]
+  decisive 12800 (A won 8755), not decisive {}: +134.1 +- 3.3
+
+  by A's seat
+    side 1                                        n=  6400   +128.7 +-   4.6
+    side 2                                        n=  6400   +139.6 +-   4.7
+    side 1 - side 2: -10.9 +- 6.6 (-1.7 SE)
+
+  by A's faction
+    Drakes                                        n=  2186   +127.9 +-   7.9
+    Northerners                                   n=  2184   +188.3 +-   8.6
+    Knalgan Alliance                              n=  2132   +104.0 +-   7.9
+    Loyalists                                     n=  2105   +151.3 +-   8.3
+    Undead                                        n=  2099   +120.3 +-   8.0
+    Rebels                                        n=  2094   +116.7 +-   8.0
+    spread: 6 cells, sd 30.6 against mean SE 8.1; chi2 67.3 on 5 df
+
+  by B's faction
+    Northerners                                   n=  2189   +100.7 +-   7.7
+    Drakes                                        n=  2150   +123.6 +-   8.0
+    Loyalists                                     n=  2133   +129.7 +-   8.1
+    Undead                                        n=  2120   +136.4 +-   8.1
+    Rebels                                        n=  2113   +153.5 +-   8.3
+    Knalgan Alliance                              n=  2095   +165.6 +-   8.5
+    spread: 6 cells, sd 22.9 against mean SE 8.1; chi2 40.0 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge  +125.7 +-  5.6; strength    +2.1 +-  5.6
+    Knalgan Alliance                              edge  +134.8 +-  5.8; strength   -30.8 +-  5.8
+    Loyalists                                     edge  +140.5 +-  5.8; strength   +10.8 +-  5.8
+    Northerners                                   edge  +144.5 +-  5.8; strength   +43.8 +-  5.8
+    Rebels                                        edge  +135.1 +-  5.8; strength   -18.4 +-  5.8
+    Undead                                        edge  +128.3 +-  5.7; strength    -8.1 +-  5.7
+
+  mirror against not
+    not mirror                                    n= 10660   +136.1 +-   3.6
+    mirror                                        n=  2140   +124.6 +-   8.0
+
+  by map
+    Hamlets                                       n=   635   +109.0 +-  14.5
+    Howling_Ghost_Badlands                        n=   628   +111.0 +-  14.6
+    Basilisk                                      n=   626   +161.7 +-  15.4
+    Tombs_of_Kesorak                              n=   625   +172.4 +-  15.6
+    Swamp_of_Dread                                n=   623   +145.7 +-  15.2
+    elensefar_courtyard                           n=   622   +119.6 +-  14.8
+    Ruphus_Isle                                   n=   617   +151.4 +-  15.3
+    Fallenstar_Lake                               n=   614   +187.1 +-  16.1
+    Aethermaw                                     n=   611   +120.0 +-  14.9
+    Arcanclave_Citadel                            n=   611   +102.4 +-  14.7
+    Silverhead_Crossing                           n=   610    +97.0 +-  14.6
+    The_Walls_of_Pyrennis                         n=   609   +130.8 +-  15.1
+    Den_of_Onis                                   n=   608   +149.1 +-  15.4
+    Ruined_Passage                                n=   606   +119.1 +-  15.0
+    Weldyn_Channel                                n=   605   +134.4 +-  15.2
+    Clearing_Gushes                               n=   604   +165.7 +-  15.8
+    Hellhole                                      n=   601   +144.9 +-  15.4
+    Sullas_Ruins                                  n=   598   +136.8 +-  15.3
+    thousand_stings_garrison                      n=   587   +106.8 +-  15.0
+    The_Freelands                                 n=   583   +164.4 +-  16.0
+    Sablestone_Delta                              n=   577   +100.9 +-  15.1
+    spread: 21 cells, sd 26.2 against mean SE 15.2; chi2 58.6 on 20 df
+
+=== rounds_local/round_03/claim
+  labels [('pi3t1', 'own2')]
+  procedures [('raw:t1', 1.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 1963), not decisive {'timeout': 1}: -296.8 +- 4.3
+
+  by A's seat
+    side 1                                        n=  6400   -291.3 +-   6.0
+    side 2                                        n=  6400   -302.4 +-   6.1
+    side 1 - side 2: +11.1 +- 8.5 (+1.3 SE)
+
+  by A's faction
+    Loyalists                                     n=  2186   -248.5 +-   9.4
+    Undead                                        n=  2160   -314.3 +-  10.7
+    Northerners                                   n=  2158   -262.0 +-   9.7
+    Drakes                                        n=  2137   -331.5 +-  11.2
+    Rebels                                        n=  2108   -303.4 +-  10.6
+    Knalgan Alliance                              n=  2051   -337.6 +-  11.6
+    spread: 6 cells, sd 36.7 against mean SE 10.6; chi2 63.9 on 5 df
+
+  by B's faction
+    Rebels                                        n=  2213   -350.3 +-  11.5
+    Northerners                                   n=  2162   -350.3 +-  11.6
+    Loyalists                                     n=  2144   -381.2 +-  12.5
+    Drakes                                        n=  2132   -265.5 +-   9.8
+    Knalgan Alliance                              n=  2105   -252.9 +-   9.7
+    Undead                                        n=  2044   -216.8 +-   9.2
+    spread: 6 cells, sd 66.2 against mean SE 10.7; chi2 191.8 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge  -298.5 +-  7.5; strength   -33.0 +-  7.5
+    Knalgan Alliance                              edge  -295.2 +-  7.5; strength   -42.3 +-  7.5
+    Loyalists                                     edge  -314.8 +-  7.8; strength   +66.3 +-  7.8
+    Northerners                                   edge  -306.2 +-  7.6; strength   +44.1 +-  7.6
+    Rebels                                        edge  -326.8 +-  7.8; strength   +23.4 +-  7.8
+    Undead                                        edge  -265.5 +-  7.1; strength   -48.8 +-  7.1
+
+  mirror against not
+    not mirror                                    n= 10624   -291.1 +-   4.6
+    mirror                                        n=  2176   -326.6 +-  11.0
+
+  by map
+    The_Freelands                                 n=   648   -291.4 +-  18.7
+    The_Walls_of_Pyrennis                         n=   643   -236.8 +-  17.0
+    Aethermaw                                     n=   636   -269.9 +-  18.1
+    Hamlets                                       n=   634   -376.9 +-  22.7
+    Hellhole                                      n=   630   -315.8 +-  20.0
+    Den_of_Onis                                   n=   625   -343.5 +-  21.3
+    Howling_Ghost_Badlands                        n=   622   -304.2 +-  19.6
+    Fallenstar_Lake                               n=   619   -352.3 +-  21.8
+    thousand_stings_garrison                      n=   616   -237.7 +-  17.4
+    Tombs_of_Kesorak                              n=   612   -292.2 +-  19.3
+    Silverhead_Crossing                           n=   610   -295.8 +-  19.5
+    Arcanclave_Citadel                            n=   603   -300.1 +-  19.8
+    Swamp_of_Dread                                n=   602   -297.5 +-  19.7
+    Sablestone_Delta                              n=   598   -226.0 +-  17.3
+    Sullas_Ruins                                  n=   595   -255.8 +-  18.3
+    Clearing_Gushes                               n=   593   -322.8 +-  20.9
+    Weldyn_Channel                                n=   591   -366.3 +-  23.0
+    Ruined_Passage                                n=   590   -269.9 +-  18.8
+    Ruphus_Isle                                   n=   583   -316.9 +-  20.8
+    elensefar_courtyard                           n=   580   -287.6 +-  19.7
+    Basilisk                                      n=   570   -347.3 +-  22.4
+    spread: 21 cells, sd 42.2 against mean SE 19.8; chi2 91.2 on 20 df
+
+=== rounds_local/round_06/claim
+  labels [('pi6t1', 'own2')]
+  procedures [('raw:t1', 1.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 3019), not decisive {}: -204.2 +- 3.6
+
+  by A's seat
+    side 1                                        n=  6400   -197.1 +-   5.1
+    side 2                                        n=  6400   -211.4 +-   5.2
+    side 1 - side 2: +14.3 +- 7.2 (+2.0 SE)
+
+  by A's faction
+    Undead                                        n=  2186   -225.4 +-   9.1
+    Knalgan Alliance                              n=  2150   -251.1 +-   9.5
+    Northerners                                   n=  2148   -172.4 +-   8.4
+    Drakes                                        n=  2139   -244.8 +-   9.5
+    Rebels                                        n=  2094   -204.6 +-   8.9
+    Loyalists                                     n=  2083   -138.9 +-   8.2
+    spread: 6 cells, sd 43.7 against mean SE 8.9; chi2 125.0 on 5 df
+
+  by B's faction
+    Northerners                                   n=  2172   -276.2 +-   9.9
+    Rebels                                        n=  2172   -270.5 +-   9.8
+    Drakes                                        n=  2145   -156.7 +-   8.3
+    Loyalists                                     n=  2118   -299.2 +-  10.5
+    Knalgan Alliance                              n=  2103   -144.4 +-   8.2
+    Undead                                        n=  2090   -121.0 +-   8.1
+    spread: 6 cells, sd 78.8 against mean SE 9.1; chi2 366.8 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge  -200.8 +-  6.3; strength   -44.0 +-  6.3
+    Knalgan Alliance                              edge  -197.8 +-  6.3; strength   -53.3 +-  6.3
+    Loyalists                                     edge  -219.1 +-  6.7; strength   +80.2 +-  6.7
+    Northerners                                   edge  -224.3 +-  6.5; strength   +51.9 +-  6.5
+    Rebels                                        edge  -237.6 +-  6.6; strength   +33.0 +-  6.6
+    Undead                                        edge  -173.2 +-  6.1; strength   -52.2 +-  6.1
+
+  mirror against not
+    not mirror                                    n= 10726   -200.5 +-   3.9
+    mirror                                        n=  2074   -223.9 +-   9.3
+
+  by map
+    Ruphus_Isle                                   n=   657   -204.1 +-  16.0
+    Basilisk                                      n=   647   -238.2 +-  17.0
+    Den_of_Onis                                   n=   637   -234.8 +-  17.0
+    Weldyn_Channel                                n=   626   -236.0 +-  17.2
+    Hellhole                                      n=   625   -214.3 +-  16.6
+    Hamlets                                       n=   621   -250.1 +-  17.7
+    Ruined_Passage                                n=   619   -212.1 +-  16.6
+    Fallenstar_Lake                               n=   618   -240.1 +-  17.4
+    Arcanclave_Citadel                            n=   615   -193.5 +-  16.2
+    Swamp_of_Dread                                n=   613   -194.3 +-  16.3
+    Howling_Ghost_Badlands                        n=   608   -245.5 +-  17.8
+    Aethermaw                                     n=   607   -177.0 +-  16.0
+    Sullas_Ruins                                  n=   605   -149.2 +-  15.4
+    The_Walls_of_Pyrennis                         n=   604   -161.4 +-  15.7
+    Sablestone_Delta                              n=   601   -160.2 +-  15.7
+    The_Freelands                                 n=   600   -197.1 +-  16.5
+    Clearing_Gushes                               n=   592   -239.7 +-  17.8
+    thousand_stings_garrison                      n=   587   -151.6 +-  15.7
+    Tombs_of_Kesorak                              n=   585   -221.1 +-  17.4
+    Silverhead_Crossing                           n=   576   -224.7 +-  17.6
+    elensefar_courtyard                           n=   557   -167.1 +-  16.5
+    spread: 21 cells, sd 33.3 against mean SE 16.7; chi2 81.8 on 20 df
+
+=== rounds_local/round_09/claim
+  labels [('pi9t1', 'own2')]
+  procedures [('raw:t1', 1.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 3850), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_12588.json': 1, 'skipped .worker_stages_12636.json': 1, 'skipped .worker_stages_12740.json': 1, 'skipped .worker_stages_13236.json': 1, 'skipped .worker_stages_13272.json': 1, 'skipped .worker_stages_15764.json': 1, 'skipped .worker_stages_16696.json': 1, 'skipped .worker_stages_16984.json': 1, 'skipped .worker_stages_17312.json': 1, 'skipped .worker_stages_5364.json': 1, 'skipped .worker_stages_8348.json': 1, 'skipped .worker_stages_9176.json': 1, 'timeout': 1}: -146.5 +- 3.3
+
+  by A's seat
+    side 1                                        n=  6400   -135.7 +-   4.7
+    side 2                                        n=  6400   -157.7 +-   4.8
+    side 1 - side 2: +22.0 +- 6.7 (+3.3 SE)
+
+  by A's faction
+    Undead                                        n=  2206   -174.6 +-   8.4
+    Knalgan Alliance                              n=  2179   -178.6 +-   8.4
+    Drakes                                        n=  2148   -200.0 +-   8.8
+    Rebels                                        n=  2118   -152.1 +-   8.3
+    Northerners                                   n=  2095    -95.0 +-   7.9
+    Loyalists                                     n=  2054    -85.9 +-   7.9
+    spread: 6 cells, sd 47.0 against mean SE 8.3; chi2 164.6 on 5 df
+
+  by B's faction
+    Loyalists                                     n=  2226   -248.3 +-   9.3
+    Drakes                                        n=  2158   -103.4 +-   7.8
+    Northerners                                   n=  2129   -222.0 +-   9.1
+    Knalgan Alliance                              n=  2119    -88.6 +-   7.8
+    Rebels                                        n=  2099   -173.9 +-   8.6
+    Undead                                        n=  2069    -69.6 +-   7.8
+    spread: 6 cells, sd 74.6 against mean SE 8.4; chi2 378.4 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge  -151.7 +-  5.9; strength   -48.3 +-  5.9
+    Knalgan Alliance                              edge  -133.6 +-  5.7; strength   -45.0 +-  5.7
+    Loyalists                                     edge  -167.1 +-  6.1; strength   +81.2 +-  6.1
+    Northerners                                   edge  -158.5 +-  6.0; strength   +63.5 +-  6.0
+    Rebels                                        edge  -163.0 +-  6.0; strength   +10.9 +-  6.0
+    Undead                                        edge  -122.1 +-  5.7; strength   -52.5 +-  5.7
+
+  mirror against not
+    not mirror                                    n= 10718   -143.7 +-   3.6
+    mirror                                        n=  2082   -161.6 +-   8.5
+
+  by map
+    Howling_Ghost_Badlands                        n=   653   -201.3 +-  15.9
+    Hellhole                                      n=   650   -152.3 +-  15.0
+    Tombs_of_Kesorak                              n=   634   -143.6 +-  15.0
+    Ruphus_Isle                                   n=   631   -139.8 +-  15.0
+    Fallenstar_Lake                               n=   631   -155.5 +-  15.2
+    Sullas_Ruins                                  n=   630   -114.2 +-  14.6
+    elensefar_courtyard                           n=   627   -156.7 +-  15.3
+    Aethermaw                                     n=   627   -119.2 +-  14.7
+    Arcanclave_Citadel                            n=   621    -61.6 +-  14.2
+    Sablestone_Delta                              n=   621   -133.2 +-  15.0
+    The_Freelands                                 n=   609   -142.7 +-  15.3
+    Ruined_Passage                                n=   606   -182.5 +-  16.1
+    Den_of_Onis                                   n=   602   -187.0 +-  16.3
+    The_Walls_of_Pyrennis                         n=   602   -127.8 +-  15.1
+    Hamlets                                       n=   597   -167.2 +-  15.9
+    Silverhead_Crossing                           n=   587   -182.7 +-  16.4
+    Swamp_of_Dread                                n=   585   -127.1 +-  15.3
+    Clearing_Gushes                               n=   581   -169.6 +-  16.2
+    thousand_stings_garrison                      n=   581    -95.0 +-  15.0
+    Basilisk                                      n=   573   -164.7 +-  16.2
+    Weldyn_Channel                                n=   552   -182.6 +-  16.9
+    spread: 21 cells, sd 33.6 against mean SE 15.4; chi2 98.6 on 20 df
+
+=== rounds_local/round_12/claim
+  labels [('pi12t1', 'own2')]
+  procedures [('raw:t1', 1.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 4594), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_12464.json': 1, 'skipped .worker_stages_13560.json': 1, 'skipped .worker_stages_13788.json': 1, 'skipped .worker_stages_13844.json': 1, 'skipped .worker_stages_14044.json': 1, 'skipped .worker_stages_16784.json': 1, 'skipped .worker_stages_18408.json': 1, 'skipped .worker_stages_4436.json': 1, 'skipped .worker_stages_5308.json': 1, 'skipped .worker_stages_544.json': 1, 'skipped .worker_stages_7008.json': 1, 'skipped .worker_stages_7440.json': 1}: -100.8 +- 3.2
+
+  by A's seat
+    side 1                                        n=  6400    -92.1 +-   4.5
+    side 2                                        n=  6400   -109.6 +-   4.6
+    side 1 - side 2: +17.5 +- 6.4 (+2.7 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2212   -152.3 +-   8.1
+    Rebels                                        n=  2189    -89.0 +-   7.7
+    Undead                                        n=  2151   -119.7 +-   7.9
+    Drakes                                        n=  2107   -145.3 +-   8.2
+    Loyalists                                     n=  2078    -47.8 +-   7.7
+    Northerners                                   n=  2063    -54.5 +-   7.7
+    spread: 6 cells, sd 44.9 against mean SE 7.9; chi2 160.5 on 5 df
+
+  by B's faction
+    Loyalists                                     n=  2182   -195.3 +-   8.6
+    Drakes                                        n=  2174    -49.9 +-   7.5
+    Rebels                                        n=  2148   -138.2 +-   8.1
+    Undead                                        n=  2124    -39.1 +-   7.6
+    Northerners                                   n=  2111   -167.4 +-   8.5
+    Knalgan Alliance                              n=  2061    -33.0 +-   7.7
+    spread: 6 cells, sd 71.7 against mean SE 8.0; chi2 391.3 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   -97.6 +-  5.6; strength   -47.7 +-  5.6
+    Knalgan Alliance                              edge   -92.6 +-  5.6; strength   -59.7 +-  5.6
+    Loyalists                                     edge  -121.6 +-  5.8; strength   +73.8 +-  5.8
+    Northerners                                   edge  -110.9 +-  5.7; strength   +56.4 +-  5.7
+    Rebels                                        edge  -113.6 +-  5.6; strength   +24.6 +-  5.6
+    Undead                                        edge   -79.4 +-  5.5; strength   -40.3 +-  5.5
+
+  mirror against not
+    not mirror                                    n= 10674   -101.1 +-   3.5
+    mirror                                        n=  2126    -99.4 +-   7.8
+
+  by map
+    Howling_Ghost_Badlands                        n=   644   -155.2 +-  15.1
+    Hamlets                                       n=   643   -117.2 +-  14.5
+    The_Freelands                                 n=   632    -92.3 +-  14.3
+    Arcanclave_Citadel                            n=   625     +0.6 +-  13.9
+    Den_of_Onis                                   n=   624   -125.4 +-  14.8
+    thousand_stings_garrison                      n=   620    -31.5 +-  14.0
+    Sablestone_Delta                              n=   616   -107.0 +-  14.7
+    The_Walls_of_Pyrennis                         n=   616    -51.1 +-  14.2
+    Ruined_Passage                                n=   615   -128.1 +-  15.0
+    Silverhead_Crossing                           n=   614   -132.9 +-  15.1
+    Clearing_Gushes                               n=   609   -155.0 +-  15.5
+    Basilisk                                      n=   607   -150.1 +-  15.4
+    Hellhole                                      n=   607    -89.5 +-  14.6
+    Ruphus_Isle                                   n=   603   -108.9 +-  14.8
+    Sullas_Ruins                                  n=   603    -90.1 +-  14.6
+    Tombs_of_Kesorak                              n=   598    -97.8 +-  14.8
+    elensefar_courtyard                           n=   595    -97.7 +-  14.8
+    Weldyn_Channel                                n=   587   -134.8 +-  15.4
+    Fallenstar_Lake                               n=   584   -100.3 +-  15.0
+    Aethermaw                                     n=   581    -84.8 +-  14.8
+    Swamp_of_Dread                                n=   577    -89.2 +-  14.9
+    spread: 21 cells, sd 39.0 against mean SE 14.8; chi2 145.9 on 20 df
+
+=== rounds_local/round_15/claim
+  labels [('pi15t1', 'own2')]
+  procedures [('raw:t1', 1.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 5604), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_13012.json': 1, 'skipped .worker_stages_13016.json': 1, 'skipped .worker_stages_13344.json': 1, 'skipped .worker_stages_14812.json': 1, 'skipped .worker_stages_14928.json': 1, 'skipped .worker_stages_15788.json': 1, 'skipped .worker_stages_15800.json': 1, 'skipped .worker_stages_16840.json': 1, 'skipped .worker_stages_17448.json': 1, 'skipped .worker_stages_7712.json': 1, 'skipped .worker_stages_8356.json': 1, 'skipped .worker_stages_9092.json': 1}: -43.4 +- 3.1
+
+  by A's seat
+    side 1                                        n=  6400    -36.5 +-   4.4
+    side 2                                        n=  6400    -50.4 +-   4.4
+    side 1 - side 2: +13.9 +- 6.2 (+2.2 SE)
+
+  by A's faction
+    Northerners                                   n=  2221    +30.0 +-   7.4
+    Rebels                                        n=  2165    -32.3 +-   7.5
+    Loyalists                                     n=  2141    +34.0 +-   7.5
+    Undead                                        n=  2128    -81.5 +-   7.7
+    Drakes                                        n=  2074   -123.9 +-   8.1
+    Knalgan Alliance                              n=  2071   -102.0 +-   8.0
+    spread: 6 cells, sd 67.6 against mean SE 7.7; chi2 382.3 on 5 df
+
+  by B's faction
+    Loyalists                                     n=  2180   -135.6 +-   8.0
+    Drakes                                        n=  2155    +15.3 +-   7.5
+    Undead                                        n=  2126     +1.6 +-   7.5
+    Northerners                                   n=  2123   -104.0 +-   7.9
+    Knalgan Alliance                              n=  2120    +31.9 +-   7.6
+    Rebels                                        n=  2096    -78.2 +-   7.8
+    spread: 6 cells, sd 70.0 against mean SE 7.7; chi2 406.9 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   -54.3 +-  5.5; strength   -69.6 +-  5.5
+    Knalgan Alliance                              edge   -35.0 +-  5.5; strength   -66.9 +-  5.5
+    Loyalists                                     edge   -50.8 +-  5.5; strength   +84.8 +-  5.5
+    Northerners                                   edge   -37.0 +-  5.4; strength   +67.0 +-  5.4
+    Rebels                                        edge   -55.3 +-  5.4; strength   +22.9 +-  5.4
+    Undead                                        edge   -39.9 +-  5.4; strength   -41.5 +-  5.4
+
+  mirror against not
+    not mirror                                    n= 10714    -39.9 +-   3.4
+    mirror                                        n=  2086    -61.9 +-   7.7
+
+  by map
+    Tombs_of_Kesorak                              n=   656    -49.0 +-  13.7
+    Clearing_Gushes                               n=   635    -70.4 +-  14.1
+    Silverhead_Crossing                           n=   632    -81.7 +-  14.2
+    Arcanclave_Citadel                            n=   621   +138.4 +-  15.1
+    Hellhole                                      n=   619    -46.9 +-  14.1
+    The_Freelands                                 n=   619     -1.7 +-  14.0
+    The_Walls_of_Pyrennis                         n=   618    -49.8 +-  14.1
+    Ruphus_Isle                                   n=   617    -32.2 +-  14.0
+    Howling_Ghost_Badlands                        n=   614    -90.3 +-  14.5
+    Den_of_Onis                                   n=   614    -77.1 +-  14.4
+    Sullas_Ruins                                  n=   614    -45.5 +-  14.1
+    Hamlets                                       n=   610    -71.6 +-  14.4
+    Swamp_of_Dread                                n=   604    -35.8 +-  14.2
+    Basilisk                                      n=   604    -72.4 +-  14.4
+    Fallenstar_Lake                               n=   603    -44.6 +-  14.3
+    Weldyn_Channel                                n=   597    -54.6 +-  14.4
+    Sablestone_Delta                              n=   596    -68.5 +-  14.5
+    Aethermaw                                     n=   594    -57.8 +-  14.5
+    Ruined_Passage                                n=   589    -78.6 +-  14.7
+    thousand_stings_garrison                      n=   588    +35.6 +-  14.4
+    elensefar_courtyard                           n=   556    -60.6 +-  15.0
+    spread: 21 cells, sd 50.5 against mean SE 14.3; chi2 232.4 on 20 df
+
+=== final_match_after_stop/games
+  labels [('final_round16', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 8092), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_11688.json': 1, 'skipped .worker_stages_12344.json': 1, 'skipped .worker_stages_12644.json': 1, 'skipped .worker_stages_13576.json': 1, 'skipped .worker_stages_14920.json': 1, 'skipped .worker_stages_15092.json': 1, 'skipped .worker_stages_16292.json': 1, 'skipped .worker_stages_16580.json': 1, 'skipped .worker_stages_2108.json': 1, 'skipped .worker_stages_2204.json': 1, 'skipped .worker_stages_4292.json': 1, 'skipped .worker_stages_9792.json': 1, 'timeout': 8}: +94.1 +- 3.2
+
+  by A's seat
+    side 1                                        n=  6400   +103.6 +-   4.5
+    side 2                                        n=  6400    +84.7 +-   4.5
+    side 1 - side 2: +18.9 +- 6.4 (+3.0 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2174    +44.0 +-   7.5
+    Loyalists                                     n=  2164   +220.4 +-   9.0
+    Drakes                                        n=  2139     -8.3 +-   7.5
+    Rebels                                        n=  2129   +139.0 +-   8.1
+    Undead                                        n=  2098     -2.0 +-   7.6
+    Northerners                                   n=  2096   +214.2 +-   9.1
+    spread: 6 cells, sd 104.2 against mean SE 8.1; chi2 786.8 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2205   +170.1 +-   8.3
+    Undead                                        n=  2137   +123.5 +-   8.0
+    Rebels                                        n=  2128    +90.1 +-   7.8
+    Loyalists                                     n=  2127     +8.7 +-   7.5
+    Knalgan Alliance                              n=  2115   +162.1 +-   8.4
+    Northerners                                   n=  2088    +23.3 +-   7.6
+    spread: 6 cells, sd 68.7 against mean SE 7.9; chi2 377.4 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +80.9 +-  5.6; strength   -89.2 +-  5.6
+    Knalgan Alliance                              edge  +103.1 +-  5.6; strength   -59.0 +-  5.6
+    Loyalists                                     edge  +114.5 +-  5.9; strength  +105.9 +-  5.9
+    Northerners                                   edge  +118.8 +-  5.9; strength   +95.4 +-  5.9
+    Rebels                                        edge  +114.6 +-  5.6; strength   +24.4 +-  5.6
+    Undead                                        edge   +60.7 +-  5.5; strength   -62.7 +-  5.5
+
+  mirror against not
+    not mirror                                    n= 10698    +90.9 +-   3.5
+    mirror                                        n=  2102   +110.7 +-   8.0
+
+  by map
+    The_Walls_of_Pyrennis                         n=   641    +88.0 +-  14.2
+    Fallenstar_Lake                               n=   633    +83.3 +-  14.2
+    Hamlets                                       n=   624    +71.1 +-  14.2
+    Aethermaw                                     n=   624    +47.1 +-  14.0
+    Silverhead_Crossing                           n=   622    +90.2 +-  14.4
+    The_Freelands                                 n=   618    +92.0 +-  14.5
+    Tombs_of_Kesorak                              n=   617    +44.7 +-  14.1
+    Arcanclave_Citadel                            n=   616   +400.0 +-  24.3
+    Howling_Ghost_Badlands                        n=   616   +104.6 +-  14.6
+    Clearing_Gushes                               n=   615    +57.6 +-  14.2
+    Sullas_Ruins                                  n=   612    +58.5 +-  14.2
+    Weldyn_Channel                                n=   608    +49.5 +-  14.2
+    thousand_stings_garrison                      n=   606   +182.5 +-  16.1
+    Basilisk                                      n=   606    +55.5 +-  14.3
+    Den_of_Onis                                   n=   597    +63.0 +-  14.5
+    Ruphus_Isle                                   n=   596   +134.6 +-  15.3
+    Hellhole                                      n=   595   +118.2 +-  15.1
+    elensefar_courtyard                           n=   595   +113.0 +-  15.0
+    Sablestone_Delta                              n=   594    +49.5 +-  14.4
+    Swamp_of_Dread                                n=   586    +93.5 +-  14.9
+    Ruined_Passage                                n=   579    +99.2 +-  15.0
+    spread: 21 cells, sd 76.8 against mean SE 15.0; chi2 267.8 on 20 df
+
+=== confirm_match/games
+  labels [('confirm_round16', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 8238), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_13832.json': 1, 'skipped .worker_stages_14024.json': 1, 'skipped .worker_stages_15156.json': 1, 'skipped .worker_stages_15716.json': 1, 'skipped .worker_stages_2280.json': 1, 'skipped .worker_stages_5188.json': 1, 'skipped .worker_stages_5228.json': 1, 'skipped .worker_stages_5308.json': 1, 'skipped .worker_stages_5536.json': 1, 'skipped .worker_stages_6052.json': 1, 'skipped .worker_stages_7220.json': 1, 'skipped .worker_stages_7952.json': 1, 'timeout': 6}: +102.7 +- 3.2
+
+  by A's seat
+    side 1                                        n=  6400   +117.4 +-   4.6
+    side 2                                        n=  6400    +88.3 +-   4.5
+    side 1 - side 2: +29.1 +- 6.4 (+4.5 SE)
+
+  by A's faction
+    Drakes                                        n=  2258     +4.3 +-   7.3
+    Loyalists                                     n=  2174   +230.9 +-   9.2
+    Undead                                        n=  2116     +4.3 +-   7.6
+    Rebels                                        n=  2112   +149.4 +-   8.3
+    Knalgan Alliance                              n=  2099    +47.8 +-   7.7
+    Northerners                                   n=  2041   +238.3 +-   9.6
+    spread: 6 cells, sd 108.4 against mean SE 8.3; chi2 823.5 on 5 df
+
+  by B's faction
+    Loyalists                                     n=  2227     +5.8 +-   7.4
+    Undead                                        n=  2147   +152.3 +-   8.2
+    Drakes                                        n=  2145   +172.8 +-   8.4
+    Knalgan Alliance                              n=  2134   +174.1 +-   8.5
+    Northerners                                   n=  2092    +42.7 +-   7.7
+    Rebels                                        n=  2055    +90.4 +-   7.9
+    spread: 6 cells, sd 71.5 against mean SE 8.0; chi2 412.1 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +88.6 +-  5.6; strength   -84.3 +-  5.6
+    Knalgan Alliance                              edge  +111.0 +-  5.7; strength   -63.1 +-  5.7
+    Loyalists                                     edge  +118.3 +-  5.9; strength  +112.6 +-  5.9
+    Northerners                                   edge  +140.5 +-  6.1; strength   +97.8 +-  6.1
+    Rebels                                        edge  +119.9 +-  5.7; strength   +29.5 +-  5.7
+    Undead                                        edge   +78.3 +-  5.6; strength   -74.0 +-  5.6
+
+  mirror against not
+    not mirror                                    n= 10645    +98.2 +-   3.5
+    mirror                                        n=  2155   +125.3 +-   8.0
+
+  by map
+    Arcanclave_Citadel                            n=   656   +405.3 +-  23.9
+    Hellhole                                      n=   651   +131.3 +-  14.6
+    Basilisk                                      n=   638    +76.4 +-  14.1
+    Weldyn_Channel                                n=   635    +76.2 +-  14.1
+    thousand_stings_garrison                      n=   633   +185.4 +-  15.8
+    The_Walls_of_Pyrennis                         n=   629   +101.7 +-  14.5
+    Howling_Ghost_Badlands                        n=   624   +114.2 +-  14.7
+    The_Freelands                                 n=   623   +100.3 +-  14.5
+    Hamlets                                       n=   622    +67.9 +-  14.2
+    Den_of_Onis                                   n=   610    +42.4 +-  14.2
+    Aethermaw                                     n=   609    +43.0 +-  14.2
+    Sullas_Ruins                                  n=   604    +86.9 +-  14.6
+    Ruined_Passage                                n=   604   +108.0 +-  14.8
+    Tombs_of_Kesorak                              n=   601    +61.3 +-  14.4
+    Silverhead_Crossing                           n=   595    +65.6 +-  14.5
+    Fallenstar_Lake                               n=   592   +100.1 +-  14.9
+    elensefar_courtyard                           n=   590   +117.3 +-  15.1
+    Ruphus_Isle                                   n=   582   +161.1 +-  16.0
+    Sablestone_Delta                              n=   582    +81.5 +-  14.8
+    Swamp_of_Dread                                n=   568    +72.0 +-  14.9
+    Clearing_Gushes                               n=   552    +57.2 +-  15.0
+    spread: 21 cells, sd 77.2 against mean SE 15.1; chi2 283.5 on 20 df
+
+=== tail_match_window/games
+  labels [('window_round16t1', 'own2t1')]
+  procedures [('raw:t1', 1.0, 'raw:t1', 1.0)]
+  decisive 12800 (A won 11802), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_11528.json': 1, 'skipped .worker_stages_12640.json': 1, 'skipped .worker_stages_12696.json': 1, 'skipped .worker_stages_12820.json': 1, 'skipped .worker_stages_12872.json': 1, 'skipped .worker_stages_17908.json': 1, 'skipped .worker_stages_18260.json': 1, 'skipped .worker_stages_4944.json': 1, 'skipped .worker_stages_6632.json': 1, 'skipped .worker_stages_7016.json': 1, 'skipped .worker_stages_8276.json': 1, 'skipped .worker_stages_9168.json': 1}: +429.1 +- 5.7
+
+  by A's seat
+    side 1                                        n=  6400   +428.0 +-   8.1
+    side 2                                        n=  6400   +430.3 +-   8.1
+    side 1 - side 2: -2.3 +- 11.5 (-0.2 SE)
+
+  by A's faction
+    Drakes                                        n=  2186   +396.9 +-  12.8
+    Northerners                                   n=  2184   +557.0 +-  19.2
+    Knalgan Alliance                              n=  2132   +367.8 +-  12.2
+    Loyalists                                     n=  2105   +467.0 +-  15.5
+    Undead                                        n=  2099   +392.0 +-  12.9
+    Rebels                                        n=  2094   +446.3 +-  14.8
+    spread: 6 cells, sd 69.0 against mean SE 14.6; chi2 89.5 on 5 df
+
+  by B's faction
+    Northerners                                   n=  2189   +379.0 +-  12.3
+    Drakes                                        n=  2150   +460.2 +-  15.1
+    Loyalists                                     n=  2133   +403.9 +-  13.2
+    Undead                                        n=  2120   +414.1 +-  13.6
+    Rebels                                        n=  2113   +450.5 +-  14.9
+    Knalgan Alliance                              n=  2095   +489.6 +-  16.5
+    spread: 6 cells, sd 40.9 against mean SE 14.2; chi2 41.0 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge  +428.5 +-  9.9; strength   -31.7 +-  9.9
+    Knalgan Alliance                              edge  +428.7 +- 10.2; strength   -60.9 +- 10.2
+    Loyalists                                     edge  +435.5 +- 10.2; strength   +31.6 +- 10.2
+    Northerners                                   edge  +468.0 +- 11.4; strength   +89.0 +- 11.4
+    Rebels                                        edge  +448.4 +- 10.5; strength    -2.1 +- 10.5
+    Undead                                        edge  +403.0 +-  9.4; strength   -11.1 +-  9.4
+
+  mirror against not
+    not mirror                                    n= 10660   +427.6 +-   6.3
+    mirror                                        n=  2140   +437.0 +-  14.3
+
+  by map
+    Hamlets                                       n=   635   +483.4 +-  29.4
+    Howling_Ghost_Badlands                        n=   628   +414.2 +-  24.9
+    Basilisk                                      n=   626   +448.6 +-  27.2
+    Tombs_of_Kesorak                              n=   625   +466.0 +-  28.4
+    Swamp_of_Dread                                n=   623   +385.8 +-  23.4
+    elensefar_courtyard                           n=   622   +412.3 +-  24.9
+    Ruphus_Isle                                   n=   617   +478.1 +-  29.5
+    Fallenstar_Lake                               n=   614   +563.9 +-  36.9
+    Aethermaw                                     n=   611   +328.8 +-  20.8
+    Arcanclave_Citadel                            n=   611   +639.7 +-  45.4
+    Silverhead_Crossing                           n=   610   +381.7 +-  23.4
+    The_Walls_of_Pyrennis                         n=   609   +378.2 +-  23.3
+    Den_of_Onis                                   n=   608   +408.0 +-  25.0
+    Ruined_Passage                                n=   606   +390.1 +-  24.0
+    Weldyn_Channel                                n=   605   +407.1 +-  25.0
+    Clearing_Gushes                               n=   604   +531.9 +-  34.2
+    Hellhole                                      n=   601   +445.3 +-  27.5
+    Sullas_Ruins                                  n=   598   +435.8 +-  26.9
+    thousand_stings_garrison                      n=   587   +377.5 +-  23.7
+    The_Freelands                                 n=   583   +488.7 +-  31.1
+    Sablestone_Delta                              n=   577   +374.1 +-  23.7
+    spread: 21 cells, sd 73.1 against mean SE 27.6; chi2 104.0 on 20 df
+
+=== final_match_round15/games
+  labels [('final_round15', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 8133), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_10540.json': 1, 'skipped .worker_stages_11476.json': 1, 'skipped .worker_stages_11776.json': 1, 'skipped .worker_stages_15140.json': 1, 'skipped .worker_stages_15400.json': 1, 'skipped .worker_stages_15804.json': 1, 'skipped .worker_stages_16928.json': 1, 'skipped .worker_stages_17396.json': 1, 'skipped .worker_stages_17528.json': 1, 'skipped .worker_stages_5896.json': 1, 'skipped .worker_stages_6640.json': 1, 'skipped .worker_stages_7288.json': 1, 'timeout': 8}: +96.5 +- 3.2
+
+  by A's seat
+    side 1                                        n=  6400   +107.8 +-   4.6
+    side 2                                        n=  6400    +85.4 +-   4.5
+    side 1 - side 2: +22.4 +- 6.4 (+3.5 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2177    +43.2 +-   7.5
+    Loyalists                                     n=  2163   +242.6 +-   9.4
+    Drakes                                        n=  2137    -16.4 +-   7.5
+    Rebels                                        n=  2129   +131.0 +-   8.1
+    Undead                                        n=  2099     +4.8 +-   7.6
+    Northerners                                   n=  2095   +225.7 +-   9.2
+    spread: 6 cells, sd 112.1 against mean SE 8.2; chi2 871.2 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2205   +163.1 +-   8.2
+    Undead                                        n=  2134   +148.8 +-   8.2
+    Loyalists                                     n=  2128     +2.9 +-   7.5
+    Rebels                                        n=  2125    +89.7 +-   7.8
+    Knalgan Alliance                              n=  2119   +154.6 +-   8.3
+    Northerners                                   n=  2089    +33.2 +-   7.6
+    spread: 6 cells, sd 68.3 against mean SE 8.0; chi2 377.9 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +73.3 +-  5.6; strength   -89.7 +-  5.6
+    Knalgan Alliance                              edge   +98.9 +-  5.6; strength   -55.7 +-  5.6
+    Loyalists                                     edge  +122.8 +-  6.0; strength  +119.8 +-  6.0
+    Northerners                                   edge  +129.4 +-  6.0; strength   +96.2 +-  6.0
+    Rebels                                        edge  +110.4 +-  5.6; strength   +20.7 +-  5.6
+    Undead                                        edge   +76.8 +-  5.6; strength   -72.0 +-  5.6
+
+  mirror against not
+    not mirror                                    n= 10700    +90.5 +-   3.5
+    mirror                                        n=  2100   +127.9 +-   8.1
+
+  by map
+    The_Walls_of_Pyrennis                         n=   639    +91.8 +-  14.2
+    Fallenstar_Lake                               n=   634   +118.4 +-  14.6
+    Silverhead_Crossing                           n=   624    +86.4 +-  14.3
+    Aethermaw                                     n=   624    +65.3 +-  14.2
+    Hamlets                                       n=   622    +76.0 +-  14.3
+    The_Freelands                                 n=   618    +78.9 +-  14.3
+    Tombs_of_Kesorak                              n=   617    +65.5 +-  14.2
+    Arcanclave_Citadel                            n=   615   +308.6 +-  19.9
+    Clearing_Gushes                               n=   614    +75.9 +-  14.4
+    Howling_Ghost_Badlands                        n=   614    +89.0 +-  14.5
+    Sullas_Ruins                                  n=   612    +66.7 +-  14.3
+    thousand_stings_garrison                      n=   607   +174.1 +-  15.9
+    Weldyn_Channel                                n=   605    +60.9 +-  14.3
+    Basilisk                                      n=   605    +64.5 +-  14.4
+    elensefar_courtyard                           n=   597   +102.4 +-  14.8
+    Sablestone_Delta                              n=   596    +48.1 +-  14.4
+    Hellhole                                      n=   596   +122.6 +-  15.1
+    Ruphus_Isle                                   n=   596   +127.9 +-  15.2
+    Den_of_Onis                                   n=   596    +90.6 +-  14.7
+    Swamp_of_Dread                                n=   590    +82.8 +-  14.7
+    Ruined_Passage                                n=   579    +90.2 +-  14.9
+    spread: 21 cells, sd 55.7 against mean SE 14.8; chi2 190.0 on 20 df
+
+=== final_match_round12/games
+  labels [('final_round12', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 7898), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_10308.json': 1, 'skipped .worker_stages_10552.json': 1, 'skipped .worker_stages_11180.json': 1, 'skipped .worker_stages_14488.json': 1, 'skipped .worker_stages_14928.json': 1, 'skipped .worker_stages_16708.json': 1, 'skipped .worker_stages_17196.json': 1, 'skipped .worker_stages_17552.json': 1, 'skipped .worker_stages_2344.json': 1, 'skipped .worker_stages_3188.json': 1, 'skipped .worker_stages_5932.json': 1, 'skipped .worker_stages_8540.json': 1, 'timeout': 12}: +82.9 +- 3.2
+
+  by A's seat
+    side 1                                        n=  6400    +91.9 +-   4.5
+    side 2                                        n=  6400    +73.9 +-   4.4
+    side 1 - side 2: +17.9 +- 6.3 (+2.8 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2177    +37.7 +-   7.5
+    Loyalists                                     n=  2164   +207.1 +-   8.8
+    Drakes                                        n=  2140    -18.5 +-   7.5
+    Rebels                                        n=  2128   +116.1 +-   8.0
+    Undead                                        n=  2098     -1.0 +-   7.6
+    Northerners                                   n=  2093   +189.2 +-   8.7
+    spread: 6 cells, sd 97.0 against mean SE 8.0; chi2 700.1 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2207   +160.9 +-   8.2
+    Undead                                        n=  2135   +145.8 +-   8.2
+    Loyalists                                     n=  2128    -13.7 +-   7.5
+    Rebels                                        n=  2125    +60.3 +-   7.7
+    Knalgan Alliance                              n=  2117   +147.2 +-   8.2
+    Northerners                                   n=  2088    +11.0 +-   7.6
+    spread: 6 cells, sd 76.4 against mean SE 7.9; chi2 472.1 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +71.2 +-  5.6; strength   -89.7 +-  5.6
+    Knalgan Alliance                              edge   +92.4 +-  5.6; strength   -54.8 +-  5.6
+    Loyalists                                     edge   +96.7 +-  5.8; strength  +110.4 +-  5.8
+    Northerners                                   edge  +100.1 +-  5.8; strength   +89.1 +-  5.8
+    Rebels                                        edge   +88.2 +-  5.5; strength   +27.9 +-  5.5
+    Undead                                        edge   +72.4 +-  5.6; strength   -73.4 +-  5.6
+
+  mirror against not
+    not mirror                                    n= 10699    +79.4 +-   3.4
+    mirror                                        n=  2101   +100.8 +-   7.9
+
+  by map
+    The_Walls_of_Pyrennis                         n=   641    +51.9 +-  13.9
+    Fallenstar_Lake                               n=   633    +96.2 +-  14.3
+    Aethermaw                                     n=   625    +61.2 +-  14.1
+    Hamlets                                       n=   624    +71.1 +-  14.2
+    Silverhead_Crossing                           n=   622    +83.1 +-  14.3
+    Tombs_of_Kesorak                              n=   618    +27.0 +-  14.0
+    The_Freelands                                 n=   618    +89.6 +-  14.4
+    Arcanclave_Citadel                            n=   615   +215.5 +-  16.8
+    Howling_Ghost_Badlands                        n=   615    +62.2 +-  14.2
+    Clearing_Gushes                               n=   614    +50.1 +-  14.2
+    Sullas_Ruins                                  n=   612    +86.9 +-  14.5
+    thousand_stings_garrison                      n=   606   +102.6 +-  14.7
+    Weldyn_Channel                                n=   603    +61.1 +-  14.4
+    Basilisk                                      n=   603    +68.3 +-  14.4
+    Den_of_Onis                                   n=   597    +72.6 +-  14.5
+    elensefar_courtyard                           n=   597   +101.1 +-  14.8
+    Ruphus_Isle                                   n=   597   +129.7 +-  15.2
+    Hellhole                                      n=   596   +116.1 +-  15.0
+    Sablestone_Delta                              n=   594    +67.5 +-  14.5
+    Swamp_of_Dread                                n=   590    +74.1 +-  14.6
+    Ruined_Passage                                n=   580    +78.0 +-  14.8
+    spread: 21 cells, sd 38.2 against mean SE 14.6; chi2 117.7 on 20 df
+
+=== final_match_round09/games
+  labels [('final_round9', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 7550), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_11852.json': 1, 'skipped .worker_stages_12716.json': 1, 'skipped .worker_stages_14712.json': 1, 'skipped .worker_stages_16140.json': 1, 'skipped .worker_stages_16392.json': 1, 'skipped .worker_stages_17284.json': 1, 'skipped .worker_stages_17372.json': 1, 'skipped .worker_stages_2204.json': 1, 'skipped .worker_stages_3368.json': 1, 'skipped .worker_stages_5068.json': 1, 'skipped .worker_stages_720.json': 1, 'skipped .worker_stages_9908.json': 1, 'timeout': 19}: +63.1 +- 3.1
+
+  by A's seat
+    side 1                                        n=  6400    +76.3 +-   4.4
+    side 2                                        n=  6400    +50.1 +-   4.4
+    side 1 - side 2: +26.3 +- 6.2 (+4.2 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2175    +28.7 +-   7.5
+    Loyalists                                     n=  2162   +166.6 +-   8.3
+    Drakes                                        n=  2138    -31.9 +-   7.5
+    Rebels                                        n=  2126    +94.4 +-   7.8
+    Northerners                                   n=  2100   +159.2 +-   8.4
+    Undead                                        n=  2099    -18.4 +-   7.6
+    spread: 6 cells, sd 86.9 against mean SE 7.9; chi2 594.8 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2208   +142.1 +-   8.0
+    Undead                                        n=  2138   +141.6 +-   8.1
+    Loyalists                                     n=  2129    -48.8 +-   7.6
+    Rebels                                        n=  2124    +29.2 +-   7.6
+    Knalgan Alliance                              n=  2112   +124.1 +-   8.0
+    Northerners                                   n=  2089     +2.2 +-   7.6
+    spread: 6 cells, sd 81.8 against mean SE 7.8; chi2 547.7 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +55.1 +-  5.5; strength   -87.0 +-  5.5
+    Knalgan Alliance                              edge   +76.4 +-  5.5; strength   -47.7 +-  5.5
+    Loyalists                                     edge   +58.9 +-  5.6; strength  +107.7 +-  5.6
+    Northerners                                   edge   +80.7 +-  5.7; strength   +78.5 +-  5.7
+    Rebels                                        edge   +61.8 +-  5.4; strength   +32.6 +-  5.4
+    Undead                                        edge   +61.6 +-  5.6; strength   -80.0 +-  5.6
+
+  mirror against not
+    not mirror                                    n= 10703    +60.7 +-   3.4
+    mirror                                        n=  2097    +75.6 +-   7.8
+
+  by map
+    The_Walls_of_Pyrennis                         n=   637    +57.8 +-  14.0
+    Fallenstar_Lake                               n=   634    +58.6 +-  14.0
+    Aethermaw                                     n=   626    +28.9 +-  13.9
+    Hamlets                                       n=   625    +53.2 +-  14.1
+    Silverhead_Crossing                           n=   624    +55.0 +-  14.1
+    The_Freelands                                 n=   618    +45.2 +-  14.1
+    Arcanclave_Citadel                            n=   617   +182.3 +-  16.0
+    Tombs_of_Kesorak                              n=   616    +37.4 +-  14.1
+    Howling_Ghost_Badlands                        n=   615    +62.2 +-  14.2
+    Sullas_Ruins                                  n=   614    +50.1 +-  14.2
+    Clearing_Gushes                               n=   614    +54.8 +-  14.2
+    thousand_stings_garrison                      n=   606    +69.7 +-  14.4
+    Weldyn_Channel                                n=   605    +44.5 +-  14.2
+    Basilisk                                      n=   605    +32.8 +-  14.2
+    Den_of_Onis                                   n=   598    +61.0 +-  14.4
+    Ruphus_Isle                                   n=   598   +118.2 +-  15.0
+    elensefar_courtyard                           n=   597    +73.8 +-  14.5
+    Hellhole                                      n=   596    +98.1 +-  14.8
+    Sablestone_Delta                              n=   594    +62.7 +-  14.5
+    Swamp_of_Dread                                n=   581    +48.8 +-  14.6
+    Ruined_Passage                                n=   580    +47.0 +-  14.6
+    spread: 21 cells, sd 33.9 against mean SE 14.4; chi2 97.2 on 20 df
+
+=== final_match_round06/games
+  labels [('final_round6', 'own2')]
+  procedures [('raw:t0+eo-1.5', 0.0, 'raw:t0+eo-1.5', 0.0)]
+  decisive 12800 (A won 7295), not decisive {'skipped .inference_server_0.json': 1, 'skipped .inference_server_1.json': 1, 'skipped .worker_stages.json': 1, 'skipped .worker_stages_11680.json': 1, 'skipped .worker_stages_12500.json': 1, 'skipped .worker_stages_12804.json': 1, 'skipped .worker_stages_13040.json': 1, 'skipped .worker_stages_13640.json': 1, 'skipped .worker_stages_14304.json': 1, 'skipped .worker_stages_16740.json': 1, 'skipped .worker_stages_16916.json': 1, 'skipped .worker_stages_2292.json': 1, 'skipped .worker_stages_4784.json': 1, 'skipped .worker_stages_8108.json': 1, 'skipped .worker_stages_9712.json': 1, 'timeout': 22}: +48.9 +- 3.1
+
+  by A's seat
+    side 1                                        n=  6400    +60.1 +-   4.4
+    side 2                                        n=  6400    +37.8 +-   4.4
+    side 1 - side 2: +22.3 +- 6.2 (+3.6 SE)
+
+  by A's faction
+    Knalgan Alliance                              n=  2174    +10.9 +-   7.5
+    Loyalists                                     n=  2164   +170.9 +-   8.4
+    Drakes                                        n=  2135    -48.6 +-   7.6
+    Rebels                                        n=  2126    +84.0 +-   7.8
+    Undead                                        n=  2101    -38.4 +-   7.6
+    Northerners                                   n=  2100   +131.7 +-   8.1
+    spread: 6 cells, sd 91.1 against mean SE 7.8; chi2 656.4 on 5 df
+
+  by B's faction
+    Drakes                                        n=  2209   +126.9 +-   7.9
+    Undead                                        n=  2139   +134.1 +-   8.1
+    Loyalists                                     n=  2127    -57.2 +-   7.6
+    Rebels                                        n=  2120     +5.9 +-   7.5
+    Knalgan Alliance                              n=  2115   +106.2 +-   7.9
+    Northerners                                   n=  2090    -14.3 +-   7.6
+    spread: 6 cells, sd 82.1 against mean SE 7.8; chi2 555.7 on 5 df
+
+  by faction, balanced: A's edge (mean of A as F and B as F); F's strength (half the difference)
+    Drakes                                        edge   +39.1 +-  5.5; strength   -87.8 +-  5.5
+    Knalgan Alliance                              edge   +58.5 +-  5.4; strength   -47.7 +-  5.4
+    Loyalists                                     edge   +56.8 +-  5.7; strength  +114.0 +-  5.7
+    Northerners                                   edge   +58.7 +-  5.6; strength   +73.0 +-  5.6
+    Rebels                                        edge   +44.9 +-  5.4; strength   +39.0 +-  5.4
+    Undead                                        edge   +47.9 +-  5.6; strength   -86.2 +-  5.6
+
+  mirror against not
+    not mirror                                    n= 10709    +48.1 +-   3.4
+    mirror                                        n=  2091    +53.1 +-   7.7
+
+  by map
+    The_Walls_of_Pyrennis                         n=   635    +50.1 +-  13.9
+    Fallenstar_Lake                               n=   634    +67.7 +-  14.1
+    Silverhead_Crossing                           n=   624    +60.7 +-  14.1
+    Hamlets                                       n=   622    +37.0 +-  14.0
+    Aethermaw                                     n=   622    +64.4 +-  14.2
+    The_Freelands                                 n=   619    +24.2 +-  14.0
+    Arcanclave_Citadel                            n=   618   +155.8 +-  15.4
+    Tombs_of_Kesorak                              n=   617    +36.7 +-  14.1
+    Clearing_Gushes                               n=   616    +36.2 +-  14.1
+    Howling_Ghost_Badlands                        n=   614    +42.1 +-  14.1
+    Sullas_Ruins                                  n=   612    +39.9 +-  14.1
+    Weldyn_Channel                                n=   607    +17.8 +-  14.1
+    Basilisk                                      n=   607    +21.2 +-  14.1
+    thousand_stings_garrison                      n=   607    +17.8 +-  14.1
+    Hellhole                                      n=   597    +47.4 +-  14.4
+    Sablestone_Delta                              n=   596    +35.1 +-  14.3
+    elensefar_courtyard                           n=   596    +58.9 +-  14.4
+    Den_of_Onis                                   n=   596    +74.6 +-  14.6
+    Ruphus_Isle                                   n=   595    +75.3 +-  14.6
+    Swamp_of_Dread                                n=   588    +34.4 +-  14.4
+    Ruined_Passage                                n=   578    +37.4 +-  14.5
+    spread: 21 cells, sd 30.0 against mean SE 14.3; chi2 80.9 on 20 df

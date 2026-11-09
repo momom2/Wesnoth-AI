@@ -1,0 +1,15 @@
+{
+ "device": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+ "torch": "2.14.1+cpu",
+ "hip": null,
+ "threads": 6,
+ "positions": 64,
+ "warmup_batches": 1,
+ "reps": 1,
+ "forward_batch": 64,
+ "train_batch": 32,
+ "positions_per_s": {
+  "forward_fp32": 10.21,
+  "train_fp32": 1.22
+ }
+}

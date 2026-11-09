@@ -32,7 +32,7 @@ OWN1_REFERENCE = {
     "checkpoint_hf": "tier-b/memory_own_trajectories_20261011/own.pt",
     "checkpoint_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
     "hf_repo": "momom2/wesnoth-model-checkpoints", "memory_slots": 64,
-    "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn": "joint", "raw_end_turn_offset": -1.5},
+    "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn_offset": -1.5},
     "procedure_tag": "raw:t0+eo-1.5", "adopted": "2026-10-11"}
 BASH = find_bash()
 pytestmark = pytest.mark.skipif(BASH is None, reason="no POSIX bash")

@@ -15,6 +15,11 @@ neutral side's included) and of the final position. `walk` and
 fingerprints and raise `RecordMismatch` when the rebuild leaves the
 played game.
 
+A game whose players logged their decisions carries the log as
+`decisions`, one entry per decision of either side in play order
+(tools/decision_log.py; build_contracts.md §1). Nothing reads it to
+rebuild the game.
+
 Fight outcome distributions ride along as optional data, keyed by the
 index of the attack command they describe (`outcomes`): training writes
 those it computed while playing (the search's exact distribution of an
@@ -89,10 +94,12 @@ def _setup_dict(setup) -> Dict[str, Any]:
 
 def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] = None,
                 players: Optional[Dict[str, Any]] = None,
-                extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                extra: Optional[Dict[str, Any]] = None,
+                decisions: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """The record of a finished (or abandoned) game played on `sim`.
     `build` holds the keyword arguments `build_scenario_gamestate` was
-    given; `players` names who played each side and how."""
+    given; `players` names who played each side and how; `decisions` is
+    the game's decision log, written only when given."""
     from wesnoth_ai import __version__
     from wesnoth_ai.classes import state_digest
     from wesnoth_ai.constants import OBSERVATION_EPOCH
@@ -126,6 +133,8 @@ def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] 
         "final_digest": state_digest(sim.gs, version=sim.digest_version),
         "outcomes": outcomes,
     }
+    if decisions is not None:
+        rec["decisions"] = list(decisions)
     if extra:
         rec.update(extra)
     return rec

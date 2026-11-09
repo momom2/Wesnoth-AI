@@ -1,0 +1,11 @@
+2026-10-29 09:04:38 s00: games 5000 from seed 800000, rc=1, 19 s, results 3488, decisive 3488, failed slots lost 0
+2026-10-29 09:04:41 s00: games 5000 from seed 800000, rc=1, 3 s, results 3488, decisive 3488, failed slots lost 0
+2026-10-29 09:43:13 s00: games 5000 from seed 800000, rc=0, 1094 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 12:31:29 d0: games 12800 from seed 830000, rc=0, 9997 s, results 12800, decisive 12800, failed slots lost 0
+2026-10-29 13:42:54 s01: games 5000 from seed 805000, rc=0, 4103 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 15:02:59 STOPPED: 2 display-driver reset(s) (System event 4101) during match s02
+2026-10-29 15:34:07 s02: games 5000 from seed 810000, rc=0, 11 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 17:17:51 s03: games 5000 from seed 815000, rc=0, 6129 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 18:29:00 s04: games 5000 from seed 820000, rc=0, 4170 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 19:40:07 s05: games 5000 from seed 825000, rc=0, 4166 s, results 5000, decisive 5000, failed slots lost 0
+2026-10-29 20:27:15 memory: games 3200 from seed 845000, rc=0, 2438 s, results 3200, decisive 3200, failed slots lost 0

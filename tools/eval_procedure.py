@@ -8,42 +8,52 @@ from typing import Optional
 
 
 def end_turn_refusal(side: str, spec: str, sims: int, raw_temperature,
-                     raw_end_turn: str, raw_end_turn_offset: float) -> Optional[str]:
-    """Why side `side`'s end_turn decode flags cannot apply, or None.
-    They are knobs of the joint-temperature raw player
-    (tools/raw_player.py), which a side plays only at sims 0 with a raw
-    temperature and a network. The search, the legacy sampler and the
-    scripted 'dummy' never read them, while the result file recorded
-    them as if they had played."""
-    if raw_end_turn == "joint" and not raw_end_turn_offset:
+                     raw_end_turn_offset: float) -> Optional[str]:
+    """Why side `side`'s end_turn offset cannot apply, or None. It is a
+    knob of the joint-temperature raw player (tools/raw_player.py),
+    which a side plays only at sims 0 with a raw temperature and a
+    network. The search, the legacy sampler and the scripted 'dummy'
+    never read it, while the result file recorded it as if it had
+    played."""
+    if not raw_end_turn_offset:
         return None
     if sims > 0 or raw_temperature is None or spec == "dummy":
-        return (f"--raw-end-turn-{side}/--raw-end-turn-offset-{side} decode the "
+        return (f"--raw-end-turn-offset-{side} decodes the "
                 f"joint-temperature raw player only: side {side} needs sims 0, "
                 f"--raw-temperature-{side} and a network (the search, the legacy "
-                f"sampler and 'dummy' never read them).")
+                f"sampler and 'dummy' never read it).")
+    return None
+
+
+def decision_log_refusal(sides) -> Optional[str]:
+    """Why a game cannot log its decisions, or None. `sides` holds each
+    side's (name, spec, sims, raw temperature). The log is the raw
+    player's (tools/raw_player.py), and the record's `decisions` holds
+    every decision of either side, so both sides must play it: sims 0, a
+    raw temperature and a network."""
+    for side, spec, sims, raw_temperature in sides:
+        if sims > 0 or raw_temperature is None or spec == "dummy":
+            return (f"--log-decisions logs the joint-temperature raw player's decisions, on both "
+                    f"sides: side {side} needs sims 0, --raw-temperature-{side} and a network")
     return None
 
 
 def procedure_of(sims: int, plan: bool, no_turn_search: bool,
                  raw_temperature=None, gumbel_root: bool = True, *,
-                 raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0) -> str:
+                 raw_end_turn_offset: float = 0.0) -> str:
     """Canonical procedure tag for result provenance. Carries the
     sims budget (round-13 C2: 'mcts' alone let an outdir silently
     mix --mcts-sims 16 and 32 games -- different estimands), the
     root procedure of a plain search ('mcts' = Gumbel root, 'puct' =
     plain PUCT root, what the az legs trained with) and, for the raw
     player, its joint sampling temperature (tools/raw_player.py;
-    None = the legacy factored sampler) and its end_turn decode
-    ('+endm' = decided at the actor level, '+eo<x>' = the end_turn
-    logit offset x; panel test 1), so those estimands never share an
-    outdir either."""
+    None = the legacy factored sampler) and its end_turn logit offset
+    ('+eo<x>'; panel test 1), so those estimands never share an outdir
+    either."""
     if sims <= 0:
         if raw_temperature is None:
             return "raw"
         tag = f"raw:t{float(raw_temperature):g}"
-        if raw_end_turn == "actor":
-            tag += "+endm"
         if raw_end_turn_offset:
             tag += f"+eo{float(raw_end_turn_offset):g}"
         return tag

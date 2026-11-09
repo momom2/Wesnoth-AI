@@ -352,8 +352,6 @@ def test_the_decode_reaches_the_base_the_alternatives_and_the_playouts(policy, p
     assert all(p.policy.end_turn_offset == -99.0 for p in pairs.values())
     assert tg.procedure_tag(acting, 1.0) == "raw:t1+eo-99"
     assert tg.procedure_tag(plain, 0.5) == "raw:t0.5"
-    with pytest.raises(ValueError, match="end_turn_rule"):
-        tg.GapConfig(end_turn_rule="never")
 
 
 def test_cli_reference_takes_the_config_checkpoint_and_decode(tmp_path, positions, monkeypatch):
@@ -364,8 +362,7 @@ def test_cli_reference_takes_the_config_checkpoint_and_decode(tmp_path, position
     from test_eval_inference_server import _tiny_checkpoint
     spec_path = _tiny_checkpoint(tmp_path / "tiny.pt")
     ref = {"label": "tiny", "checkpoint_hf": "tier-b/tiny.pt", "procedure_tag": "raw:t0+eo-1.5",
-           "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn": "joint",
-                      "raw_end_turn_offset": -1.5}}
+           "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn_offset": -1.5}}
     monkeypatch.setattr(tg.reference_player, "load", lambda: ref)
     monkeypatch.setattr(tg.reference_player, "ensure_checkpoint", lambda r: Path(spec_path))
     monkeypatch.setattr(tg, "positions_from_manifest", lambda *a, **k: list(positions))

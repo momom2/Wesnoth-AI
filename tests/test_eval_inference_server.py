@@ -8,6 +8,7 @@ import json
 import struct
 import sys
 import threading
+import time
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
 
@@ -19,26 +20,86 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
-def _service(window_s: float, max_batch: int, poison=None, health=None):
+def _service(window_s: float, max_batch: int, poison=None, health=None, pipelined: bool = False,
+             device_s: float = 0.0, poison_at: str = "launch", log=None, retried=None, release=None):
     """An in-process service over a fake model: each request carries one
     int64, its reply the value doubled; the batch sizes it saw are the
     coalescer's record. A request holding `poison` makes the forward
-    raise; `health` is the device probe."""
+    raise; `health` is the device probe.
+
+    `pipelined`: the pipelined loop over a fake device that runs each
+    launched batch for `device_s` seconds after the one before it (a
+    queue); the poison raises at the launch or, with
+    `poison_at="complete"`, at the completion; with `poison_at="deliver"`
+    the completion gives the poisoned request a reply no connection can
+    send (the serve thread's finishing of the batch raises). `log` gets
+    ("launch" | "complete", batch number, the batch's connection numbers)
+    in the serve thread's order. `retried` gets the values of each
+    `infer_fn` call (the retries one at a time); `release` is the
+    service's release_fn."""
     from tools.serve_loop import REQUEST_HEAD_BYTES, InferenceService, ok_message
+    from tools.serve_pipelined import PipelinedInferenceService
     seen = []
 
-    def infer(requests, stats=None):
-        seen.append(sum(r.leaves for r in requests))
-        values = [struct.unpack_from("<q", r.message, REQUEST_HEAD_BYTES)[0] for r in requests]
+    def values_of(requests):
+        return [struct.unpack_from("<q", r.message, REQUEST_HEAD_BYTES)[0] for r in requests]
+
+    def answer(requests, values):
         if poison is not None and poison in values:
             raise ValueError(f"poisoned position {poison}")
         return [ok_message(r.rid, struct.pack("<q", 2 * v)) for r, v in zip(requests, values)]
 
+    def infer(requests, stats=None):
+        seen.append(sum(r.leaves for r in requests))
+        if retried is not None:
+            retried.append(values_of(requests))
+        return answer(requests, values_of(requests))
+
     listener = Listener()
-    svc = InferenceService(listener, infer, {"hello": True},
-                           window_s=window_s, max_batch=max_batch, health_fn=health)
+    kw = dict(window_s=window_s, max_batch=max_batch, health_fn=health, release_fn=release)
+    if not pipelined:
+        svc = InferenceService(listener, infer, {"hello": True}, **kw)
+        svc.start()
+        return svc, listener.address, seen
+    device = {"free_at": 0.0, "n": 0}
+
+    class Launched:
+        def __init__(self, requests):
+            self.requests, self.values = requests, values_of(requests)
+            self.n = device["n"]
+            device["n"] += 1
+            self.done_at = device["free_at"] = max(time.monotonic(), device["free_at"]) + device_s
+
+        def wait(self):
+            time.sleep(max(0.0, self.done_at - time.monotonic()))
+
+        def complete(self):
+            self.wait()
+            if log is not None:
+                log.append(("complete", self.n, sorted(r.cid for r in self.requests)))
+            if poison_at == "complete":
+                return answer(self.requests, self.values)
+            if poison_at == "deliver":
+                return [None if v == poison else ok_message(r.rid, struct.pack("<q", 2 * v))
+                        for r, v in zip(self.requests, self.values)]
+            return [ok_message(r.rid, struct.pack("<q", 2 * v)) for r, v in zip(self.requests, self.values)]
+
+    def launch(requests, stats=None):
+        seen.append(sum(r.leaves for r in requests))
+        launched = Launched(requests)
+        if log is not None:
+            log.append(("launch", launched.n, sorted(r.cid for r in requests)))
+        if poison_at == "launch":
+            answer(requests, launched.values)
+        return launched
+
+    svc = PipelinedInferenceService(listener, infer, launch, {"hello": True}, **kw)
     svc.start()
     return svc, listener.address, seen
+
+
+# The loop tests marked so run on the serial loop and on the pipelined one.
+BOTH_LOOPS = pytest.mark.parametrize("pipelined", [False, True], ids=["serial", "pipelined"])
 
 
 def _request(v: int) -> bytes:
@@ -78,7 +139,8 @@ def _send_together(address: str, values):
     return replies
 
 
-def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
+@BOTH_LOOPS
+def test_a_reply_is_counted_before_it_is_sent(monkeypatch, pipelined):
     """A client holding its reply reads counters that include it: the
     service counts each batch before answering it. The counter is read
     at every reply the serve thread sends, one request per batch."""
@@ -93,7 +155,7 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
         return real_send(self, buf, *a, **k)
 
     monkeypatch.setattr(_ConnectionBase, "send_bytes", send_bytes)
-    svc, address, _seen = _service(window_s=0.0, max_batch=1)
+    svc, address, _seen = _service(window_s=0.0, max_batch=1, pipelined=pipelined)
     box["svc"] = svc
     try:
         replies = _send_together(address, [1, 2, 3])
@@ -103,9 +165,10 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
         svc.stop()
 
 
-def test_coalescer_window_and_max_batch():
+@BOTH_LOOPS
+def test_coalescer_window_and_max_batch(pipelined):
     from tools.serve_loop import HELLO_MESSAGE
-    svc, address, seen = _service(window_s=0.25, max_batch=3)
+    svc, address, seen = _service(window_s=0.25, max_batch=3, pipelined=pipelined)
     try:
         c = Client(address)
         c.send_bytes(HELLO_MESSAGE)
@@ -131,10 +194,11 @@ def test_coalescer_window_and_max_batch():
         svc.stop()
 
 
-def test_a_closed_connection_leaves_the_others_served():
+@BOTH_LOOPS
+def test_a_closed_connection_leaves_the_others_served(pipelined):
     """A client that goes away (a worker killed mid-game) is dropped; the
     games on the other connections keep being answered."""
-    svc, address, _seen = _service(window_s=0.0, max_batch=8)
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, pipelined=pipelined)
     try:
         gone = Client(address)
         gone.send_bytes(_request(4))
@@ -144,11 +208,49 @@ def test_a_closed_connection_leaves_the_others_served():
         svc.stop()
 
 
-def test_a_failing_request_does_not_fail_its_batch_mates():
+@pytest.mark.skipif(sys.platform != "win32", reason="the buffer is a Windows named pipe's")
+def test_a_reply_larger_than_the_old_pipe_buffer_is_written_without_its_client():
+    """The server's pipes hold a whole reply: a 64 kB write (an 8 kB pipe
+    makes the writer wait for its reader) returns while the client is not
+    reading, which it does only seconds later."""
+    from tools.eval_inference_server import pipe_listener
+    listener = pipe_listener()
+    read, got = threading.Event(), []
+
+    def client():
+        c = Client(listener.address)
+        read.wait(10)
+        got.append(len(c.recv_bytes()))
+        c.close()
+    t = threading.Thread(target=client)
+    t.start()
+    conn = listener.accept()
+    try:
+        t0 = time.monotonic()
+        conn.send_bytes(b"x" * 65536)
+        took = time.monotonic() - t0
+    finally:
+        read.set()
+        t.join(10)
+        conn.close()
+        listener.close()
+    assert took < 1.0, took
+    assert got == [65536]
+
+
+FAILING_AT = pytest.mark.parametrize("pipelined,poison_at", [(False, "launch"), (True, "launch"),
+                                                             (True, "complete")],
+                                     ids=["serial", "pipelined-launch", "pipelined-complete"])
+
+
+@FAILING_AT
+def test_a_failing_request_does_not_fail_its_batch_mates(pipelined, poison_at):
     """A batch holds one decision from each of several games: when
     the forward raises, the requests are retried one at a time and
-    only the offender's game sees the error."""
-    svc, address, seen = _service(window_s=0.25, max_batch=8, poison=13)
+    only the offender's game sees the error. Pipelined, the same when the
+    batch's launch raises and when its completion does."""
+    svc, address, seen = _service(window_s=0.25, max_batch=8, poison=13, pipelined=pipelined,
+                                  poison_at=poison_at, device_s=0.02)
     try:
         replies = _send_together(address, [11, 13, 14])
         assert replies[11] == (11, [22]) and replies[14] == (14, [28])
@@ -161,7 +263,8 @@ def test_a_failing_request_does_not_fail_its_batch_mates():
         svc.stop()
 
 
-def test_a_device_that_fails_its_probe_stops_the_service():
+@FAILING_AT
+def test_a_device_that_fails_its_probe_stops_the_service(pipelined, poison_at):
     """A sticky device fault (an illegal address, a device-side assert)
     fails every later call on the device: the 2026-09-14 server answered
     every request after one with the same CUDA error and looked alive
@@ -172,7 +275,11 @@ def test_a_device_that_fails_its_probe_stops_the_service():
     def broken():
         raise RuntimeError("CUDA error: an illegal memory access was encountered")
 
-    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=broken)
+    def service(health):
+        return _service(window_s=0.0, max_batch=8, poison=13, health=health, pipelined=pipelined,
+                        poison_at=poison_at, device_s=0.02)
+
+    svc, address, _seen = service(broken)
     stdin_closed = threading.Event()             # the driver keeps our stdin open
     try:
         replies = _send_together(address, [13])
@@ -184,7 +291,7 @@ def test_a_device_that_fails_its_probe_stops_the_service():
         stdin_closed.set()
         svc.stop()
 
-    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=lambda: None)
+    svc, address, _seen = service(lambda: None)
     try:
         replies = _send_together(address, [13])
         assert replies[13][:2] == (13, None) and "poisoned position 13" in replies[13][2]
@@ -192,6 +299,146 @@ def test_a_device_that_fails_its_probe_stops_the_service():
         assert svc.fatal is None
         assert svc.serve_until_closed(lambda: None, poll_s=0.01) is None   # stdin closed
     finally:
+        svc.stop()
+
+
+def test_the_pipelined_loop_answers_every_client_its_own_reply():
+    """Sixteen games of fifteen decisions each through the pipelined loop
+    over a fake device of 10 ms a batch: every reply is its own request's,
+    the loop launched a batch while the one before it ran, and two batches
+    on the device together never held one connection (a game's next
+    request follows its reply)."""
+    log = []
+    svc, address, _seen = _service(window_s=0.001, max_batch=64, pipelined=True, device_s=0.01, log=log)
+    games, decisions = 16, 15
+    bad = []
+
+    def game(k):
+        conn = Client(address)
+        try:
+            for i in range(decisions):
+                v = 1000 * k + i
+                conn.send_bytes(_request(v))
+                got = _reply(conn.recv_bytes())
+                if got != (v, [2 * v]):
+                    bad.append((v, got))
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=game, args=(k,)) for k in range(games)]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert not bad, bad[:5]
+        st = svc.stats.as_dict()
+        assert st["requests"] == games * decisions
+    finally:
+        svc.stop()
+    running, overlapped = {}, 0
+    for event, n, cids in log:
+        if event == "launch":
+            for other in running.values():
+                assert not set(other) & set(cids), (n, cids, running)
+            overlapped += bool(running)
+            running[n] = cids
+        else:
+            running.pop(n)
+    assert overlapped > 0, log[:10]
+    assert not running
+
+
+def _read_reply(conn, got: dict, name: str) -> threading.Thread:
+    """A thread putting the connection's next reply, or "closed", in got[name]."""
+    def read():
+        try:
+            got[name] = _reply(conn.recv_bytes())
+        except (EOFError, OSError):
+            got[name] = "closed"
+    t = threading.Thread(target=read)
+    t.start()
+    return t
+
+
+def _wait_for(predicate, timeout_s: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert predicate()
+
+
+# The serve thread ends on the exception it is made to raise.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_batch_that_cannot_be_finished_leaves_the_next_answered():
+    """Finishing batch N raises (its reply cannot be sent) after batch N+1
+    was launched: N+1 is still answered, and completed once, before the
+    connections close."""
+    log, got = [], {}
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, pipelined=True, device_s=0.3,
+                                   poison_at="deliver", log=log)
+    a, b = Client(address), Client(address)
+    try:
+        a.send_bytes(_request(13))
+        _wait_for(lambda: len(log) >= 1)
+        b.send_bytes(_request(5))
+        readers = [_read_reply(a, got, "a"), _read_reply(b, got, "b")]
+        for t in readers:
+            t.join(10)
+        assert got == {"a": "closed", "b": (5, [10])}
+        assert [(e, n) for e, n, _c in log] == [("launch", 0), ("launch", 1), ("complete", 0), ("complete", 1)]
+    finally:
+        a.close()
+        b.close()
+        svc.stop()
+
+
+def test_a_retry_skips_a_connection_that_closed_while_its_batch_ran():
+    """A batch fails at its completion after one of its clients has gone,
+    its memory states released: the retries one at a time serve only the
+    clients still there. A retry of the gone one would hold new states for
+    a connection nothing will release again."""
+    log, retried, released, got = [], [], [], {}
+    svc, address, _seen = _service(window_s=0.25, max_batch=8, poison=13, pipelined=True, device_s=0.4,
+                                   poison_at="complete", log=log, retried=retried, release=released.append)
+    gone, stays = Client(address), Client(address)
+    try:
+        gone.send_bytes(_request(13))
+        stays.send_bytes(_request(5))
+        _wait_for(lambda: log and len(log[0][2]) == 2)
+        gone.close()
+        _read_reply(stays, got, "stays").join(10)
+        assert got == {"stays": (5, [10])}
+        assert retried == [[5]], retried
+        assert len(released) == 1
+        st = svc.stats.as_dict()
+        assert st["failed_batches"] == 1 and st["failed_requests"] == 1
+    finally:
+        stays.close()
+        svc.stop()
+
+
+def test_stop_answers_the_batch_in_flight():
+    """stop() while a batch runs on the device: the serve thread answers it
+    before it closes the connections."""
+    log = []
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, pipelined=True, device_s=0.5, log=log)
+    conn = Client(address)
+    got = []
+    try:
+        conn.send_bytes(_request(21))
+        reader = threading.Thread(target=lambda: got.append(_reply(conn.recv_bytes())))
+        reader.start()
+        deadline = time.monotonic() + 10
+        while not log and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert log and log[0][0] == "launch"
+        svc.stop()
+        reader.join(10)
+        assert got == [(21, [42])]
+        assert [e for e, _n, _c in log] == ["launch", "complete"]
+    finally:
+        conn.close()
         svc.stop()
 
 
@@ -224,11 +471,16 @@ def _tiny_checkpoint(path: Path) -> str:
     return str(path)
 
 
-def test_shared_inference_end_to_end(tmp_path):
+# The pipelined end-to-end game is in the slow tier: the serial one already
+# takes about 20 s on the desktop, and CI runs both.
+@pytest.mark.parametrize("pipelined", [False, pytest.param(True, marks=pytest.mark.slow)],
+                         ids=["serial", "pipelined"])
+def test_shared_inference_end_to_end(tmp_path, pipelined):
     """Two 2-turn games, both sides the same tiny checkpoint at argmax
     through ONE server, two workers: result files carry the shared
     provenance, including the checkpoint the server loaded, and the
-    server's stats account for every forward the workers counted."""
+    server's stats account for every forward the workers counted.
+    Pipelined too (--inference-pipelined), which the server records."""
     import hashlib
     from tools.run_elo_batch import EXIT_GUARD_SPENT, main
     spec = _tiny_checkpoint(tmp_path / "tiny.pt")
@@ -239,7 +491,7 @@ def test_shared_inference_end_to_end(tmp_path):
                "--raw-temperature-b", "0", "--max-turns", "2", "--device", "cpu",
                "--jobs", "2", "--persistent-workers", "--shared-inference",
                "--max-extra-games", "0", "--time-budget-min", "5",
-               "--min-free-mb", "0"])
+               "--min-free-mb", "0"] + (["--inference-pipelined"] if pipelined else []))
     # 2 turns decide nothing and no replacement is allowed.
     assert rc == EXIT_GUARD_SPENT
     sha = hashlib.sha256(Path(spec).read_bytes()).hexdigest()
@@ -257,6 +509,7 @@ def test_shared_inference_end_to_end(tmp_path):
         assert r["forwards_a"] > 0 and r["forwards_b"] > 0
         forwards += r["forwards_a"] + r["forwards_b"]
     stats = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
+    assert stats["pipelined"] is pipelined
     assert stats["requests"] == stats["leaves"] == forwards
     assert stats["batches"] >= 1 and stats["connections"] == 2
     # Every decision's stages, from both workers, summed per decision.

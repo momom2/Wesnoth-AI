@@ -29,7 +29,9 @@ Every worker game has exactly one decision in flight (the game loop is
 sequential: the next state depends on the step's outcome), so a batch
 never exceeds the games in flight; the achieved sizes are recorded in
 the stats file (`batch_hist`, `mean_batch`), with the serve thread's
-seconds by stage.
+seconds by stage. With --pipelined (tools/serve_pipelined.py, off by
+default) the serve thread launches the next batch before it completes the
+one on the device, and collects it while the device runs.
 
 Host work. With --rust-stage (the default) the Rust core parses each
 batch's requests in place and writes the staging buffers and the replies
@@ -304,12 +306,14 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             server_memory: bool = True, priors_only: bool = False,
                             profile_batches: int = 0, profile_after: int = 0,
                             bf16_residual: bool = False, fused_relu: bool = False,
-                            fp8: bool = False, timeline_s: float = 0.0) -> InferenceServerHandle:
+                            fp8: bool = False, timeline_s: float = 0.0,
+                            fp16: bool = False, pipelined: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
     never see them), and with `timeline_s` its counters every that many
-    seconds to `.inference_server_<tag>.timeline.jsonl`."""
+    seconds to `.inference_server_<tag>.timeline.jsonl`. `pipelined`: the
+    serve loop overlaps batches on the device (tools/serve_pipelined.py)."""
     outdir = Path(outdir)
     stats_path = outdir / f".inference_server_{tag}.json"
     cmd = [python or sys.executable, "-u", str(SERVER_SCRIPT), "--spec", str(spec),
@@ -318,6 +322,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
            "--stats-out", str(stats_path), "--label", tag]
     if infer_bf16 is not None:
         cmd.append("--infer-bf16" if infer_bf16 else "--no-infer-bf16")
+    if fp16:
+        cmd.append("--infer-fp16")
     cmd.append("--packed-embed" if packed_embed else "--no-packed-embed")
     if compile_packed:
         cmd.append("--compile-packed")
@@ -333,6 +339,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--fused-relu")
     if fp8:
         cmd.append("--fp8-inference")
+    if pipelined:
+        cmd.append("--pipelined")
     if timeline_s > 0:
         cmd += ["--timeline-out", str(outdir / f".inference_server_{tag}.timeline.jsonl"),
                 "--timeline-s", str(timeline_s)]
@@ -382,6 +390,27 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
 # Server process
 # ---------------------------------------------------------------------
 
+# A reply larger than a Windows named pipe's buffer (multiprocessing's 8 kB)
+# completes only as its client reads it, and a client reads only when its
+# thread holds its process's GIL: the serve thread waited about 0.17 ms a
+# reply in stage 1's self-play, 8% of the wall
+# (training/metrics/async_replies_20261029). Replies take about 20 bytes a
+# legal action (8.5 kB on average, about 40 kB at 2,000 actions), and a
+# connection has one outstanding at a time.
+PIPE_BUFFER_BYTES = 1 << 18
+
+
+def pipe_listener() -> Listener:
+    """The server's Listener; on Windows its pipes buffer PIPE_BUFFER_BYTES
+    each way, so a reply's write completes without its client (the buffer
+    is set where the pipes are made, multiprocessing.connection.BUFSIZE).
+    Elsewhere a Unix socket, unchanged."""
+    if sys.platform == "win32":
+        import multiprocessing.connection as mpc
+        mpc.BUFSIZE = max(mpc.BUFSIZE, PIPE_BUFFER_BYTES)
+    return Listener()
+
+
 def _resolve_device(name: str):
     import torch
     if name == "cpu":
@@ -418,6 +447,17 @@ def _device_health_fn(device) -> Optional[Callable[[], None]]:
         (torch.ones(1, device=device) + 1).item()
 
     return probe
+
+
+def _model_launch_fn(server, *, memory=None) -> Callable:
+    """The pipelined service's launch_fn over the real model: the Rust
+    stage's batch in two halves (tools/serve_stage.py `launch_requests`)."""
+    from tools.serve_stage import launch_requests
+
+    def launch(requests, stats=None):
+        return launch_requests(server, requests, stats, memory=memory, cids=[r.cid for r in requests])
+
+    return launch
 
 
 def _model_infer_fn(server, *, rust_stage: bool = True, memory=None) -> Callable:
@@ -487,13 +527,17 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
                  rust_stage: bool = True, server_memory: bool = False,
                  priors_only: bool = False, bf16_residual: bool = False,
-                 fused_relu: bool = False, fp8: bool = False) -> Dict:
+                 fused_relu: bool = False, fp8: bool = False, fp16: bool = False,
+                 pipelined: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
     return {
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device, "infer_bf16": bf16,
+        # The autocast in float16 instead of bfloat16 (--infer-fp16): a
+        # numerics path of its own, recorded by every game.
+        "infer_fp16": bool(fp16),
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
         # The packed trunk's residual stream in bf16 and its fused ReLU
         # (model.infer_bf16_residual, infer_fused_relu): numerics paths of
@@ -506,6 +550,10 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         # The host work in Rust (tools/serve_stage.py), and whether the
         # server keeps each game-side's memory state between decisions.
         "rust_stage": bool(rust_stage), "server_memory": bool(server_memory),
+        # The serve loop overlaps one batch's device work with the host work
+        # around it (tools/serve_pipelined.py): a timing switch, the same
+        # replies for a given batch.
+        "pipelined": bool(pipelined),
         # The replies carry the policy's priors alone: no value, no head
         # output beside them (model.infer_priors_only).
         "priors_only": bool(priors_only),
@@ -555,9 +603,16 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction, default=None,
                     help="bf16 autocast for the served forwards. Default AUTO: on "
                          "with cuda, off on cpu; forcing it on with cpu is refused.")
+    ap.add_argument("--infer-fp16", action="store_true",
+                    help="Autocast the served forwards to float16 instead of bfloat16 "
+                         "(model.infer_autocast_dtype), for a GPU without bf16 matrix units (an "
+                         "RDNA2 card, training/metrics/local_gpu_20261028). Replaces --infer-bf16; "
+                         "the bf16-only paths (--bf16-residual, --fused-relu, --fp8-inference, "
+                         "--compile-packed, --graphed) are refused with it. The games record it.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction, default=True,
-                    help="The packed varlen trunk (model.infer_packed_trunk) where the "
-                         "flash kernel applies (cuda + bf16); the padded trunk elsewhere.")
+                    help="The packed varlen trunk (model.infer_packed_trunk) where a varlen "
+                         "kernel applies (flash: cuda + bf16; the HIP kernel: ROCm + fp16); "
+                         "the padded trunk elsewhere.")
     ap.add_argument("--packed-embed", action=argparse.BooleanOptionalAction, default=True,
                     help="Embed the batch as one packed sequence on the host (the pool's "
                          "default; -4.9 ms of host work per 16-leaf batch); with the "
@@ -599,6 +654,12 @@ def main(argv: List[str]) -> int:
                     help="Compute and send the policy's priors alone: no value head, no belief "
                          "head, no optional head (a raw player at self-play generation reads "
                          "none of them). The priors are the same bits either way.")
+    ap.add_argument("--pipelined", action=argparse.BooleanOptionalAction, default=False,
+                    help="Launch the next batch before completing the one on the device, and collect "
+                         "it while the device runs (tools/serve_pipelined.py): the device's work overlaps "
+                         "the host work around it. The same replies for a given batch. With the Rust "
+                         "stage's eager path only: not with --no-rust-stage, --graphed or "
+                         "--profile-batches.")
     ap.add_argument("--profile-batches", type=int, default=0,
                     help="Profile this many production batches under torch.profiler "
                          "(tools/server_profile.py) and put the summary in the stats under "
@@ -626,26 +687,45 @@ def main(argv: List[str]) -> int:
     from tools.eval_players import _load_policy
     from tools.inference_seam import InferenceServer
     from tools.eval_provenance import file_sha256
-    from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
+    from wesnoth_ai.model import autocast_dtype
+    from wesnoth_ai.packed_trunk import check_packed_trunk_supported, varlen_attention_applies
     torch.set_num_threads(max(1, args.torch_threads))
     device = _resolve_device(args.device)
     cuda = device.type == "cuda"
-    bf16 = cuda if args.infer_bf16 is None else bool(args.infer_bf16)
-    if bf16 and not cuda:
-        raise SystemExit("--infer-bf16 requires a cuda device: on cpu it would no-op "
+    fp16 = bool(args.infer_fp16)
+    if fp16 and args.infer_bf16:
+        raise SystemExit("--infer-fp16 replaces --infer-bf16's dtype: pass one of them")
+    if fp16 and (args.bf16_residual or args.fused_relu or args.fp8_inference or args.compile_packed
+                 or args.graphed):
+        raise SystemExit("--infer-fp16 serves the eager float16 trunk: not with --bf16-residual, "
+                         "--fused-relu, --fp8-inference, --compile-packed or --graphed (bf16 paths)")
+    if args.pipelined and (args.graphed or not args.rust_stage or args.profile_batches):
+        raise SystemExit("--pipelined serves the Rust stage's eager path: not with --graphed, "
+                         "--no-rust-stage or --profile-batches")
+    bf16 = (cuda if args.infer_bf16 is None else bool(args.infer_bf16)) and not fp16
+    if (bf16 or fp16) and not cuda:
+        raise SystemExit("--infer-bf16/--infer-fp16 require a cuda device: on cpu they would no-op "
                          "and the results would claim a precision that never ran")
+    autocast = bf16 or fp16
     # The games record which checkpoint they were served (the hello).
     checkpoint_sha256 = file_sha256(spec)
-    policy = _load_policy(spec, device, label=args.label, infer_bf16=bf16,
+    policy = _load_policy(spec, device, label=args.label, infer_bf16=autocast,
                           infer_compile=False)
     model = policy._inference_model
     encoder = policy._inference_encoder
+    if fp16:
+        model.infer_autocast_dtype = torch.float16
     model.infer_priors_only = bool(args.priors_only)
     packed = False
-    if args.packed_trunk and cuda and bf16 and flash_varlen_applies(device, torch.bfloat16):
+    head_dim = model.d_model // model.encoder.layers[0].self_attn.num_heads
+    if args.packed_trunk and cuda and autocast and varlen_attention_applies(
+            device, autocast_dtype(model), head_dim):
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
         packed = True
+    elif args.packed_trunk and fp16:
+        log.warning("--infer-fp16: no varlen kernel serves %s (see the hip kernels warning); "
+                    "serving the padded trunk", device)
     if args.graphed and (args.bf16_residual or args.fused_relu):
         raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "
                          "not with --bf16-residual or --fused-relu")
@@ -690,6 +770,9 @@ def main(argv: List[str]) -> int:
         # layout); on the CPU the Python path serves the same way.
         packed_embed = True
     elif rust_stage and not packed_embed:
+        if args.pipelined:
+            raise SystemExit("--pipelined serves the Rust stage, which writes the packed embed's "
+                             "buffers: not with --no-packed-embed or without the packed trunk")
         log.warning("--rust-stage writes the packed embed's buffers; with --no-packed-embed the "
                     "Python path serves")
         rust_stage = False
@@ -716,15 +799,15 @@ def main(argv: List[str]) -> int:
             with torch.no_grad():
                 log.info("graphed serve preflight: %s", graphed.preflight())
     server = InferenceServer(model, encoder, device=device,
-                             output_device=torch.device("cpu"), autocast_bf16=bf16,
+                             output_device=torch.device("cpu"), autocast_bf16=autocast,
                              packed_embed=packed_embed, graphed=graphed)
     hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
                          graphed=graphed is not None and graphed.disabled is None,
                          rust_stage=rust_stage, server_memory=memory is not None,
                          priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
-                         fused_relu=fused_relu, fp8=fp8)
-    listener = Listener()
+                         fused_relu=fused_relu, fp8=fp8, fp16=fp16, pipelined=bool(args.pipelined))
+    listener = pipe_listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None
     if args.profile_batches > 0:
@@ -735,10 +818,15 @@ def main(argv: List[str]) -> int:
             workdir=args.stats_out.parent if args.stats_out is not None else Path("."), device=device,
             dims={"d_model": int(model.d_model), "num_layers": len(model.encoder.layers),
                   "d_ff": int(layer.linear1.out_features)})
-    service = InferenceService(listener, infer_fn,
-                               hello, window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
-                               health_fn=_device_health_fn(device),
-                               release_fn=None if memory is None else memory.release_connection)
+    service_kw = dict(window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
+                      health_fn=_device_health_fn(device),
+                      release_fn=None if memory is None else memory.release_connection)
+    if args.pipelined:
+        from tools.serve_pipelined import PipelinedInferenceService
+        service = PipelinedInferenceService(listener, infer_fn, _model_launch_fn(server, memory=memory),
+                                            hello, **service_kw)
+    else:
+        service = InferenceService(listener, infer_fn, hello, **service_kw)
     service.start()
     timeline = None
     if args.timeline_out is not None:
@@ -748,9 +836,9 @@ def main(argv: List[str]) -> int:
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
     print(f"{INFO_PREFIX}{json.dumps(info)}", flush=True)
-    log.info("serving %s on %s (device=%s bf16=%s packed=%s packed_embed=%s compiled=%s "
-             "window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16,
-             packed, packed_embed, compiled, args.window_ms, args.max_batch)
+    log.info("serving %s on %s (device=%s bf16=%s fp16=%s packed=%s packed_embed=%s compiled=%s "
+             "pipelined=%s window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16,
+             fp16, packed, packed_embed, compiled, bool(args.pipelined), args.window_ms, args.max_batch)
     # Until the driver closes our stdin, or a device fault: then this
     # process exits and the driver, seeing it dead, admits no more games.
     fatal = service.serve_until_closed(lambda: _read_to_eof(sys.stdin.fileno()))

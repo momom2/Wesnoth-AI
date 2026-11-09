@@ -1,0 +1,64 @@
+{
+ "games": 16,
+ "decisions": 5411,
+ "windows": 27,
+ "seconds": 187.59258699417114,
+ "rate": {
+  "positions_per_second": 21.89008698003965,
+  "decisions": 2925,
+  "seconds": 133.62212780000118,
+  "warmup_windows": 5
+ },
+ "replay": {
+  "kl": 9.800762538144308e-06,
+  "half_mean_square": 5.094492603829281e-06,
+  "mean_abs": 0.0018083402185399991,
+  "max_abs": 0.026386733213861646,
+  "limit": 0.0001,
+  "base_limit": 0.0001
+ },
+ "floor": null,
+ "probes": {
+  "end_turn": 0.2736741304397583,
+  "attack": -0.14850948750972748,
+  "recruit": -0.3203783929347992
+ },
+ "shadow": 0,
+ "split_games": [
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "checkpoint_sha256": "aea027b2696a9fbce0ebcdc0a8483c9df7d35957934b81b0c62093a02cdd9129",
+ "config": {
+  "streams": 32,
+  "window": 16,
+  "seed": 20261021,
+  "slots": 64,
+  "workers": 3,
+  "prefetch": 64,
+  "bf16": false,
+  "fp16": true,
+  "packed": true,
+  "recompute": null,
+  "verify": true,
+  "procedure": "raw:t1",
+  "replay_kl_limit": 0.0001,
+  "floor_sides": 400,
+  "floor_dtype": "off"
+ },
+ "loss_scale": {
+  "scale": 1024.0,
+  "growth_interval": 200,
+  "min_scale": 0.00390625,
+  "finite_run": 27,
+  "overflows": 0,
+  "growths": 0,
+  "smallest": 1024.0
+ }
+}

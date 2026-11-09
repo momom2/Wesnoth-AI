@@ -1,0 +1,43 @@
+{
+ "old_ref": "041bd7ca",
+ "arch": "gfx1032",
+ "kernels": {
+  "varlen_attn_fwd_f16_d32": {
+   "instructions": 2946,
+   "identical": true
+  },
+  "varlen_attn_fwd_f16_d64": {
+   "instructions": 2164,
+   "identical": true
+  },
+  "varlen_attn_fwd_lse_f16_d32": {
+   "instructions": 2979,
+   "identical": true
+  },
+  "varlen_attn_fwd_lse_f16_d64": {
+   "instructions": 2191,
+   "identical": true
+  },
+  "add_ln_d1": {
+   "instructions": 156,
+   "identical": true
+  },
+  "add_ln_d2": {
+   "instructions": 196,
+   "identical": true
+  },
+  "add_ln_d3": {
+   "instructions": 231,
+   "identical": true
+  },
+  "add_ln_d4": {
+   "instructions": 273,
+   "identical": true
+  },
+  "add_ln_d6": {
+   "instructions": 360,
+   "identical": true
+  }
+ },
+ "all_identical": true
+}

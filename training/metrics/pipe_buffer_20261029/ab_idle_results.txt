@@ -1,0 +1,46 @@
+# ab_idle.sh, 2026-10-29 15:04-15:33, RX 6600 idle (stage 1 stopped). Run order:
+15:04:37 start old rep 1 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-stage1 
+15:07:31 end old rep 1 rc=0
+15:07:31 start bias rep 1 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-biasfold 
+15:10:23 end bias rep 1 rc=0
+15:10:23 start async rep 1 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-asyncreply --inference-async-replies
+15:13:10 end async rep 1 rc=0
+15:13:10 start pipe rep 1 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-pipebuf 
+15:16:09 end pipe rep 1 rc=0
+15:16:09 start biaspipe rep 1 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-abbiaspipe 
+15:18:54 end biaspipe rep 1 rc=0
+15:18:54 start biaspipe rep 2 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-abbiaspipe 
+15:21:39 end biaspipe rep 2 rc=0
+15:21:39 start pipe rep 2 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-pipebuf 
+15:24:40 end pipe rep 2 rc=0
+15:24:40 start async rep 2 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-asyncreply --inference-async-replies
+15:27:34 end async rep 2 rc=0
+15:27:34 start bias rep 2 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-biasfold 
+15:30:17 end bias rep 2 rc=0
+15:30:17 start old rep 2 in /c/Users/momom2/Desktop/perso/projects/wesnoth_ai-stage1 
+15:33:16 end old rep 2 rc=0
+15:33:16 all done
+
+# ab_steady.py (steady decisions a second; the async arm's GPU-busy share is its branch's timeline accounting, not a reading)
+async_1: 507.1 decisions/s steady over 30-110 s, GPU busy 0.044, mean batch 45.5, total wall 157 s
+async_2: 501.6 decisions/s steady over 30-120 s, GPU busy 0.053, mean batch 44.6, total wall 165 s
+bias_1: 521.1 decisions/s steady over 30-120 s, GPU busy 0.776, mean batch 78.7, total wall 163 s
+bias_2: 524.0 decisions/s steady over 30-110 s, GPU busy 0.779, mean batch 80.9, total wall 154 s
+biaspipe_1: 536.7 decisions/s steady over 30-110 s, GPU busy 0.777, mean batch 80.6, total wall 156 s
+biaspipe_2: 526.8 decisions/s steady over 30-110 s, GPU busy 0.781, mean batch 80.3, total wall 156 s
+old_1: 489.0 decisions/s steady over 30-120 s, GPU busy 0.811, mean batch 80.5, total wall 166 s
+old_2: 481.2 decisions/s steady over 30-130 s, GPU busy 0.775, mean batch 78.2, total wall 170 s
+pipe_1: 505.6 decisions/s steady over 30-120 s, GPU busy 0.809, mean batch 80.4, total wall 170 s
+pipe_2: 494.5 decisions/s steady over 30-130 s, GPU busy 0.806, mean batch 80.9, total wall 172 s
+
+# each run's server summary line (run_elo_batch's log)
+async_1: 15:13:10 INFO inference server own2.pt: 70410 requests in 2897 batches, mean batch 24.30, hist {...}; idle 12.4s window 5.3s (reads 1.5s) infer 139.5s reply 0.1s (writer 9.8s, 0 failed) of 157.4s wall (gpu 17.6s); host seconds by stage {'t_finish': 115.581, 't_forward': 15.972, 't_memory': 0.553, 't_parse': 0.255, 't_priors': 4.496, 't_replies': 0.318, 't_stage': 2.004}
+async_2: 15:27:33 INFO inference server own2.pt: 73446 requests in 3080 batches, mean batch 23.85, hist {...}; idle 12.8s window 5.6s (reads 1.5s) infer 146.1s reply 0.1s (writer 10.4s, 0 failed) of 164.6s wall (gpu 21.5s); host seconds by stage {'t_finish': 121.032, 't_forward': 16.745, 't_memory': 0.568, 't_parse': 0.26, 't_priors': 4.747, 't_replies': 0.334, 't_stage': 2.071}
+bias_1: 15:10:23 INFO inference server own2.pt: 74908 requests in 2424 batches, mean batch 30.90, hist {...}; idle 10.6s window 4.5s (reads 1.5s) infer 137.0s reply 11.0s of 163.1s wall (gpu 114.2s); host seconds by stage {'t_finish': 119.18, 't_forward': 11.333, 't_memory': 0.448, 't_parse': 0.231, 't_priors': 3.502, 't_replies': 0.3, 't_stage': 1.717}
+bias_2: 15:30:17 INFO inference server own2.pt: 72105 requests in 2125 batches, mean batch 33.93, hist {...}; idle 10.4s window 3.9s (reads 1.4s) infer 128.8s reply 10.7s of 153.9s wall (gpu 108.0s); host seconds by stage {'t_finish': 112.998, 't_forward': 10.055, 't_memory': 0.411, 't_parse': 0.216, 't_priors': 3.076, 't_replies': 0.274, 't_stage': 1.566}
+biaspipe_1: 15:18:54 INFO inference server own2.pt: 73377 requests in 2361 batches, mean batch 31.08, hist {...}; idle 12.1s window 4.4s (reads 1.5s) infer 134.1s reply 5.0s of 155.7s wall (gpu 96.3s); host seconds by stage {'t_finish': 116.414, 't_forward': 11.356, 't_memory': 0.443, 't_parse': 0.226, 't_priors': 3.46, 't_replies': 0.296, 't_stage': 1.679}
+biaspipe_2: 15:21:39 INFO inference server own2.pt: 72787 requests in 2370 batches, mean batch 30.71, hist {...}; idle 11.7s window 4.4s (reads 1.5s) infer 134.5s reply 4.9s of 155.6s wall (gpu 98.7s); host seconds by stage {'t_finish': 116.551, 't_forward': 11.447, 't_memory': 0.451, 't_parse': 0.225, 't_priors': 3.56, 't_replies': 0.301, 't_stage': 1.704}
+old_1: 15:07:31 INFO inference server own2.pt: 73112 requests in 2168 batches, mean batch 33.72, hist {...}; idle 10.3s window 4.1s (reads 1.5s) infer 140.2s reply 10.8s of 165.5s wall (gpu 119.0s); host seconds by stage {'t_finish': 123.715, 't_forward': 10.483, 't_memory': 0.421, 't_parse': 0.218, 't_priors': 3.259, 't_replies': 0.292, 't_stage': 1.582}
+old_2: 15:33:16 INFO inference server own2.pt: 74093 requests in 2185 batches, mean batch 33.91, hist {...}; idle 11.3s window 4.0s (reads 1.5s) infer 143.6s reply 11.1s of 170.1s wall (gpu 118.6s); host seconds by stage {'t_finish': 127.03, 't_forward': 10.57, 't_memory': 0.421, 't_parse': 0.219, 't_priors': 3.245, 't_replies': 0.283, 't_stage': 1.616}
+pipe_1: 15:16:09 INFO inference server own2.pt: 75660 requests in 2659 batches, mean batch 28.45, hist {...}; idle 12.0s window 4.9s (reads 1.5s) infer 147.6s reply 5.0s of 169.6s wall (gpu 109.1s); host seconds by stage {'t_finish': 127.805, 't_forward': 12.816, 't_memory': 0.468, 't_parse': 0.238, 't_priors': 3.843, 't_replies': 0.308, 't_stage': 1.784}
+pipe_2: 15:24:40 INFO inference server own2.pt: 77290 requests in 2426 batches, mean batch 31.86, hist {...}; idle 11.2s window 4.6s (reads 1.5s) infer 150.4s reply 5.3s of 171.7s wall (gpu 111.0s); host seconds by stage {'t_finish': 132.062, 't_forward': 11.851, 't_memory': 0.46, 't_parse': 0.233, 't_priors': 3.483, 't_replies': 0.306, 't_stage': 1.723}

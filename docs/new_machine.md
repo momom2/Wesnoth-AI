@@ -26,6 +26,20 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
    only. The Vast key needs offers and instances only. `vastai` stores its
    key in `~/.config/vastai/vast_api_key`.
 
+   Found on the Windows desktop, 2026-10-28:
+   - huggingface_hub 1.x and later name the CLI `hf`: `hf auth login`,
+     `hf download`. `huggingface-cli` is gone (hf 2.3.0).
+   - `gh` is not installed with Git for Windows: `winget install GitHub.cli`.
+   - Git's Credential Manager signs in through the browser, as whichever
+     GitHub account the browser is signed in to. Sign the browser in as
+     the repository's owner first, or pick the device-code option in its
+     window. A refused push stores nothing, so the next push asks again.
+   - `vastai` (unpinned in requirements.txt) pulls in 37 packages,
+     `requests`, `urllib3` and `pillow` among them. On the desktop it lives
+     in a venv of its own, `%USERPROFILE%\venvs\wesnoth_vast` (`vastai`
+     and `huggingface_hub`, 2026-10-29), which runs `scripts/rent_box.py`;
+     the key goes in with that venv's `vastai set api-key`.
+
 3. **Secret guard.** It redacts credentials from everything a tool
    returns to Claude:
 
@@ -67,6 +81,16 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
    Then build and install the wheel with the command in CLAUDE.md,
    Testing. `python tools/kernel_status.py` should then read "current".
 
+   A Windows machine without Visual Studio has no MSVC linker. The GNU
+   toolchain links on its own (rustc 1.99.1, maturin 1.15.0 on 2026-10-28):
+
+   ```bash
+   rustup default stable-x86_64-pc-windows-gnu
+   cd rust/wesnoth_core
+   CARGO_TARGET_DIR="$USERPROFILE/.cargo-target" maturin build --release -i python --out "$USERPROFILE/.cargo-target/wheels"
+   pip install --force-reinstall --no-deps "$USERPROFILE"/.cargo-target/wheels/wesnoth_core-*.whl
+   ```
+
 6. **Wesnoth** is needed only for the live tools and the engine oracles.
    - Install 1.18.x from Steam.
    - `python main.py --check-setup` links the add-on into Wesnoth's user
@@ -96,6 +120,31 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
      2026-10-27, the server holding as many files as the laptop or a few
      more). The corpus every pipeline reads is
      `tier-b/corpus_v3/raw_corpus_20260929.tar`.
+
+8. **An AMD GPU on Windows** (the desktop's RX 6600, gfx1032; records in
+   `training/metrics/local_gpu_20261028/`). Put the GPU build of torch in
+   a second venv outside the repository, and keep the CPU `.venv`: the
+   ROCm build's CPU kernels are much slower.
+
+   ```bash
+   python -m venv "$USERPROFILE/venvs/wesnoth_rocm"
+   "$USERPROFILE/venvs/wesnoth_rocm/Scripts/python" -m pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "torch[device-gfx1032]==2.14.0+rocm10.1.0"
+   ```
+
+   Then install the repository's requirements and the Rust wheel into it.
+   - **Pick the GPU.** Set `HIP_VISIBLE_DEVICES` to its index: 1 there,
+     since device 0 is the CPU's integrated GPU.
+   - **Kernels.** ROCm on Windows has no fused attention for RDNA2.
+     `wesnoth_ai/hip_kernels.py` compiles its own kernels at first use,
+     with the hiprtc that ships in the wheel.
+   - **Matches.** Pass `--infer-fp16` with `--shared-inference`: this card
+     runs bf16 matmuls at a fifth of fp16's rate.
+   - **Stage 1** runs with `scripts/selfplay_t1_local.py`.
+   - **Strength matches** run with `scripts/match_local.py` (README,
+     Quickstart, "On the local Windows machine").
+   - **The display.** The card drives the screen, and a GPU stall past 2 s
+     resets the display driver (System event 4101). Both scripts stop on
+     one.
 
 Copy by hand anything else you want: the Claude Code session transcripts
 (`~/.claude/projects/<key>/*.jsonl`, 1.6 GB) and the Kaggle credential

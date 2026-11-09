@@ -1,0 +1,112 @@
+{
+ "device": "AMD Radeon RX 6600",
+ "torch": "2.14.0+rocm10.1.0",
+ "hip": "7.16.26385",
+ "old_ref": "041bd7ca",
+ "positions": 200,
+ "memory_slots": 64,
+ "activation_is_relu": true,
+ "bias_fold_served": true,
+ "forward": {
+  "B48": {
+   "batches": 4,
+   "tokens_first_batch": 21975,
+   "forward": {
+    "pairs": 48,
+    "old_ms_median": 90.84,
+    "new_ms_median": 83.57,
+    "new_over_old_median": 0.921,
+    "new_over_old_q1_q3": [
+     0.9183,
+     0.9249
+    ],
+    "old_positions_per_s": 528.4,
+    "new_positions_per_s": 574.4
+   },
+   "trunk": {
+    "pairs": 48,
+    "old_ms_median": 83.81,
+    "new_ms_median": 76.32,
+    "new_over_old_median": 0.9117,
+    "new_over_old_q1_q3": [
+     0.9091,
+     0.9135
+    ],
+    "old_positions_per_s": 572.7,
+    "new_positions_per_s": 628.9
+   }
+  },
+  "B24": {
+   "batches": 8,
+   "tokens_first_batch": 11452,
+   "forward": {
+    "pairs": 96,
+    "old_ms_median": 45.85,
+    "new_ms_median": 41.79,
+    "new_over_old_median": 0.9139,
+    "new_over_old_q1_q3": [
+     0.9091,
+     0.9212
+    ],
+    "old_positions_per_s": 523.4,
+    "new_positions_per_s": 574.3
+   },
+   "trunk": {
+    "pairs": 96,
+    "old_ms_median": 42.13,
+    "new_ms_median": 37.81,
+    "new_over_old_median": 0.9015,
+    "new_over_old_q1_q3": [
+     0.8969,
+     0.9079
+    ],
+    "old_positions_per_s": 569.7,
+    "new_positions_per_s": 634.7
+   }
+  }
+ },
+ "kernels": {
+  "tokens": 21975,
+  "rounds": 40,
+  "median_ms": {
+   "gemm_qkv_bias": 1.964,
+   "gemm_qkv": 1.639,
+   "gemm_out_bias": 0.7136,
+   "gemm_out": 0.6071,
+   "gemm_ff1_bias": 2.5942,
+   "gemm_ff1": 2.0903,
+   "gemm_ff2_bias": 2.2689,
+   "gemm_ff2": 2.1414,
+   "attn_old": 2.0229,
+   "attn_new": 1.9955,
+   "attn_new_bias": 2.0774,
+   "add_ln_old": 0.5591,
+   "add_ln_new": 0.5708,
+   "add_ln_new_bias": 0.5959,
+   "relu": 0.7079,
+   "bias_relu": 0.7069
+  },
+  "min_ms": {
+   "gemm_qkv_bias": 1.8178,
+   "gemm_qkv": 1.541,
+   "gemm_out_bias": 0.6821,
+   "gemm_out": 0.5563,
+   "gemm_ff1_bias": 2.4572,
+   "gemm_ff1": 2.0371,
+   "gemm_ff2_bias": 2.1974,
+   "gemm_ff2": 2.0694,
+   "attn_old": 1.9198,
+   "attn_new": 1.8807,
+   "attn_new_bias": 1.9575,
+   "add_ln_old": 0.527,
+   "add_ln_new": 0.5055,
+   "add_ln_new_bias": 0.5284,
+   "relu": 0.6838,
+   "bias_relu": 0.6784
+  },
+  "layer_old_ms": 11.39,
+  "layer_new_ms": 10.454,
+  "layer_new_over_old": 0.9178
+ },
+ "max_memory_reserved_mb": 1346
+}

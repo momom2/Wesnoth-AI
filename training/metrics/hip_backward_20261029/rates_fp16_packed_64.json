@@ -1,0 +1,21 @@
+{
+ "device": "AMD Radeon RX 6600",
+ "torch": "2.14.0+rocm10.1.0",
+ "hip": "7.16.26385",
+ "positions": 64,
+ "train_batch": 32,
+ "warmup_batches": 1,
+ "reps": 1,
+ "memory_slots": 64,
+ "positions_per_s": {
+  "fp16_packed": 88.51
+ },
+ "phase_ms_per_batch": {
+  "fp16_packed": {
+   "forward": 162.5,
+   "backward": 253.4,
+   "optimizer": 22.3
+  }
+ },
+ "grad_scaler_scale": 4096.0
+}

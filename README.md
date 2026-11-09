@@ -79,6 +79,31 @@ committed, so no Wesnoth install is required for self-play. Wesnoth
 itself is needed only for the eval bridge (below) and to watch exported
 replays; `python main.py --check-setup` verifies that install.
 
+### On the local Windows machine (RX 6600)
+
+The desktop's RX 6600 plays the same match at no cost, an 800-game match
+in about 15 minutes by its generation rate (not yet timed on a full match;
+`training/metrics/local_gpu_20261028/README.md`;
+setup in docs/new_machine.md, step 8). `scripts/match_local.py` is the
+whole procedure in one command:
+- the reference on side B, from `configs/reference_player.json`;
+- the candidate on side A at the reference's decode and memory slots;
+  another decode or memory is refused unless `--allow-decode-change`;
+- 800 decisive games from seed 900000 on the local pool (96 games in
+  flight, fp16 serving), at below-normal priority;
+- then the PURE fit, the reference at 0, in `<out>/result.json`.
+
+A re-run of the same command resumes, and a display-driver reset stops
+the match. `--yield-gpu PCT` steps aside while another program uses the
+GPU and resumes after quiet minutes (docs/local_machine_use_20261029.md). The games record their fp16 serving (`infer_fp16`), so they
+never pool with a box's bf16 games.
+
+```powershell
+$env:HIP_VISIBLE_DEVICES = "1"    # device 0 is the CPU's integrated GPU
+$py = "$env:USERPROFILE\venvs\wesnoth_rocm\Scripts\python.exe"
+& $py scripts/match_local.py --label cand --checkpoint training/checkpoints/cand.pt --out "$env:USERPROFILE\wesnoth_runs\match_cand"
+```
+
 ## Overview
 
 **The simulator is the production training path.**
