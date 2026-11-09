@@ -47,8 +47,9 @@ class FakeTools:
     rounds in `xp` leave their rung to a cross-play match, whose games end
     as `xp_outcomes` (label A's)."""
 
-    def __init__(self, adopt=None, reading=(0.02, 0.004), claim_elo=-400.0, xp=(), xp_outcomes=()):
+    def __init__(self, adopt=None, reading=(0.02, 0.004), claim_elo=-400.0, xp=(), xp_outcomes=(), argmax_elo=50.0):
         self.calls, self.adopt, self.reading, self.claim_elo = [], adopt or {}, reading, claim_elo
+        self.argmax_elo = argmax_elo
         self.xp, self.xp_outcomes = set(xp), list(xp_outcomes)
 
     def __call__(self, out, name, cmd, log_name, cut, python, **_):
@@ -65,6 +66,11 @@ class FakeTools:
             net.write_text("rung", encoding="utf-8")
             Path(arg("--out")).write_text(json.dumps({"decision": dec, "candidate": None, "chosen_network": {
                 "path": str(net), "sha256": SHA, "s": 0.04, "rung": 0}}), encoding="utf-8")
+        elif name.endswith(" argmax"):                                   # scripts/match_local.py's result
+            match = Path(arg("--out"))
+            match.mkdir(parents=True, exist_ok=True)
+            elo = self.argmax_elo(int(words[1])) if callable(self.argmax_elo) else self.argmax_elo
+            (match / "result.json").write_text(json.dumps({"elo": elo, "se": 6.0}), encoding="utf-8")
         elif name.endswith(" cross-play"):
             games = Path(arg("--outdir"))
             games.mkdir(parents=True, exist_ok=True)
@@ -648,3 +654,96 @@ def test_average_gives_each_step_the_earlier_rounds_directions(tmp_path, monkeyp
     rc, out = _run(tmp_path / "plain", tools, rounds=4)
     assert rc == 0 and all(_averaged_with(tools.cmd(f"round {k} step")) is None for k in (2, 3, 4))
     assert " along " not in (out / "runner.log").read_text(encoding="utf-8")
+
+
+def test_lean_rounds_step_by_the_kl_search_and_measure_twice_every_sixth_round(tmp_path, monkeypatch):
+    """Prereg departure 43: each step past round 1 runs pg_round --lean with
+    the KL fraction that keeps about LEAN_KL_SIDES game-sides, no cross-play
+    match is played, and every LEAN_EVERY-th round plays the claim and the
+    argmax match at LEAN_GAMES decisive games, the argmax match on the final
+    matches' seeds; a first claim with none before it is only logged."""
+    _reference(monkeypatch)
+    tools = FakeTools()
+    rc, out = _run(tmp_path, tools, rounds=6, lean=True, held=1250)
+    assert rc == 0
+    names = tools.names()
+    assert "round 3 claim" not in names and not any(n.endswith("cross-play") for n in names)
+    assert names[-3:] == ["round 6 claim", "round 6 claim fit", "round 6 argmax"]
+    assert "--lean" not in tools.cmd("round 1 step")
+    for k in range(2, 7):
+        step = tools.cmd(f"round {k} step")
+        assert "--lean" in step and f"kl_fraction={rl.LEAN_KL_SIDES / 2500!r}" in step
+    claim = tools.cmd("round 6 claim")
+    assert claim[claim.index("--games") + 1] == str(rl.LEAN_GAMES)
+    assert claim[claim.index("--max-extra-games") + 1] == str(rl.LEAN_GAMES // 2)
+    m = tools.cmd("round 6 argmax")
+    assert m[0] == "scripts/match_local.py" and m[m.index("--checkpoint") + 1] == str(out / "round_06" / "pi.pt")
+    assert m[m.index("--games") + 1] == str(rl.LEAN_GAMES) and m[m.index("--seed-base") + 1] == "900000"
+    assert m[m.index("--out") + 1] == str(out / "round_06" / "argmax")
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert "round 6's argmax match: +50.0 +- 6.0 Elo against the reference" in log
+    assert "round 6's claim: no earlier reading to test it against" in log
+    assert "round 6's argmax match: no earlier reading to test it against" in log
+    plain = FakeTools()
+    assert _run(tmp_path / "plain", plain, rounds=3)[0] == 0
+    assert "--lean" not in plain.cmd("round 2 step") and not any("kl_fraction" in a for a in plain.cmd("round 2 step"))
+    claim = plain.cmd("round 3 claim")
+    assert claim[claim.index("--games") + 1] == str(rl.CLAIM_GAMES) and "round 3 argmax" not in plain.names()
+
+
+def test_lean_rounds_pause_unless_the_claim_gains_2_se_and_the_argmax_match_1_se(tmp_path, monkeypatch):
+    """Prereg departure 43's two stops at round 12, against round 6: the
+    claim (SE 5 each) must gain more than 2 * 5 * sqrt 2 = 14.1 Elo and the
+    argmax match (SE 6 each) more than 6 * sqrt 2 = 8.5, or the rounds pause
+    (STOP, exit 3) with every stop that fired; both matches are played
+    either way."""
+    _reference(monkeypatch)
+    for name, claim, best, fired in (("up", -80.0, 70.0, []), ("claim flat", -90.0, 70.0, ["claim"]),
+                                     ("argmax flat", -80.0, 55.0, ["argmax match"]),
+                                     ("both", -90.0, 55.0, ["claim", "argmax match"])):
+        tools = FakeTools(claim_elo=lambda k, c=claim: {6: -100.0, 12: c}[k],
+                          argmax_elo=lambda k, b=best: {6: 50.0, 12: b}[k])
+        rc, out = _run(tmp_path / name, tools, rounds=12, lean=True)
+        assert rc == (3 if fired else 0), name
+        assert "round 12 argmax" in tools.names()
+        log = (out / "runner.log").read_text(encoding="utf-8")
+        claim_read = f"claim - round 6's claim reads {claim + 100:+.1f} Elo (combined SE 7.1)"
+        best_read = f"argmax match - round 6's argmax match reads {best - 50:+.1f} Elo (combined SE 8.5)"
+        stop = (out / "STOP").read_text(encoding="utf-8") if fired else ""
+        assert (f"PAUSE after round 12's claim: {claim_read}, not above 0 by 2 SE" in stop) is ("claim" in fired)
+        assert (f"PAUSE after round 12's argmax match: {best_read}, not above 0 by 1 SE" in stop) is (
+            "argmax match" in fired)
+        if "claim" not in fired:
+            assert f"round 12's claim: {claim_read}, above 0 by 2 SE" in log
+        if "argmax match" not in fired:
+            assert f"round 12's argmax match: {best_read}, above 0 by 1 SE" in log
+
+
+def test_a_lean_round_after_a_plain_one_needs_lean_stops(tmp_path):
+    """A lean round holds no confirmed reading, so the plain stops refuse it."""
+    r = rl.Rounds(_args(tmp_path))
+    (r.rdir(4) / "round.json").write_text(json.dumps({"decision": {"adopt": True, "lean": True}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="holds no confirmed reading"):
+        r.confirmed(4)
+
+
+def test_a_round_plays_from_its_seed_base_file_inside_its_block(tmp_path, monkeypatch):
+    """Prereg departure 42's replay: round 2's games start from its
+    seed_base.txt; a base that puts the round's games outside its block is
+    refused."""
+    _reference(monkeypatch)
+    base = rl.SEED_BASE + 2 * rl.SEED_STRIDE + 500_000
+    (tmp_path / "out" / "round_02").mkdir(parents=True)
+    (tmp_path / "out" / "round_02" / "seed_base.txt").write_text(f"{base}\n", encoding="utf-8")
+    tools = FakeTools()
+    assert _run(tmp_path, tools, rounds=2, n_train=5000, held=1250)[0] == 0
+    games = tools.cmd("round 2 games")
+    assert games[games.index("--seed-base") + 1] == str(base)
+    r = rl.Rounds(_args(tmp_path / "x", n_train=5000))
+    block = rl.SEED_BASE + 3 * rl.SEED_STRIDE
+    for bad in (block - 1, block + rl.SEED_STRIDE - 100):
+        (r.rdir(3) / "seed_base.txt").write_text(f"{bad}\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="outside its block"):
+            r.seed_base(3)
+    (r.rdir(3) / "seed_base.txt").unlink()
+    assert r.seed_base(3) == block

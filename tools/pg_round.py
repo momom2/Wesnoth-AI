@@ -37,6 +37,13 @@ round.json also logs what design §6 asks of each round:
   direction.pt), which reads oscillation directly, since nothing carries
   momentum.
 
+`--lean` (prereg departure 43): the step is the KL search alone. Along the
+averaged direction (d itself without --average-with, or when the averaging
+cannot take its input, as below), s is searched to the radius, eps or the
+range's edge if that is lower, and the step is adopted unread: no half reads
+it, so no importance weight is checked and no cross-play rung is written.
+The decision holds that one rung, with no halves, and `"lean": true`.
+
 `--average-with` (prereg departure 37; the heads-only arm): earlier rounds'
 direction.pt files. Beside d the round reads their average with d
 (pg_step.averaged: each scaled to unit norm, one weight each) on
@@ -79,8 +86,9 @@ import numpy as np  # noqa: E402
 
 from wesnoth_ai.pg_cross_play import cross_play_case  # noqa: E402
 from wesnoth_ai.pg_step import (ARMS, AVERAGE_MULTIPLIERS, DEFAULT_ARM, LADDER_MULTIPLIERS,  # noqa: E402
-                                averaged, decisions_per_side, direction, dot, head_directions, head_of, ladder,
-                                norm, paired_difference, paired_ladder, span_fisher)
+                                SIDE_KL_RANGE, Decision, Rung, averaged, decisions_per_side, direction, dot,
+                                head_directions, head_of, kl_search, ladder, norm, paired_difference, paired_ladder,
+                                span_fisher)
 
 
 def eps_of(path: Path) -> float:
@@ -128,13 +136,16 @@ def _write_json(path: Path, obj: Dict) -> None:
 def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, eps: float,
               previous: Optional[Dict[str, torch.Tensor]] = None, adopt: Optional[Dict] = None,
               stage_c: Optional[Dict] = None, average: Optional[Sequence[Dict[str, torch.Tensor]]] = None,
-              average_of: Optional[Sequence[str]] = None) -> tuple:
+              average_of: Optional[Sequence[str]] = None, lean: bool = False) -> tuple:
     """(readout, d, s or None, the direction s steps along): the round's
     direction, its ladder (or stage C's decision, `adopt`, taken as read)
     and the step to write. `stage_c` is stage_c.json, whose span Fisher
     round 1's probe_span takes. `average` (the earlier rounds' directions,
     `average_of` their paths) adds the averaged direction beside d (module
-    docstring), and the step may go along it."""
+    docstring), and the step may go along it. `lean` takes the step by its
+    KL search alone (module docstring, prereg departure 43)."""
+    if lean and adopt is not None:
+        raise ValueError("--lean takes no stage C decision: round 1's step is stage C's")
     fisher, source = (round_span_fisher(pass_, params, factory, stage_c if adopt is not None else None)
                       if arm == "probe_span" else (None, None))
     d = direction(pass_, arm, params, fisher)
@@ -154,6 +165,8 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
         readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps / 2.0, "chosen": None,
                                "reason": "the direction is zero (every label 0)", "rungs": []}
         return readout, d, None, d
+    if lean:
+        return _lean_step(readout, factory, arm, eps, d, size, average or [], average_of)
     step_d, decision = d, None
     if average:
         readout["average"] = {"of": [str(p) for p in (average_of or [])]}
@@ -179,6 +192,18 @@ def _paired_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torc
     and its average with `average` (module docstring), its facts written
     into `readout`. Raises ValueError on an input departure 37 does not
     cover; run_round then reads d's ladder alone."""
+    d_avg = _average(readout, arm, d, size, average)
+    paired = paired_ladder(factory, {"plain": d, "average": d_avg}, eps,
+                           {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=1.0 / size)
+    readout["paired"] = {**paired.summary(), "average_minus_plain_A": paired_a(paired.rungs)}
+    return paired.decision, (d_avg if paired.chosen == "average" else d)
+
+
+def _average(readout: Dict, arm: str, d: Dict[str, torch.Tensor], size: float,
+             average: Sequence[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    """d averaged with `average` (prereg departure 37), its norm and its
+    cosine with d written into readout["average"]. Raises ValueError on an
+    input departure 37 does not cover."""
     if arm != "heads_only":
         raise ValueError(f"--average-with is prereg departure 37's, on the heads_only arm, not {arm}")
     moved = sorted({n for e in average for n, t in e.items() if head_of(n) is None and bool(torch.any(t))})
@@ -189,10 +214,35 @@ def _paired_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torc
     if not size_avg > 0:
         raise ValueError("the averaged direction is zero")
     readout["average"].update({"norm": size_avg, "cosine_plain": dot(d, d_avg) / (size * size_avg)})
-    paired = paired_ladder(factory, {"plain": d, "average": d_avg}, eps,
-                           {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=1.0 / size)
-    readout["paired"] = {**paired.summary(), "average_minus_plain_A": paired_a(paired.rungs)}
-    return paired.decision, (d_avg if paired.chosen == "average" else d)
+    return d_avg
+
+
+def _lean_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torch.Tensor], size: float,
+               average: Sequence[Dict[str, torch.Tensor]], average_of: Optional[Sequence[str]]) -> tuple:
+    """Prereg departure 43's step (module docstring): run_round's return,
+    the step searched to the radius along the averaged direction (or d)
+    and adopted unread."""
+    step_d, along = d, "plain"
+    if average:
+        readout["average"] = {"of": [str(p) for p in (average_of or [])]}
+        try:
+            step_d, along = _average(readout, arm, d, size, average), "average"
+        except ValueError as e:                          # the step goes along d, as run_round's paired path does
+            readout["average"]["error"] = f"{type(e).__name__}: {e}"
+            print(f"PG_ROUND_AVERAGE_FAILED: {readout['average']['error']}; the lean step goes along d",
+                  file=sys.stderr, flush=True)
+    evaluator = factory(step_d)
+    sides = evaluator.game_sides()
+    edge = SIDE_KL_RANGE / decisions_per_side(sides)
+    target = min(eps, edge)
+    point = kl_search(evaluator.mean_kl, target, s0=1.0 / norm(step_d))
+    decision = Decision(True, point.s, eps, target, 0,
+                        f"lean step (prereg departure 43): KL {point.kl:.4g} a decision along {along}, unread",
+                        [Rung(1.0, target, point.s, point.kl, True, {})])
+    readout["decision"] = {**decision.summary(), "lean": True}
+    readout["lean"] = {"along": along, "edge": edge, "kl_evals": point.evals}
+    readout["heldout"] = {"game_sides": len(sides), "decisions_per_side": decisions_per_side(sides)}
+    return readout, d, point.s, step_d
 
 
 def paired_a(rungs: Dict[str, list]) -> Optional[Dict[str, float]]:
@@ -228,7 +278,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--direction-out", type=Path, default=None)
     ap.add_argument("--chosen-network", type=Path, default=None,
                     help="where the chosen rung's network is written when a cross-play match must read it")
+    ap.add_argument("--lean", action="store_true",
+                    help="the step by its KL search alone, adopted unread (prereg departure 43)")
     args = ap.parse_args(argv)
+    if args.lean and args.adopt_from is not None:
+        ap.error("--lean takes no --adopt-from: round 1's step is stage C's")
     module, _, name = args.factory.partition(":")
     factory, params, sha = getattr(importlib.import_module(module), name)(**_factory_args(args.factory_arg))
     pass_ = load_pass(args.pass_path)
@@ -249,13 +303,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     previous = torch.load(args.previous, map_location="cpu", weights_only=True) if args.previous else None
     average = [torch.load(p, map_location="cpu", weights_only=True) for p in args.average_with or []]
     readout, d, s, step_d = run_round(pass_, params, factory, arm, eps, previous, adopt, stage_c, average,
-                                      args.average_with)
+                                      args.average_with, lean=args.lean)
     if args.direction_out is not None:
         torch.save(d, args.direction_out)
         if step_d is not d:              # what rebuilds an averaged candidate (the code review's L4)
             averaged_out = args.direction_out.with_name("direction_average.pt")
             torch.save(step_d, averaged_out)
-            readout["paired"]["direction"] = str(averaged_out)
+            readout["lean" if "lean" in readout else "paired"]["direction"] = str(averaged_out)
     readout["candidate"] = None
     if s is not None:
         sha_out = factory(step_d).write_candidate(s, args.candidate)
@@ -270,7 +324,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                                      "rung": chosen}
     _write_json(args.out, readout)
     dec = readout["decision"]
-    along = f" along {readout['paired']['chosen']}" if "paired" in readout else ""
+    along = (f" along {readout['paired']['chosen']}" if "paired" in readout else
+             f" along {readout['lean']['along']} (lean)" if "lean" in readout else "")
     print(f"PG_ROUND adopt={dec['adopt']} s={dec['s']:.4g} eps={eps:.4g} next_eps={dec['next_eps']:.4g} "
           f"arm={arm}{along}: {dec['reason']}")
     return 0

@@ -83,6 +83,32 @@ it in the same --out, and three options shape them:
 The STOP the stop wrote is moved aside by the caller (scripts/chain_local.py
 --after-stop) before the rounds resume.
 
+**--lean** (prereg departure 43): evaluation takes about a tenth of the
+GPU's time, against about half before.
+- Each step is its KL search alone (tools/pg_round.py --lean): along the
+  averaged direction, adopted unread. So no half reads it and no cross-play
+  match is played. The held-out games fit the labels and the corrections and
+  give the KL subsample, which keeps about LEAN_KL_SIDES game-sides
+  (kl_fraction, tools/pg_eval.py).
+- Every LEAN_EVERY-th round in place of every CLAIM_EVERY-th, two matches
+  of LEAN_GAMES decisive games:
+  - the claim, at temperature 1 as before;
+  - the argmax match (scripts/match_local.py): the reference's decode
+    against the reference, on the final matches' first seeds
+    (ARGMAX_SEED_BASE), so every reading pairs with every other.
+- The two stops, either of which pauses the rounds (STOP):
+  - the claim must beat the latest earlier claim on record by 2 combined
+    SE;
+  - the argmax match must beat the latest earlier argmax reading on
+    record (a round's argmax/result.json) by 1 combined SE: strength at
+    the reference's decode comes first, and a flat line pauses for a
+    decision rather than spend the GPU.
+  A reading with none before it is only logged.
+
+A round's games start from SEED_BASE + k * SEED_STRIDE, or from the base in
+its seed_base.txt (prereg departure 42's replay), which must leave the
+round's games inside its own block.
+
 A failed part stops the chain: the next round needs its policy. A failed
 part stays failed at a new start (its `rNN_<part>.failed`: delete it to run
 it again), and a done part is not run again. A STOP file in --out ends the
@@ -140,6 +166,18 @@ XP_MIN_SHARE = 0.9
 CLAIM_SEED_STRIDE = 10_000_000
 CLAIM_EVERY = 3
 CLAIM_GAMES = 12800             # design §3.2: a claim's decisive games, D0's
+# --lean (prereg departure 43). The two matches every LEAN_EVERY-th round
+# play LEAN_GAMES decisive games each. At 3,200 a claim's SE is about 6 Elo,
+# against the 30-70 Elo a claim has gained over the 3 rounds before it since
+# round 6. The claim against the forecast read 28.7 combined SE at 3,200,
+# against 28.2 at 12,800 (the 2026-11-09 evening review's M3).
+LEAN_EVERY = 6
+LEAN_GAMES = 3200
+ARGMAX_SEED_BASE = 900_000      # scripts/chain_local.py FINAL_SEED_BASE: the final matches' seeds
+ARGMAX_CUT_MIN = 5 * 60         # 3,200 games at the final matches' 40-60 a minute take 55-80 min; match_local
+                                # cuts an attempt at 136 min and plays a short match once more
+LEAN_KL_SIDES = 250             # the KL subsample: round 18's, 5 % of 5,000 held-out game-sides
+KL_FRACTION = 0.05              # tools/pg_eval.py EvalConfig.kl_fraction's default
 # Elo per unit of E[z] at a win rate of 1/2: Elo = 400 log10(p / (1 - p))
 # and E[z] = 2 p - 1, so dElo / dE[z] = 200 / ln 10 / (p (1 - p)) = 347.4.
 ELO_PER_Z = 347.4
@@ -178,6 +216,8 @@ class Rounds(Steps):
         self.n_train = self.n_design
         self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
+        self.lean = bool(getattr(args, "lean", False))                    # prereg departure 43
+        self.claim_games = LEAN_GAMES if self.lean else CLAIM_GAMES
 
     # ---- the rounds' files
     def rdir(self, k: int) -> Path:
@@ -261,6 +301,18 @@ class Rounds(Steps):
             f.write_text(f"{N_HELD if started else self.held}\n", encoding="utf-8")
         return int(f.read_text(encoding="utf-8"))
 
+    def seed_base(self, k: int) -> int:
+        """Round k's first game seed: its seed_base.txt's when it has one
+        (module docstring), else SEED_BASE + k * SEED_STRIDE. Raises
+        ValueError when the round's games would leave its block."""
+        f = self.rdir(k) / "seed_base.txt"
+        block = SEED_BASE + k * SEED_STRIDE
+        base = int(f.read_text(encoding="utf-8")) if f.exists() else block
+        if not (block <= base and base + self.round_size(k) + self.held_size(k) <= block + SEED_STRIDE):
+            raise ValueError(f"round {k}'s seed base {base} puts its games outside its block {block}-"
+                             f"{block + SEED_STRIDE - 1} ({f})")
+        return base
+
     def game_dirs(self, k: int) -> List[str]:
         play = self.rdir(k) / "play"
         chunks = (self.round_size(k) + self.held_size(k) + CHUNK_GAMES - 1) // CHUNK_GAMES
@@ -342,13 +394,18 @@ class Rounds(Steps):
         w = getattr(self.a, "pass_window", None)
         return ["--window", str(w)] if w else []
 
-    def factory_args(self, checkpoint: str, dirs: List[str], labels: Path, cache: Path) -> List[str]:
+    def factory_args(self, checkpoint: str, dirs: List[str], labels: Path, cache: Path,
+                     held: Optional[int] = None) -> List[str]:
         """The evaluator's arguments; its readings are kept in `cache`, so a
-        restarted ladder resumes (tools/pg_eval_cache.py)."""
+        restarted ladder resumes (tools/pg_eval_cache.py). A lean round's
+        (`held` its |H|) takes the KL fraction that keeps about LEAN_KL_SIDES
+        game-sides in the KL subsample."""
         out = []
         for key, value in (("checkpoint", checkpoint), ("games", ",".join(dirs)), ("labels", labels),
                            ("device", "cuda"), ("workers", self.workers), ("fp16", "1"), ("cache", cache)):
             out += ["--factory-arg", f"{key}={value}"]
+        if self.lean and held:
+            out += ["--factory-arg", f"kl_fraction={min(1.0, LEAN_KL_SIDES / (2 * held))!r}"]
         return out
 
     # ---- round 1: stage C's decision
@@ -381,7 +438,7 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s games")
             rc = self.step(f"round {k} games", ["scripts/selfplay_t1_local.py", "--out", str(d / "play"),
                                                 "--checkpoint", pi, "--label", f"pi{k}", "--seed-base",
-                                                str(SEED_BASE + k * SEED_STRIDE), "--games",
+                                                str(self.seed_base(k)), "--games",
                                                 str(self.round_size(k) + self.held_size(k)), "--heldout-from",
                                                 str(self.round_size(k)),
                                                 "--no-measures"],
@@ -416,12 +473,14 @@ class Rounds(Steps):
             prev = self.rdir(k - 1)
             previous = ["--previous", str(prev / "direction.pt")] if (prev / "direction.pt").exists() else []
             previous += self.average_args(k)
+            lean = ["--lean"] if self.lean else []
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
-                                               *self.factory_args(pi, dirs, labels, d / "eval_cache"), "--eps-from",
+                                               *self.factory_args(pi, dirs, labels, d / "eval_cache",
+                                                                  self.held_size(k)), "--eps-from",
                                                str(prev / "round.json"), *self.arm_args(), *previous, "--out", str(d / "round.json"), "--candidate",
                                                str(d / "pi.pt"), "--direction-out", str(d / "direction.pt"),
-                                               "--chosen-network", str(d / "rung.pt")],
+                                               "--chosen-network", str(d / "rung.pt"), *lean],
                            f"round_{k:02d}.log", STEP_CUT_MIN)
             ok = rc == 0 and (d / "round.json").exists()
             self.mark(f"{tag}_step", None if ok else f"round {k}'s step ended rc={rc} (round_{k:02d}.log)")
@@ -496,6 +555,9 @@ class Rounds(Steps):
         for a round that kept pi."""
         r = self.round_json(k)
         dec = r["decision"]
+        if dec.get("lean"):
+            raise ValueError(f"round {k}'s step was lean (prereg departure 43): it holds no confirmed reading, so "
+                             f"the rounds after it run with --lean")
         if not dec.get("adopt"):
             return 0.0, 0.0
         if "cross_play" in dec:
@@ -518,8 +580,8 @@ class Rounds(Steps):
             games = d / "claim"
             rc = self.play_match(f"round {k} claim", ["tools/run_elo_batch.py", *side_a, *ref_b, "--mcts-sims", "0",
                                                       "--raw-temperature-a", "1", "--raw-temperature-b", "0",
-                                                      "--outdir", str(games), "--games", str(CLAIM_GAMES),
-                                                      "--max-extra-games", str(CLAIM_GAMES // 2), "--seed-base",
+                                                      "--outdir", str(games), "--games", str(self.claim_games),
+                                                      "--max-extra-games", str(self.claim_games // 2), "--seed-base",
                                                       str(CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE), *POOL],
                                  f"claim_{k:02d}.log", CLAIM_CUT_MIN)
             if rc in (0, 4):
@@ -565,6 +627,50 @@ class Rounds(Steps):
                 notes.append(f"round {k}'s claim: {read}, within 2 SE")
         return ("; ".join(why) or None), notes
 
+    def argmax(self, k: int) -> Optional[Tuple[float, float]]:
+        """--lean's argmax match after round k (module docstring): (Elo, SE)
+        against the reference, or None."""
+        tag, d = f"r{k:02d}_argmax", self.rdir(k)
+        result = d / "argmax" / "result.json"
+        if not self.skip(tag):
+            self.check_stop(f"round {k}'s argmax match")
+            rc = self.step(f"round {k} argmax", ["scripts/match_local.py", "--label", f"lean{k}", "--checkpoint",
+                                                 self.policy_after(k), "--out", str(d / "argmax"), "--games",
+                                                 str(LEAN_GAMES), "--seed-base", str(ARGMAX_SEED_BASE), "--python",
+                                                 self.py, "--tools-python", self.tools_py],
+                           f"argmax_{k:02d}.log", ARGMAX_CUT_MIN)
+            self.mark(tag, None if rc == 0 and result.exists() else
+                      f"the argmax match ended rc={rc} (argmax_{k:02d}.log)")
+        if not self.done(tag):
+            return None
+        return self._argmax_reading(k)
+
+    def lean_stops(self, k: int, claim: Tuple[float, float],
+                   best: Tuple[float, float]) -> Tuple[Optional[str], List[str]]:
+        """--lean's two stops after round k's matches (module docstring): (every
+        stop that fired, joined, or None to go on; the notes to log)."""
+        why, notes = [], []
+        for what, got, base_of, margin in (
+                ("claim", claim, lambda j: pure(self.out / f"round_{j:02d}" / "claim.fit.json", f"pi{j}t1"), 2.0),
+                ("argmax match", best, self._argmax_reading, 1.0)):
+            name = "claim.fit.json" if what == "claim" else "argmax/result.json"
+            j = next((j for j in range(k - 1, 0, -1) if (self.out / f"round_{j:02d}" / name).exists()), None)
+            if j is None:
+                notes.append(f"round {k}'s {what}: no earlier reading to test it against")
+                continue
+            base = base_of(j)
+            gain, se = got[0] - base[0], math.hypot(got[1], base[1])
+            read = f"{what} - round {j}'s {what} reads {gain:+.1f} Elo (combined SE {se:.1f})"
+            if gain > margin * se:
+                notes.append(f"round {k}'s {what}: {read}, above 0 by {margin:g} SE")
+            else:
+                why.append(f"PAUSE after round {k}'s {what}: {read}, not above 0 by {margin:g} SE "
+                           f"(prereg departure 43)")
+        return ("; ".join(why) or None), notes
+
+    def _argmax_reading(self, j: int) -> Tuple[float, float]:
+        reading = json.loads((self.out / f"round_{j:02d}" / "argmax" / "result.json").read_text(encoding="utf-8"))
+        return float(reading["elo"]), float(reading["se"])
 
 def pure(fit_json: Path, label: str) -> Tuple[float, float]:
     """A label's PURE Elo and SE from elo_collect's --save-json."""
@@ -605,21 +711,28 @@ def run(r: Rounds, rounds: int) -> int:
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
             dec = r.round_json(k)["decision"]
-            paired = r.round_json(k).get("paired")
-            along = f" along {paired['chosen']}" if paired else ""
+            paired, lean = r.round_json(k).get("paired"), r.round_json(k).get("lean")
+            along = f" along {paired['chosen']}" if paired else f" along {lean['along']} (lean)" if lean else ""
             log(out, f"round {k}: adopt={dec.get('adopt')} next_eps={dec.get('next_eps')}{along}: {dec.get('reason')}")
             if k == 1 and r.xp_gate:
                 why = r.xp_resolved()
                 if why:
                     log(out, f"ROUNDS_WAIT after round 1: {why}")
                     return 3
-            if k % CLAIM_EVERY == 0:
+            if k % (LEAN_EVERY if r.lean else CLAIM_EVERY) == 0:
                 claim = r.claim(k)
                 if claim is None:
                     log(out, f"ROUNDS_FAILED at round {k}'s claim: {' '.join(r.state)}")
                     return 1
                 log(out, f"round {k}'s claim: {claim[0]:+.1f} +- {claim[1]:.1f} Elo against the reference")
-                why, notes = r.stops(k, claim)
+                if r.lean:
+                    best = r.argmax(k)
+                    if best is None:
+                        log(out, f"ROUNDS_FAILED at round {k}'s argmax match: {' '.join(r.state)}")
+                        return 1
+                    log(out, f"round {k}'s argmax match: {best[0]:+.1f} +- {best[1]:.1f} Elo against the reference "
+                             f"({LEAN_GAMES} decisive games from seed {ARGMAX_SEED_BASE})")
+                why, notes = r.lean_stops(k, claim, best) if r.lean else r.stops(k, claim)
                 for note in notes:
                     log(out, note)
                 if why:
@@ -668,6 +781,9 @@ def main() -> int:
     ap.add_argument("--average", type=int, default=0, metavar="N",
                     help="a step reads its direction averaged with the N previous rounds' beside it (module "
                          "docstring, prereg departure 37)")
+    ap.add_argument("--lean", action="store_true",
+                    help="each step by its KL search alone, and two smaller matches every LEAN_EVERY-th round "
+                         "(module docstring, prereg departure 43)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -696,7 +812,7 @@ def main() -> int:
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, |H| {args.held}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
                   f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}, average "
-                  f"{args.average}")
+                  f"{args.average}, lean {args.lean}")
     return run(Rounds(args), args.rounds)
 
 

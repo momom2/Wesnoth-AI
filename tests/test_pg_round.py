@@ -227,3 +227,106 @@ def test_round_1_adopts_a_probe_span_step_along_stage_cs_fisher(monkeypatch):
     monkeypatch.setattr(pr, "norm", lambda d: 1.0)
     readout, d, s, _ = pr.run_round(pass_, params, None, "probe_span", 1e-3, adopt=adopt, stage_c=stage_c)
     assert np.array_equal(d["fisher"], F) and s == 0.5 and readout["span_fisher"]["source"] == "stage C (kl)"
+
+
+class _KLEvaluator:
+    """KL q s^2 a decision along the direction it is bound to, q its squared
+    norm; `decisions` decisions per game-side."""
+
+    def __init__(self, d, decisions=10, games=4):
+        import tools.pg_round as pr
+        from wesnoth_ai.pg_protocol import GameSide
+        self.d, self.q = d, pr.norm(d) ** 2
+        self.sides = [GameSide(f"g{g}", side, 1.0, None, (2 * g + side - 1) * decisions, (2 * g + side) * decisions)
+                      for g in range(games) for side in (1, 2)]
+
+    def game_sides(self):
+        return self.sides
+
+    def mean_kl(self, s):
+        return self.q * s * s
+
+
+def test_a_lean_step_searches_the_averaged_direction_to_the_radius_and_adopts_it_unread():
+    """Prereg departure 43: the step is the KL search alone, along the
+    averaged direction, to eps or the range's edge if that is lower, and is
+    adopted with one rung that no half read (so no cross-play rung); an
+    earlier direction off the heads leaves it along d, the reason
+    recorded."""
+    import tools.pg_round as pr
+    from wesnoth_ai.pg_cross_play import cross_play_case
+    from wesnoth_ai.pg_step import KL_RTOL, SIDE_KL_RANGE, averaged
+    params = _heads_params()
+    torch.manual_seed(2)
+    d = {n: torch.randn_like(t) for n, t in params.items()}
+    earlier = {n: torch.randn_like(t) for n, t in params.items()}
+    bound = []
+
+    def factory(direction):
+        bound.append(direction)
+        return _KLEvaluator(direction)
+
+    edge = SIDE_KL_RANGE / 10
+    for eps, target in ((2 * edge, edge), (edge / 4, edge / 4)):
+        bound.clear()
+        readout = {}
+        readout, d_out, s, step_d = pr._lean_step(readout, factory, "heads_only", eps, d, pr.norm(d), [earlier],
+                                                  ["earlier.pt"])
+        want = averaged([d, earlier])
+        assert d_out is d and all(torch.equal(step_d[n], want[n]) for n in want)
+        assert all(torch.equal(bound[0][n], want[n]) for n in want) and len(bound) == 1
+        dec = readout["decision"]
+        assert dec["adopt"] and dec["lean"] and dec["s"] == s and dec["eps"] == eps and dec["next_eps"] == target
+        assert dec["chosen"] == 0 and len(dec["rungs"]) == 1 and dec["rungs"][0]["halves"] == {}
+        assert abs(_KLEvaluator(want).mean_kl(s) - target) <= KL_RTOL * target
+        assert readout["lean"]["along"] == "average" and readout["lean"]["edge"] == pytest.approx(edge)
+        assert readout["average"]["of"] == ["earlier.pt"] and readout["average"]["norm"] == pytest.approx(pr.norm(want))
+        assert cross_play_case(dec, dec["rungs"]) is None
+    trunk = {**earlier, "encoder.weight": torch.ones(2, 2)}
+    readout, _, s, step_d = pr._lean_step({}, factory, "heads_only", edge, d, pr.norm(d), [trunk], ["trunk.pt"])
+    assert step_d is d and readout["lean"]["along"] == "plain" and "more than the heads" in readout["average"]["error"]
+    readout, _, _, step_d = pr._lean_step({}, factory, "heads_only", edge, d, pr.norm(d), [], None)
+    assert step_d is d and readout["lean"]["along"] == "plain" and "average" not in readout
+
+
+def test_a_lean_step_takes_no_stage_c_decision():
+    import tools.pg_round as pr
+    with pytest.raises(ValueError, match="round 1's step is stage C's"):
+        pr.run_round({}, _heads_params(), None, "heads_only", 1e-3, adopt={"adopt": True}, lean=True)
+
+
+@needs_core
+@pytest.mark.slow
+def test_a_lean_round_through_the_command_line_writes_the_averaged_step(tmp_path):
+    """Prereg departure 43 on the miniature stage 1: --lean with
+    --average-with writes the candidate theta_k + s d_avg, saves d and the
+    average apart, and no chosen network."""
+    from helpers.pg_run import e2e_run
+    from tools.pg_eval import network_factory
+    from tools.pg_round import main
+    from wesnoth_ai.pg_step import KL_RTOL, averaged, decisions_per_side, head_of
+    run = e2e_run()
+    factory, _, _ = network_factory(str(run.checkpoint), str(run.games), str(run.labels), device="cpu", streams="4")
+    eps = 0.25 / decisions_per_side(factory({}).game_sides())
+    common = ["--pass", str(run.pass_path), "--factory", "tools.pg_eval:network_factory", *_factory_args(run),
+              "--eps", repr(eps), "--arm", "heads_only"]
+    own = tmp_path / "own.pt"
+    assert main(common + ["--lean", "--out", str(tmp_path / "own.json"), "--candidate", str(tmp_path / "own_pi.pt"),
+                          "--direction-out", str(own)]) == 0
+    d = torch.load(own, weights_only=True)
+    g = torch.Generator().manual_seed(5)
+    earlier = {n: (torch.randn(t.shape, generator=g) * float(t.abs().mean() + 1e-6) if head_of(n) else torch.zeros_like(t))
+               for n, t in d.items()}
+    torch.save(earlier, tmp_path / "earlier.pt")
+    out, candidate, net = tmp_path / "round.json", tmp_path / "pi.pt", tmp_path / "rung.pt"
+    assert main(common + ["--lean", "--average-with", str(tmp_path / "earlier.pt"), "--out", str(out), "--candidate",
+                          str(candidate), "--direction-out", str(tmp_path / "direction.pt"), "--chosen-network",
+                          str(net)]) == 0
+    r = json.loads(out.read_text(encoding="utf-8"))
+    dec, want = r["decision"], averaged([d, earlier])
+    assert dec["adopt"] and dec["lean"] and r["lean"]["along"] == "average" and "paired" not in r
+    assert r["lean"]["direction"] == str(tmp_path / "direction_average.pt")
+    assert abs(dec["rungs"][0]["kl"] - dec["next_eps"]) <= KL_RTOL * dec["next_eps"]
+    assert r["candidate"]["s"] == dec["s"] and r["chosen_network"] is None and not net.exists()
+    _same_network(candidate, run.checkpoint, want, dec["s"])
+    assert all(torch.equal(torch.load(tmp_path / "direction.pt", weights_only=True)[n], d[n]) for n in d)

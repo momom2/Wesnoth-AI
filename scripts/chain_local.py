@@ -24,11 +24,13 @@ worktree P and the rounds should run (pinned at a tested commit):
    passes and the link holds). A step that fails is never run again.
    With --skip-p, P is not run and the rounds run with --no-p-gate
    (prereg departure 31: P's played check cannot resolve at the plant's
-   size). --rounds-n-train, --rounds-held and --rounds-average are
-   rounds_local's --n-train, --held and --average (prereg departures 25,
-   34 and 37).
+   size). --rounds-n-train, --rounds-held, --rounds-average and
+   --rounds-lean are rounds_local's --n-train, --held, --average and
+   --lean (prereg departures 25, 34, 37 and 43).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
-   wait ended them), it plays the window's final match
+   wait ended them, or 1 too with --final-after-failure: prereg departure
+   43, since a failed part taints only its own round), it plays the
+   window's final match
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
    on the last round that adopted a candidate, after checking that
    candidate's SHA-256 against its round.json. No adopted round, no match.
@@ -225,7 +227,7 @@ class Chain:
         rc = self.rounds(a.rounds, a.rounds_end_by)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
-        if a.final_out is None or rc not in ROUNDS_ENDED:
+        if a.final_out is None or rc not in self.ended():
             return 0 if rc == 0 else 1
         final = self.final_match("FINAL", a.final_out)
         if final[0] == 0 and a.tail_out is not None:
@@ -254,7 +256,7 @@ class Chain:
         rc = self.rounds(a.rounds, a.rounds_end_by)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
-        if a.final_out is None or rc not in ROUNDS_ENDED:
+        if a.final_out is None or rc not in self.ended():
             return 0 if rc == 0 else 1
         last = last_adopted(a.rounds_out)
         if last is None or last[0] <= k0:
@@ -262,6 +264,11 @@ class Chain:
             return 0 if rc == 0 else 1
         final, _k = self.final_match("FINAL", a.final_out)
         return 0 if rc == 0 and final == 0 else 1
+
+    def ended(self) -> Tuple[int, ...]:
+        """rounds_local's codes after which a final match plays: ROUNDS_ENDED,
+        and 1 with --final-after-failure (module docstring item 4)."""
+        return ROUNDS_ENDED + ((1,) if getattr(self.a, "final_after_failure", False) else ())
 
     def rounds(self, n: int, end_by: Optional[str]) -> int:
         """rounds_local to round `n` by `end_by`, resumed from its markers."""
@@ -274,6 +281,7 @@ class Chain:
         heads += ["--pass-window", str(a.rounds_pass_window)] if getattr(a, "rounds_pass_window", None) else []
         heads += ["--rebase-after", str(a.after_stop)] if getattr(a, "after_stop", None) is not None else []
         heads += ["--average", str(a.rounds_average)] if getattr(a, "rounds_average", None) else []
+        heads += ["--lean"] if getattr(a, "rounds_lean", False) else []
         p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
@@ -337,7 +345,7 @@ class Chain:
         rc = self.rounds(a.continue_rounds, a.continue_end_by)
         self.note(f"CHAIN_CONTINUE_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
-        if a.continue_final_out is None or rc not in ROUNDS_ENDED:
+        if a.continue_final_out is None or rc not in self.ended():
             return 0 if rc == 0 else 1
         last = last_adopted(a.rounds_out)
         if last is None or last[0] <= measured:
@@ -376,6 +384,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--rounds-average", type=int, default=None,
                     help="passed to rounds_local --average: a step reads its direction averaged with the N "
                          "previous rounds' beside it (prereg departure 37)")
+    ap.add_argument("--rounds-lean", action="store_true",
+                    help="passed to rounds_local --lean (prereg departure 43)")
+    ap.add_argument("--final-after-failure", action="store_true",
+                    help="play the final match after a failed round too (module docstring item 4, prereg "
+                         "departure 43)")
     ap.add_argument("--final-out", type=Path, default=None,
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)

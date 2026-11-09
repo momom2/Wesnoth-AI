@@ -406,3 +406,24 @@ def test_rounds_average_is_rounds_locals_average(tmp_path):
         assert f.chain(args)() == 0
         rounds = f.ran[1][1]
         assert (rounds[rounds.index("--average") + 1] if "--average" in rounds else None) == want
+
+
+def test_rounds_lean_reaches_the_rounds_and_a_final_follows_a_failed_round_only_when_asked(tmp_path):
+    """Prereg departure 43: --rounds-lean is rounds_local's --lean, and with
+    --final-after-failure the final match plays after the rounds return 1
+    (a failed part), on the last adopted round, and the chain still returns
+    1; without it, as before, no match."""
+    for name, asked, matches in (("asked", True, ["scripts/match_local.py"]), ("not", False, [])):
+        args = _after_stop_args(tmp_path / name, stop="STOP after round 3's claim: REDEPLOY")
+        args.rounds_lean, args.final_after_failure = True, asked
+        f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": 1}, rounds_writes=_rounds_upto({1, 2, 3, 5}, 5))
+        assert f.chain(args)() == 1
+        assert [s for s, _, _ in f.ran] == ["scripts/rounds_local.py", *matches], name
+        assert "--lean" in f.ran[0][1]
+        if asked:
+            m = f.ran[1][1]
+            assert m[m.index("--label") + 1] == "final_round5" and m[m.index("--out") + 1] == str(args.final_out)
+    args = cl.parse_args(ARGV + ["--rounds-lean", "--final-after-failure"])
+    assert args.rounds_lean and args.final_after_failure
+    args = cl.parse_args(ARGV)
+    assert not args.rounds_lean and not args.final_after_failure
