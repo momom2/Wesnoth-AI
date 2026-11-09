@@ -1429,7 +1429,7 @@ Design §6, unchanged:
         - the claims shrink to about 3,200 games. That gives a combined SE of 28.7 against 28.2 and saves about 2.6 GPU-h a claim round (the review's M3).
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4 and e9bdb463, which measures each round as its own step ran, so the resumed walk over rounds 1-18 plays nothing; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
+43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4, e9bdb463 and 5d67c834: e9bdb463 measures each round as its own step ran, so the resumed walk over rounds 1-18 plays nothing, and 5d67c834 carries the pre-launch review's fixes below; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
     - **Why:** the user, back on 2026-11-09, wrote "Try to reduce evaluation proportion, from ~50% of compute to ~10%." Their next message reads "You're running autonomously for the next several hours. Find the highest value improvement and iterate." That hands departure 42's open decision back to the assistant: the line goes on, under this departure.
     - **Where a round's GPU time went** (round 18's phase times from runner.log and its eval_cache files; rounds 16-18 for the matches):
 
@@ -1503,6 +1503,18 @@ Design §6, unchanged:
       - the two stops;
       - a gate failure, as before (departure 42), now with the final after it;
       - a lean round past 1.5 times its estimate (about 7.7 h) is inspected.
+    - **The pre-launch review** (2026-11-10 00:15-00:23, a fresh reviewer, read-only), and what changed before the launch (5d67c834):
+      - **H1:** a lean stop fired again on every resume, so a line re-armed past a lean pause could not go on. Now a lean round at or before --rebase-after had its stops acted on, as in the plain stops.
+      - **M2:** a failed round 19 would have replayed final_match_r18 whole. chain_local `--final-newer-than 18` plays the final only on a round after 18.
+      - **M3:** the retry rule's v-against-recruit check is automated. `wesnoth_runs/tools/retry19_watch.py`, launched with the chain, reads round 19's fresh readout and writes STOP before its step if the fresh games alone read z below -2. It logs the pooled z either way.
+      - **L:**
+        - deploy_lean.sh makes every check before any change, and refuses a final that is not complete;
+        - a run without --lean over lean rounds is refused at its start;
+        - a lean step along a zero direction is marked lean.
+      - The smaller |H| also shrinks the readout's games, from 7,500 to 6,250. Every gate is calibrated on its own games' SE.
+      - Not changed, and recorded:
+        - --end-by budgets a match round at 1.2 times the longest plain lean round, about 1.3 h short (this predates the change);
+        - CI has not run on these commits, since nothing can be pushed. The stand-in is the full suite on the desktop at 5d67c834, run before the launch.
     - Nothing is adopted; configs/reference_player.json is untouched.
 
 44. **The averaged direction takes 8 earlier rounds, not 2** (no code change: chain_local `--rounds-average 8`; registered 2026-11-10 01:00, before round 19's replay and after departure 43).
