@@ -16,10 +16,12 @@ desktop's RX 6600 from 2026-10-29, took `own2` through 18 adopted rounds.
 At `own2`'s own decode, round 18 beats `own2` by +105.7 ± 3.2 Elo, and
 paired on the same seeds it leads round 16 by 3.2 SE. Nothing has been
 adopted as the new reference yet: that is the user's call. Since
-2026-11-10 03:03 the line runs lean (departures 43-44): each step is
-adopted unread, and evaluation falls from about 42% of the GPU to about
-11%. A 3,200-game claim and a 3,200-game argmax match every 6th round can
-pause it.
+2026-11-10 03:03 the line runs lean (departures 43-47): each step is
+adopted unread, and evaluation falls from about 32% of a round to about
+11% (42% to 18% counting the held-out games). A 3,200-game claim and a
+3,200-game argmax match every 6th round can pause it. The trunk has never
+trained: its pipeline is sound, but at equal KL its steps buy about 9 times
+less than the heads' ("What the numbers do not show").
 
 ## The reference player
 
@@ -48,8 +50,9 @@ followed by fine-tuning on its own recorded games.
 ## Self-play: the policy-iteration rounds
 
 - **Design:** `docs/training_design_20261019/current_design.md`. The
-  pre-registration and its 44 departures are in
-  `docs/stage_c_rounds_local_prereg_20261030.md`. The autonomous window's
+  pre-registration and its 47 departures are in
+  `docs/stage_c_rounds_local_prereg_20261030.md` (main's copy holds 1-41;
+  42-47 are on `feature/local-gpu-stage1`). The autonomous window's
   card, plan, reviews and log are in `docs/autonomy_20261029.md`.
 - **A round:**
   1. π_k plays itself at T=1: 5,000 games to train on, plus 2,500 held out
@@ -62,17 +65,20 @@ followed by fine-tuning on its own recorded games.
      a 10,000-game cross-play match decides instead.
   4. Every third round, a claim match plays the round's policy at T=1
      against `own2` at its decode.
-- **A lean round** (from round 19, departures 43-44; `--rounds-lean` on
+- **A lean round** (from round 19, departures 43-47; `--rounds-lean` on
   `feature/lean-rounds`):
   - 5,000 games plus 1,250 held out;
-  - the same pass;
+  - the same pass, its floor check on 25 game-sides from round 21
+    (departure 46: the check took 16-21% of each pass);
   - a step that is the KL search alone, along the average of the round's
-    direction and the 8 before it, to the radius. It is adopted unread.
+    direction and the 8 before it, to the radius (twice the radius from
+    round 25, departure 47). It is adopted unread.
   - Every 6th round, a 3,200-game claim and a 3,200-game argmax match on
     the finals' seeds. The line pauses unless the claim gains 2 combined SE
     over the last claim and the argmax match 1 SE over the last argmax
     reading.
-  - About 5.1 h a round.
+  - About 4.9 h a round (round 19: 4.88 h), about 4.5 h with the smaller
+    floor.
 - **Code:** `scripts/rounds_local.py` and `scripts/chain_local.py`, over
   `tools/pg_corrections.py`, `tools/pg_pass.py`, `tools/pg_round.py` and
   `tools/pg_eval.py`. The library is `wesnoth_ai/pg_*.py`.
@@ -87,7 +93,8 @@ followed by fine-tuning on its own recorded games.
   more.
 - **Run state:** `C:\Users\momom2\wesnoth_runs\` (`rounds_local/`,
   `chain.log`, `chain_lean.console.log`). The code runs from the detached
-  worktree `wesnoth_ai-run` at 5d67c834 (`feature/lean-rounds`).
+  worktree `wesnoth_ai-run` at 21862a0a (`feature/lean-rounds`), from
+  round 21.
 - **Round 19's first games failed a gate** (2026-11-09 20:41, departure
   42). The readout's I-V check read v against recruit at z −3.66, against
   the gates' 3.45.
@@ -95,13 +102,12 @@ followed by fine-tuning on its own recorded games.
     bootstrap reproduces its SE, and over the line's 228 I-V readings z
     reads RMS 1.03. It fits the gates' 1% false-alarm rate, but the gate
     stands on those games.
-  - Round 19 is being replayed on fresh seeds from 29,500,000, under
-    departure 42's retry rule, from 2026-11-10 03:03. Every gate must pass
-    on the fresh games alone.
-  - `wesnoth_runs/tools/retry19_watch.py` writes a STOP before round 19's
-    step if the fresh games read v against recruit below z −2.
-  - The run ends by 2026-11-13 18:00, with the final into
-    `final_match_lean/`.
+  - Round 19 was replayed on fresh seeds from 29,500,000 under departure
+    42's retry rule, and every gate passed on the fresh games (v against
+    recruit z −1.39; round 20's −0.85).
+- **The line's end:** rounds start until 2026-11-13 18:00, so the last one
+  ends about midday Nov 13. The 12,800-game final into `final_match_lean/`
+  then runs about 5.3 h, to the evening of Nov 13.
 
 ### Measured
 
@@ -156,12 +162,23 @@ by +134.1 ± 3.3.
 - **The heads' gradient signal is falling.** Its norm went from 3.97 (round
   2) to about 1.3 (rounds 11-13), while the noise per split stayed flat, so
   each round's 5,000 games buy less (`training/metrics/denoise_20261105.json`).
-- **The trunk has never trained in self-play.**
-  - Stage C's planted check missed on both seats by about 6 SE. The miss
-    lies in the trunk's part of the full-network gradient, and it has not
-    been root-caused.
-  - P was therefore skipped (departure 31). The heads-only rounds do not
-    touch that part.
+- **The trunk has never trained in self-play,** and the pipeline is not
+  why (2026-11-10; `training/metrics/trunk_diagnosis_20261110.json` on
+  `feature/local-gpu-stage1`).
+  - The planted signal reaches the gradient at its size: 0.0222 ± 0.0031
+    against 0.0232 planted, in the heads and the trunk alike. Stage C's
+    planted check missed (about 6 SE, both seats) on its forecast of how a
+    trunk-heavy step moves the attack mass, read through 16-decision
+    windows. That is the instrument, not the training.
+  - A full-network step spends nearly all its KL on the trunk, and at
+    equal KL it gains about 9 times less than a heads-only step (0.0124
+    against 0.1097 on half A; sgd and muon alike). Mixing the two would
+    add under 1%.
+  - Open: why a trunk move is that expensive, and whether a full-memory
+    gradient (the pass cuts it at 16 decisions) or a step that budgets its
+    KL by module finds a better one. The per-module reading is
+    `scripts/window_20261029/trunk_kl_by_module.py`.
+  - P stays skipped (departure 31).
 - **Serving:** fp16 here against bf16 on a box. The fp16 path matches
   fp32's argmax on 200 of 200 bench positions; bf16 has fewer mantissa
   bits. The two kinds of match are not pooled in one fit.
@@ -173,12 +190,13 @@ by +134.1 ± 3.3.
   checkpoint is `C:\Users\momom2\wesnoth_runs\rounds_local\round_18\pi.pt`
   (SHA-256 c5796941...). Copies of rounds 3, 15, 16 and 18 are in
   `C:\Users\momom2\wesnoth_checkpoints_window\`.
-- **Merging `feature/lean-rounds`** (3 commits, the code the line runs)
-  and the log commits on `feature/local-gpu-stage1` into `main`. The full
-  suite passed at 5d67c834; CI has not run on it.
+- **Merging `feature/lean-rounds`** (5 commits, the code the line runs,
+  at 21862a0a) and the log commits on `feature/local-gpu-stage1` into
+  `main`. The suite passed on the desktop at 21862a0a (2,258 passed, 139
+  skipped); CI has not run on it.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
-  - training the trunk, after the plant's miss is root-caused;
+  - training the trunk, once a direction is found that pays for its KL;
   - a step that budgets its KL by decision class. Per decision, recruits
     return about 3.4 times what moves do, while moves take 69-90% of the
     step.
