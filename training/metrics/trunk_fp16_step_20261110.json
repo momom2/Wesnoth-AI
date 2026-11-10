@@ -1,0 +1,149 @@
+{
+ "games": [
+  "game_own2a_own2b_s1_820000",
+  "game_own2a_own2b_s1_825000",
+  "game_own2a_own2b_s2_820001",
+  "game_own2a_own2b_s2_825001"
+ ],
+ "game_sides": 8,
+ "s_full": 7.360455533727685e-05,
+ "s_heads": 0.028277857723196097,
+ "stage_c_kl": {
+  "reduced_adamw": 0.0013452354654708261,
+  "heads_only": 0.001340535592567546
+ },
+ "rounded": {
+  "packed": {
+   "tensors": 64,
+   "weights": 14183424
+  },
+  "linears": {
+   "tensors": 92,
+   "weights": 15292475
+  },
+  "heads": {
+   "tensors": 7,
+   "weights": 150151
+  }
+ },
+ "tensors": {
+  "model.encoder.layers.linear1.bias": {
+   "weights": 12288,
+   "mean_abs_theta": 0.05108072981238365,
+   "mean_step_over_pitch": 0.04671088854471842,
+   "moved_share": 0.028645833333333332,
+   "rounded_over_step_norm2": 26.653926867561783,
+   "model_over_step_norm2": 35.011302102709095
+  },
+  "model.encoder.layers.linear1.weight": {
+   "weights": 4718592,
+   "mean_abs_theta": 0.03763231676485804,
+   "mean_step_over_pitch": 0.04578725207183096,
+   "moved_share": 0.03318235609266493,
+   "rounded_over_step_norm2": 43.92213303019626,
+   "model_over_step_norm2": 44.07536549536804
+  },
+  "model.encoder.layers.linear2.bias": {
+   "weights": 3072,
+   "mean_abs_theta": 0.023760130163282156,
+   "mean_step_over_pitch": 0.5718906372785568,
+   "moved_share": 0.2516276041666667,
+   "rounded_over_step_norm2": 6.990569450164762,
+   "model_over_step_norm2": 6.282135427055412
+  },
+  "model.encoder.layers.linear2.weight": {
+   "weights": 4718592,
+   "mean_abs_theta": 0.027466006577014923,
+   "mean_step_over_pitch": 0.07875948564873801,
+   "moved_share": 0.052705340915256076,
+   "rounded_over_step_norm2": 24.47265762291965,
+   "model_over_step_norm2": 24.583936778817964
+  },
+  "model.encoder.layers.self_attn.in_proj_bias": {
+   "weights": 9216,
+   "mean_abs_theta": 0.028761746361851692,
+   "mean_step_over_pitch": 0.4218296971586015,
+   "moved_share": 0.1877170138888889,
+   "rounded_over_step_norm2": 4.951198408186539,
+   "model_over_step_norm2": 5.502846807264313
+  },
+  "model.encoder.layers.self_attn.in_proj_weight": {
+   "weights": 3538944,
+   "mean_abs_theta": 0.03789167906399126,
+   "mean_step_over_pitch": 0.09695505212854456,
+   "moved_share": 0.06156893129701967,
+   "rounded_over_step_norm2": 23.253047784587036,
+   "model_over_step_norm2": 23.372844891144414
+  },
+  "model.encoder.layers.self_attn.out_proj.bias": {
+   "weights": 3072,
+   "mean_abs_theta": 0.03574680909514427,
+   "mean_step_over_pitch": 0.33404742181301117,
+   "moved_share": 0.16243489583333334,
+   "rounded_over_step_norm2": 8.913542737715666,
+   "model_over_step_norm2": 11.345292130190048
+  },
+  "model.encoder.layers.self_attn.out_proj.weight": {
+   "weights": 1179648,
+   "mean_abs_theta": 0.027826847301589117,
+   "mean_step_over_pitch": 0.1314324355787701,
+   "moved_share": 0.08345455593532985,
+   "rounded_over_step_norm2": 19.749289135801174,
+   "model_over_step_norm2": 19.897635703833743
+  },
+  "all packed": {
+   "weights": 14183424,
+   "mean_abs_theta": 0.0335018114351827,
+   "mean_step_over_pitch": 0.07706829871298923,
+   "moved_share": 0.05111311626868096,
+   "rounded_over_step_norm2": 26.26525942075847,
+   "model_over_step_norm2": 26.402389682343802
+  }
+ },
+ "gain": [
+  {
+   "direction_splits": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "gradient_splits": [
+    4,
+    5,
+    6,
+    7
+   ],
+   "plain": 0.011214698167406419,
+   "rounded": 0.011059467969827281,
+   "rounded_over_plain": 0.9861583258629031,
+   "rounding_se_over_plain": 0.006932750577322297
+  },
+  {
+   "direction_splits": [
+    4,
+    5,
+    6,
+    7
+   ],
+   "gradient_splits": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "plain": 0.01121469816637388,
+   "rounded": 0.011076442133148004,
+   "rounded_over_plain": 0.9876718899452486,
+   "rounding_se_over_plain": 0.006977503484825581
+  }
+ ],
+ "kl": {
+  "float32, by step": {
+   "3.6802277668638426e-05": 2.8237192973330655e-05,
+   "7.360455533727685e-05": 0.00011101297202073635,
+   "0.0001472091106745537": 0.00042811483674150426,
+   "0.000257615943680469": 0.001292744328455068
+  }
+ }
+}
