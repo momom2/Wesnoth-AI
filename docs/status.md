@@ -15,11 +15,14 @@ Self-play now beats the reference. The policy-iteration rounds, run on the
 desktop's RX 6600 from 2026-10-29, took `own2` through 18 adopted rounds.
 At `own2`'s own decode, round 18 beats `own2` by +105.7 ± 3.2 Elo, and
 paired on the same seeds it leads round 16 by 3.2 SE. Nothing has been
-adopted as the new reference yet: that is the user's call. Since
-2026-11-10 03:03 the line runs lean (departures 43-47): each step is
+adopted as the new reference yet: that is the user's call. From
+2026-11-10 03:03 the line ran lean (departures 43-47): each step is
 adopted unread, and evaluation falls from about 32% of a round to about
-11% (42% to 18% counting the held-out games). A 3,200-game claim and a
-3,200-game argmax match every 6th round can pause it. The trunk has never
+11% (42% to 18% counting the held-out games). **The line is stopped**
+(departure 48). It ended on 2026-11-10 22:29:53 in round 23's games, and
+round 22 is its last finished round. Rounds 19-22 were adopted unread;
+the 3,200-game claim and argmax match that judge them were due at round
+24 and have not been played. The trunk has never
 trained: its pipeline is sound, but on a few game-sides the memory diverges
 under a full-network step, and those sides take most of the step's KL for
 no gain ("What the numbers do not show").
@@ -51,9 +54,9 @@ followed by fine-tuning on its own recorded games.
 ## Self-play: the policy-iteration rounds
 
 - **Design:** `docs/training_design_20261019/current_design.md`. The
-  pre-registration and its 47 departures are in
+  pre-registration and its 48 departures are in
   `docs/stage_c_rounds_local_prereg_20261030.md` (main's copy holds 1-41;
-  42-47 are on `feature/local-gpu-stage1`). The autonomous window's
+  42-48 are on `feature/local-gpu-stage1`). The autonomous window's
   card, plan, reviews and log are in `docs/autonomy_20261029.md`.
 - **A round:**
   1. π_k plays itself at T=1: 5,000 games to train on, plus 2,500 held out
@@ -92,10 +95,10 @@ followed by fine-tuning on its own recorded games.
 - **Games played:** stage 1 played 46,000 (stage C and round 1 read them),
   and rounds 2-18 played 150,000. Evaluation matches played about 210,000
   more.
-- **Run state:** `C:\Users\momom2\wesnoth_runs\` (`rounds_local/`,
-  `chain.log`, `chain_lean.console.log`). The code runs from the detached
-  worktree `wesnoth_ai-run` at 21862a0a (`feature/lean-rounds`), from
-  round 21.
+- **Run state:** stopped ("The line is stopped", below). Its records
+  are in `C:\Users\momom2\wesnoth_runs\` (`rounds_local/`, `chain.log`,
+  `chain_lean.console.log`). The code ran from the detached worktree
+  `wesnoth_ai-run` at 21862a0a (`feature/lean-rounds`), from round 21.
 - **Round 19's first games failed a gate** (2026-11-09 20:41, departure
   42). The readout's I-V check read v against recruit at z −3.66, against
   the gates' 3.45.
@@ -106,9 +109,24 @@ followed by fine-tuning on its own recorded games.
   - Round 19 was replayed on fresh seeds from 29,500,000 under departure
     42's retry rule, and every gate passed on the fresh games (v against
     recruit z −1.39; round 20's −0.85).
-- **The line's end:** rounds start until 2026-11-13 18:00, so the last one
-  ends about midday Nov 13. The 12,800-game final into `final_match_lean/`
-  then runs about 5.3 h, to the evening of Nov 13.
+- **The line is stopped** (2026-11-10, departure 48). At 22:29:14 the
+  user asked for a stop after the round.
+  - Every process of the line ended between 22:29:48 and 22:29:53, five
+    minutes into round 23's games. The 64 games then running exited with
+    Windows' console-interrupt code (0xC000013A), and the runners left no
+    log line. The system's logs show no fault, display reset or restart.
+    So the line's console was closed or interrupted. By whom is not
+    established; the window's session ran no command then.
+  - Round 22 is the last finished round (adopted 22:24:38,
+    `round_22\pi.pt`). Round 23 holds 230 game results of 5,000.
+  - Rounds 19-22 ran lean and were adopted unread. Round 24's claim and
+    argmax match judge departures 43 and 44 (departure 45). They have not
+    been played, and neither has a final match on the lean line, so no
+    game yet says whether rounds 19-22 gained strength.
+  - It was not relaunched: that is the user's call. A new start
+    (`scripts/window_20261029/arm_lean.ps1`) resumes round 23 from its
+    markers. Rounds 23 and 24 with round 24's two matches would take about
+    12 h (reasoned from the rounds' 4.7 h and the final's rate).
 
 ### Measured
 
@@ -169,7 +187,9 @@ by +134.1 ± 3.3.
   (2026-11-10). The readings are `training/metrics/trunk_*_20261110.json`
   on `feature/local-gpu-stage1` (69ce95ff), and the account is that
   branch's `docs/autonomy_20261029.md`, the entries of 2026-11-10 14:20
-  and 19:07.
+  and 19:07. The 22:01 review's limits are folded in below: the sides
+  walked were picked by the step's KL, not sampled, and no reading
+  compares the push with another direction of its size.
   - The planted signal reaches the gradient at its size: 0.0222 ± 0.0031
     against 0.0232 planted, in the heads and the trunk alike. Stage C's
     planted check missed (about 6 SE, both seats) on its forecast of how a
@@ -178,8 +198,9 @@ by +134.1 ± 3.3.
   - Per √KL, a full-network step gains 0.50 against a heads-only step's
     3.03 (first order, on stage C's half A).
   - **A few game-sides hold a full-network step's KL.** The 1% that move
-    most hold 65% of it and the top 5% hold 88%. A heads-only step reads
-    4% and 16%.
+    most hold 65% of it and the top 5% hold 88% (59% and 84% when each
+    decision is classed by its side's decisions of the other parity). A
+    heads-only step reads 4% and 16%.
   - **On those sides the memory diverges.** Three were walked decision by
     decision, each network reading the other's memory:
     - `own2` reading the stepped network's memory reproduces 97-99% of the
@@ -194,10 +215,15 @@ by +134.1 ± 3.3.
     - Nine more sides were walked, down to the 5000th by the step's KL.
       The memory holds 94% to 99% of the KL on those ranked 2nd to 100th,
       81% at the 500th and about half at the 2500th and 5000th.
-  - **The mechanism** (13 sides walked; a write's parts read on four):
-    - `own2`'s memory holds one learned pattern, the same on every game
-      and in every slot. It is up by turn 2 and released some turns later
-      (turns 9 to 16 on eight of the nine diverging sides). The policy
+  - **The mechanism** (13 sides walked, picked by the step's KL rank and
+    not sampled; a write's parts read on four):
+    - `own2`'s memory holds one learned pattern, the same in every slot
+      and on each of the 13 sides. It is up by turn 2 and released some
+      turns later (turns 9 to 16 on eight of the nine diverging sides). On
+      the ninth it dips at turn 6 and is held again, lower, to about turn
+      14. On one side that does not diverge it is raised again from turn 5
+      and stays up. Its level follows the game's phase (a rank correlation
+      with the turn of −0.67 to −0.96 on twelve sides). The policy
       reads it far more than a random memory direction: a shift of 0.1 of
       the memory's norm along the gap costs a KL of 0.004 to 0.019 a
       decision, against 8e-5 to 4e-4.
@@ -206,17 +232,25 @@ by +134.1 ± 3.3.
       writes back 0.15 to 0.34, so it changes by 0.96 to 1.05 a write. A
       random difference loses 10% to 13% a write.
     - A trunk step writes the pattern higher (+0.008 to +0.012 after one
-      write, on all 13 sides). That push is the largest single part of the
-      gradient: one weight direction, at a cosine of 0.62 with it, holding
-      42.5% of the step's first-order gain on 8.2% of its squared norm.
+      write, on all 13 sides). That push is a large part of the gradient.
+      The step's part in the span of 27 push gradients (one axis holds
+      79.5% of their squared norm) is at a cosine of 0.62 with the
+      gradient, and it holds 42.5% of the step's first-order gain on 8.2%
+      of its squared norm, read between the pass's two halves. No other
+      direction of that size was read beside it.
     - The pushes add up. At decision 100 the gap on the pattern is 116 to
       420 times one write's on the nine diverging sides. The stepped
       memory then releases the pattern 2 to 5 turns late on three of them
-      and not within the decisions read on five. Between the two releases
-      the policies differ by a KL of 0.1 to 0.2 a decision.
-    - Without that direction the step loses 98% to 99.7% of its KL on four
-      diverging sides outside the direction's fit. The direction alone
-      brings back 74% to 88%.
+      and not within the decisions read (240 at most) on five. On the
+      ninth, whose first dip the step does not move, the second hold reads
+      +3.5 to +4.9 on turns 11 to 14 against the reference's +1.0 to +2.4.
+      Between the two releases the policies differ by a KL of 0.1 to 0.2 a
+      decision.
+    - Without that part the step loses 98% to 99.7% of its KL on four
+      diverging sides outside the span's fit. The part alone brings back
+      74% to 88%. So the push is enough to make those sides diverge.
+      Whether another 8.2% of the step would do as much was not read (no
+      norm-matched control).
     - What is left of the step feeds the same loop: at 3 times its size
       the memory diverges again (the KL grows 18 to 67 times, not 9).
   - **So the step is sized on the memory's divergence.** At a given memory
@@ -227,19 +261,25 @@ by +134.1 ± 3.3.
     per √KL against the heads' 2.89. So the diverging sides explain a
     factor of about 2.7 of the gap of 6, and a factor of 2.2 remains. On
     its KL at a given memory the trunk step is about as efficient as the
-    heads' (2.5 to 3.4 per √KL against 3.0), so that factor reads as the
+    heads' (2.5 to 3.4 per √KL against 3.0), so that factor may be the
     memory's too. This is reasoned, not measured: the step's first-order
-    gain includes what comes through the memory inside a window.
+    gain includes what comes through the memory inside a window, and the
+    KL at a given memory was read on the 13 sides walked alone.
   - **Not the cause:** the optimizer (sgd, reduced AdamW and muon read
     alike), the fp16 rounding of the stepped weights, or the pass's noise
     (about 0.1% of the trunk step's KL, against 1% of the heads').
   - As the step is sized, on the mean KL over all sides, mixing the trunk
     in adds under 1%. Sized on a KL the diverging sides cannot fill, the
     mix would add at most about 10% (reasoned from the rates above, not
-    measured). Sized on its KL at a given memory, the step could be about
-    8 times larger, for a first-order gain of about 0.10 against the
-    heads-only step's 0.109. That is an upper bound, also reasoned: a
-    memory that does not diverge would still move.
+    measured). Without the divergence the step could be between about 3
+    and 8 times larger, for a first-order gain of about 0.05 to 0.10
+    against the heads-only step's 0.109, also reasoned:
+    - 8 times is the step sized on its KL at a given memory (about 2e-5 on
+      the 13 sides walked). It is an upper bound, since a memory that does
+      not diverge would still move.
+    - About 3 to 3.5 times is every side moving as the sides outside the
+      top 5% do today (a KL of 1.1e-4 to 1.5e-4 a decision), at their
+      measured 1.30 per √KL.
   - Open: which remedy, and it is the user's choice. The candidates:
     - a memory with no such loop (`BACKLOG.md`, "Rework the memory
       system");
@@ -248,9 +288,17 @@ by +134.1 ± 3.3.
     - a step with its push taken out, which gives up 42.5% of the
       first-order gain and still diverges at 3 times the step;
     - heads-only rounds, as now.
-  - Not established: whether the push's signal comes through the
-    decision's own policy or through the memory inside a 16-decision
-    window, and whether a pattern held longer plays better.
+  - Not established:
+    - whether the push's signal comes through the decision's own policy or
+      through the memory inside a 16-decision window;
+    - whether a pattern held longer plays better. The pattern follows the
+      game's phase, so the step may be moving a clock it has reason to
+      move;
+    - how the step reads on sampled sides: its KL and gain at a given
+      memory, and the step without its push beside a control of the same
+      norm;
+    - the loop on a current round's games. Every reading is stage C's,
+      from `own2`.
   - P stays skipped (departure 31).
 - **Serving:** fp16 here against bf16 on a box. The fp16 path matches
   fp32's argmax on 200 of 200 bench positions; bf16 has fewer mantissa
@@ -258,12 +306,16 @@ by +134.1 ± 3.3.
 
 ## Open (for the user unless noted)
 
+- **Resume the lean line, or leave it stopped.** It stopped in round 23's
+  games on 2026-11-10 ("The line is stopped", above). Rounds 23 and 24
+  with round 24's claim and argmax match would give departures 43 and 44
+  their registered reading, for about 12 h of the desktop.
 - **Adopt round 18, or a later round, as the reference.** The evidence is
   a local match of 12,800 decisive games (+105.7 ± 3.2), and the
   checkpoint is `C:\Users\momom2\wesnoth_runs\rounds_local\round_18\pi.pt`
   (SHA-256 c5796941...). Copies of rounds 3, 15, 16 and 18 are in
   `C:\Users\momom2\wesnoth_checkpoints_window\`.
-- **Merging `feature/lean-rounds`** (5 commits, the code the line runs,
+- **Merging `feature/lean-rounds`** (5 commits, the code the line ran,
   at 21862a0a) and the log commits on `feature/local-gpu-stage1` into
   `main`. The suite passed on the desktop at 21862a0a (2,258 passed, 139
   skipped); CI has not run on it.

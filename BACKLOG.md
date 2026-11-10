@@ -22,7 +22,8 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   - Today's memory is why a trunk step is small (2026-11-10;
     `docs/status.md`, "What the numbers do not show"). On a few game-sides
     `own2`'s recurrence amplifies what a stepped trunk writes, and those
-    sides take 65-88% of a full-network step's KL for no measurable gain.
+    sides (the top 1% and 5%) take 65% and 88% of a full-network step's KL
+    for no measurable gain (59% and 84% ranked out of sample).
     The trunk's writes drive it, not the memory's own weights: stepping
     `slot_memory.*` alone reads under 1% of the step's KL on the three
     sides walked.
@@ -39,11 +40,19 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     - a memory gap set once decays on every game-side walked (today a gap
       of about 1% peaks at 60%, 54% and 8% on three);
     - a full-network step's KL does not gather in a few game-sides (today
-      the top 1% hold 65%, against a heads-only step's 4%);
+      the top 1% hold 65%, or 59% ranked out of sample, against a
+      heads-only step's 4%);
     - a step's KL through the memory stays near its KL at a given memory
       (today the memory holds 94% to 99% of it on the sides ranked 2nd to
       100th, and the step's own change of the policy is 60 to 100 times
-      under the KL it is sized to).
+      under the KL it is sized to). This one has no threshold yet: on the
+      three walked sides that do not diverge the memory already holds 42%
+      to 53% of the KL, so a healthy memory's share is not zero. It needs
+      a baseline read on sampled sides first.
+  - A caution on the mechanism: the pattern's level follows the game's
+    phase on twelve of the 13 sides walked, so a new memory may still need
+    to carry a clock that a step moves. The tests above ask that the
+    step's effect stays bounded, not that the pattern goes.
   - The memory stays (rulings 2026-10-05 and 2026-10-09): this changes its
     form, not whether there is one.
 
