@@ -123,10 +123,16 @@ followed by fine-tuning on its own recorded games.
     argmax match judge departures 43 and 44 (departure 45). They have not
     been played, and neither has a final match on the lean line, so no
     game yet says whether rounds 19-22 gained strength.
-  - It was not relaunched: that is the user's call. A new start
-    (`scripts/window_20261029/arm_lean.ps1`) resumes round 23 from its
-    markers. Rounds 23 and 24 with round 24's two matches would take about
-    12 h (reasoned from the rounds' 4.7 h and the final's rate).
+  - It was not relaunched: that is the user's call. A new start resumes
+    round 23 from its markers (by the tools' own account; not tried). It
+    takes two steps, as the 12:52 arming did:
+    - a `STOP` file naming "after round 3" in `rounds_local`, which the
+      chain's `--after-stop 3` refuses to start without and moves aside;
+    - then `arm_lean47.ps1 -Head 21862a0a`, in
+      `C:\Users\momom2\wesnoth_runs\tools\` (outside the repository). The
+      branch's `arm_lean.ps1` lacks departure 47's flags.
+  - Rounds 23 and 24 with round 24's two matches would take about 12 h
+    (reasoned from the rounds' 4.7 h and the final's rate).
 
 ### Measured
 
