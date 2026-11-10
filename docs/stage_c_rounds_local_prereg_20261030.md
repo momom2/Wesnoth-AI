@@ -1434,7 +1434,7 @@ Design §6, unchanged:
         - the claims shrink to about 3,200 games. That gives a combined SE of 28.7 against 28.2 and saves about 2.6 GPU-h a claim round (the review's M3).
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4, e9bdb463 and 5d67c834: e9bdb463 measures each round as its own step ran, so the resumed walk over rounds 1-18 plays nothing, and 5d67c834 carries the pre-launch review's fixes below; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
+43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4, e9bdb463 and 5d67c834: e9bdb463 measures each round as its own step ran, so the resumed walk over rounds 1-18 plays nothing, and 5d67c834 carries the pre-launch review's fixes below; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final; [corrected 2026-11-10 by the 10:01 review's L1: committed 00:02:15 in 974e6e4a, with its resume fix at 00:12:51 in e68f4a99. The stamp was later than the commit, and both precede the 03:03 launch]).
     - **Why:** the user, back on 2026-11-09, wrote "Try to reduce evaluation proportion, from ~50% of compute to ~10%." Their next message reads "You're running autonomously for the next several hours. Find the highest value improvement and iterate." That hands departure 42's open decision back to the assistant: the line goes on, under this departure.
     - **Where a round's GPU time went** (round 18's phase times from runner.log and its eval_cache files; rounds 16-18 for the matches):
 
@@ -1474,6 +1474,7 @@ Design §6, unchanged:
       - a round: 6,250 games (about 112 min), the pass (161), the KL search (about 12);
       - the matches: about 135 min every 6th round, about 22 a round;
       - so about 307 min a round: evaluation (the step and the matches) about 11%, the held-out games' fits about 7%, training about 82%.
+      - [corrected 2026-11-10 by the 10:01 review's M2: the table's 42% counts the held-out games (45 of 192 min), and the 11% leaves them out. Like for like it is 42% to about 18% with them, or 32% to about 11% without. The floor (departure 46) is a check worth about 10% more of a round in both.]
     - **Round 19 is replayed under departure 42's retry rule, by hand before the launch:**
       - round_19/play moves to play_failed42;
       - round_19/seed_base.txt reads 29,500,000;
@@ -1534,7 +1535,7 @@ Design §6, unchanged:
       - retry19_watch.log reads RETRY19_WATCH start (floor z −2.0).
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-44. **The averaged direction takes 8 earlier rounds, not 2** (no code change: chain_local `--rounds-average 8`; registered 2026-11-10 01:00, before round 19's replay and after departure 43).
+44. **The averaged direction takes 8 earlier rounds, not 2** (no code change: chain_local `--rounds-average 8`; registered 2026-11-10 01:00, before round 19's replay and after departure 43; [corrected 2026-11-10 by the 10:01 review's L1: committed 00:10:16 in 80b00042, before the 03:03 launch]).
     - **Why:** each round's direction is now mostly noise, but its signal barely turns from round to round.
       - Rounds 2-9 (training/metrics/denoise_20261105.json): the signal's share of the direction fell from 0.73 to 0.24, while the signal's cosine with the previous round's read 0.6-1.1.
       - By round 18 the share reads about 0.11 (training/metrics/average_window_20261110.json).
@@ -1558,4 +1559,54 @@ Design §6, unchanged:
       - The cosine reading is repeated on rounds 19-24's passes as each lands: its forecast for K 8 is about 0.83 or more.
       - Departure 43 is judged on its own number instead of Elo per GPU-hour: the evaluation share of the GPU, read from runner.log and times.json. Its stops stand.
     - **Kill:** departure 43's two stops. If the repeated reading puts K 8's cosine below K 2's on rounds 19-24, the average returns to 2 at the next round.
+    - Nothing is adopted; configs/reference_player.json is untouched.
+
+45. **Rounds 19-24 judge departures 43 and 44 together, and departure 44's kill reads the running mean** (no code change; registered 2026-11-10 10:30, before round 20's step and round 24's matches; the 2026-11-10 10:01 review's M1 and L2).
+    - **Why:** both departures change the step from round 19 on.
+      - Departure 43 makes the steps unread and refits the corrections on |H| 1,250 (gamma −0.754, −0.667 and −0.794 over rounds 18-20).
+      - Departure 44 widens the averaging window.
+      - So the claim's gain over rounds 19-24 reads them together. Departure 44's text had also replaced departure 43's decider (claim Elo per GPU-hour) with the evaluation share, which holds by construction.
+    - **The decider:** the claim's Elo per GPU-hour from round 18's claim (−8.7 ± 3.1, 12,800 games) to round 24's (3,200 games), over rounds 19-24's GPU-hours in times.json, against rounds 16-18's 1.36 ± 0.17.
+      - The package stays unless it reads lower by more than 2 combined SE.
+      - A shortfall is not attributed to either departure.
+      - Departure 46's floor saving lowers rounds 21-24's hours for a reason of its own. So the number is also reported with the floor's time put back (rounds 19-20's mean floor seconds for each of rounds 21-24).
+      - The evaluation share stays departure 43's implementation number, reported and not deciding.
+    - **Departure 44's kill** reads the mean over the rounds 19-24 read so far: K 8's mean cosine below K 2's returns the average to 2 at the next round. Each round's values are reported. On round 19 alone K 8 reads 0.610 and K 2 0.333.
+    - Nothing is adopted; configs/reference_player.json is untouched.
+
+46. **The pass's floor reads 25 game-sides, not 100** (`feature/lean-rounds` 604ba0aa: rounds_local FLOOR_SIDES; registered 2026-11-10 10:30, before round 21's pass, the first it takes).
+    - **Why:** the floor (tools/pg_floor.py) is a check, not training, and it costs far more than its design said.
+      - Over rounds 2-19 it took 1,392-1,833 s of each pass, 16-21% (pass.json rate.floor_seconds), about 29 min a round. pg_floor's docstring estimates about 1% of a pass.
+      - Its upper bound held between 3.6e-6 and 4.3e-6, about a twenty-fifth of the replay limit (1.07-1.09e-4).
+      - The replay KL never passed 7.3% of the limit. The packed path read path_max 3.0-4.3e-7.
+    - **What changes:**
+      - The floor draws 25 of a pass's 10,000 game-sides, about 3 a split. A split that draws none merges an empty set, and the gradient sums do not change.
+      - The floor's SE goes from about 1.1e-7 to about 2.1e-7.
+    - **Its number:** the pass's wall. The forecast is about 1,320 s (22 min) less a round, about 7.5% of a lean round (4.88 h to about 4.5 h).
+    - **Kill:** any of these returns it to 100 sides at the next round:
+      - the floor's upper bound above 8.6e-6 (twice its rounds 2-19 high);
+      - its path check failing;
+      - a pass refused for the floor.
+    - **Deployment:**
+      - A hand-written STOP ends rounds_local between steps (rc 2, which plays no final: chain_local ROUNDS_ENDED is (0, 3)).
+      - The run worktree checks out 604ba0aa.
+      - chain_local is relaunched with arm_lean.ps1's flags and departure 47's, and `--after-stop 3` moves the STOP aside.
+    - Nothing is adopted; configs/reference_player.json is untouched.
+
+47. **From round 25, a lean step searches to twice the radius** (604ba0aa: chain_local `--rounds-lean-radius 2 --rounds-lean-radius-from 25`; registered 2026-11-10 10:30, before any step at it).
+    - **Why:** a lean step is no longer read, and the range's edge (SIDE_KL_RANGE, 0.5 nat a side-game) exists so the halves' importance weights can read a step.
+      - The gain grows with the step's length. Over rounds 8-18, half A's exact gain at the 1x rung averaged 0.0430 against 0.0301 at the 0.5x rung (round.json, recomputed), a ratio of 1.43. That is about √2 for twice the KL, which is what a gain linear in the length gives.
+      - The halves resolve no curvature up to 1x, and 2x was never read: it fell outside the range.
+    - **What changes:**
+      - From round 25, the target is 2 × min(eps, edge), and the next eps is that target.
+      - So from round 26 the radius is twice the edge: KL about 0.004 a decision, about 1 nat a side-game. The step is about √2 longer.
+    - **Its number:** the claim's gain a round over rounds 25-30 (round 24's claim to round 30's), against rounds 19-24's (departure 45).
+      - If the gain stays linear in the length, the forecast is about 1.4 times.
+      - The radius stays at 2 if rounds 25-30 read above rounds 19-24, and returns to 1 otherwise. The argmax match's gain is reported beside it.
+    - **Kill:**
+      - departure 43's two stops at round 30;
+      - a readout gate failing, as before.
+
+      If round 24's stops pause the line, this departure does not apply.
+    - **What is lost:** a step twice the KL may overshoot where the gain bends. The six-round stops bound that to about 30 h.
     - Nothing is adopted; configs/reference_player.json is untouched.
