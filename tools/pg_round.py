@@ -43,9 +43,9 @@ cannot take its input, as below), s is searched to the radius, eps or the
 range's edge if that is lower, and the step is adopted unread: no half reads
 it, so no importance weight is checked and no cross-play rung is written.
 The decision holds that one rung, with no halves, and `"lean": true`.
-`--lean-radius R` (prereg departure 47) searches to R times that radius
-instead; its next eps is the target, so from the next round on the radius
-reads R times the edge.
+`--lean-radius R` (prereg departure 47; R at least 1) searches to R times
+that radius instead; its next eps is the target, so from the next round on
+the radius reads R times the edge (once R times eps passes the edge).
 
 `--average-with` (prereg departure 37; the heads-only arm): earlier rounds'
 direction.pt files. Beside d the round reads their average with d
@@ -150,9 +150,9 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
     departures 43 and 47)."""
     if lean and adopt is not None:
         raise ValueError("--lean takes no stage C decision: round 1's step is stage C's")
-    if radius != 1.0 and not (lean and radius > 0):
+    if radius != 1.0 and not (lean and math.isfinite(radius) and radius >= 1.0):
         raise ValueError(f"a lean radius of {radius}: it scales a lean step's radius, so it needs --lean and "
-                         f"must be positive")
+                         f"is at least 1 (below 1 the next eps would shrink every round)")
     fisher, source = (round_span_fisher(pass_, params, factory, stage_c if adopt is not None else None)
                       if arm == "probe_span" else (None, None))
     d = direction(pass_, arm, params, fisher)
@@ -296,8 +296,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
     if args.lean and args.adopt_from is not None:
         ap.error("--lean takes no --adopt-from: round 1's step is stage C's")
-    if args.lean_radius != 1.0 and not (args.lean and args.lean_radius > 0):
-        ap.error(f"--lean-radius {args.lean_radius}: a positive scale of a --lean step's radius")
+    if args.lean_radius != 1.0 and not (args.lean and math.isfinite(args.lean_radius) and args.lean_radius >= 1.0):
+        ap.error(f"--lean-radius {args.lean_radius}: a scale of at least 1 of a --lean step's radius")
     module, _, name = args.factory.partition(":")
     factory, params, sha = getattr(importlib.import_module(module), name)(**_factory_args(args.factory_arg))
     pass_ = load_pass(args.pass_path)

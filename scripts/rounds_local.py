@@ -842,8 +842,9 @@ def main() -> int:
         ap.error(f"--rebase-after {args.rebase_after}: name the round whose stop was acted on")
     if args.average < 0:
         ap.error(f"--average {args.average}: a number of earlier rounds")
-    if args.lean_radius != 1.0 and not (args.lean and args.lean_radius > 0):
-        ap.error(f"--lean-radius {args.lean_radius}: a positive scale of the --lean steps' radius")
+    if args.lean_radius != 1.0 and not (args.lean and math.isfinite(args.lean_radius) and args.lean_radius >= 1.0):
+        ap.error(f"--lean-radius {args.lean_radius}: a scale of at least 1 of the --lean steps' radius (below 1 "
+                 f"the next eps would shrink every round)")
     if args.lean_radius_from < 1:
         ap.error(f"--lean-radius-from {args.lean_radius_from}: name a round")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "

@@ -61,7 +61,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -243,7 +245,7 @@ class Chain:
         a, k0 = self.a, self.a.after_stop
         stop = a.rounds_out / "STOP"
         why = stop.read_text(encoding="utf-8").strip() if stop.exists() else ""
-        if f"after round {k0}" not in why:
+        if not re.search(rf"after round {k0}(?!\d)", why):         # round 3's stop, not round 30's
             self.note(f"CHAIN_REFUSED: --after-stop {k0} needs round {k0}'s design stop in {stop} "
                       f"({why or 'no STOP'})")
             return 1
@@ -287,7 +289,8 @@ class Chain:
         heads += ["--lean"] if getattr(a, "rounds_lean", False) else []
         if getattr(a, "rounds_lean_radius", None) is not None:
             heads += ["--lean-radius", repr(a.rounds_lean_radius)]
-            heads += ["--lean-radius-from", str(getattr(a, "rounds_lean_radius_from", None) or 1)]
+        if getattr(a, "rounds_lean_radius_from", None) is not None:
+            heads += ["--lean-radius-from", str(a.rounds_lean_radius_from)]
         p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
@@ -448,10 +451,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             ap.error("--after-stop plays no tail and no continuation")
         if args.after_stop < 1 or args.rounds <= args.after_stop:
             ap.error(f"--after-stop {args.after_stop}: the rounds must go past it (--rounds {args.rounds})")
-    if args.rounds_lean_radius is not None and not (args.rounds_lean and args.rounds_lean_radius > 0):
-        ap.error(f"--rounds-lean-radius {args.rounds_lean_radius}: a positive scale of --rounds-lean's radius")
-    if args.rounds_lean_radius_from is not None and args.rounds_lean_radius is None:
-        ap.error("--rounds-lean-radius-from goes with --rounds-lean-radius")
+    if args.rounds_lean_radius is not None and not (args.rounds_lean and math.isfinite(args.rounds_lean_radius)
+                                                    and args.rounds_lean_radius >= 1.0):
+        ap.error(f"--rounds-lean-radius {args.rounds_lean_radius}: a scale of at least 1 of --rounds-lean's radius")
+    if args.rounds_lean_radius_from is not None and (args.rounds_lean_radius is None or args.rounds_lean_radius_from < 1):
+        ap.error(f"--rounds-lean-radius-from {args.rounds_lean_radius_from}: a round, with --rounds-lean-radius")
     for out in ("tail_out", "continue_final_out"):
         if getattr(args, out) is not None and getattr(args, out) == args.final_out:
             ap.error(f"--{out.replace('_', '-')} must differ from --final-out (match_local refuses a changed match)")

@@ -175,6 +175,22 @@ def test_the_splits_add_to_the_total_and_the_windows_to_one_big_batch(tmp_path):
 
 
 @needs_core
+def test_the_floors_size_changes_only_the_floor(tmp_path):
+    """Prereg departure 46: a floor over fewer game-sides reads fewer of
+    them, and the pass's sums (the total, the splits, their second moments,
+    the head slopes and the replay identity) are the same, bit for bit."""
+    games, every = _run(tmp_path, streams=2, floor_sides=1000)
+    _, few = _run(tmp_path, streams=2, floor_sides=2)
+    assert every["floor"]["game_sides"] == 6 and few["floor"]["game_sides"] < 6
+    names = every["names"]
+    assert torch.equal(_flat(few["total"], names), _flat(every["total"], names))
+    for part in ("splits", "sq"):
+        assert all(torch.equal(_flat(a, names), _flat(b, names)) for a, b in zip(few[part], every[part])), part
+    assert few["head_slopes"] == every["head_slopes"] and few["decisions"] == every["decisions"]
+    assert few["replay"]["kl"] == every["replay"]["kl"]
+
+
+@needs_core
 def test_a_shadow_row_reads_the_memory_from_before_it_and_writes_nothing():
     """Along one slot: a decision, a refused one, a decision. The third
     reads what the first wrote, through the shadow; the shadow's own write

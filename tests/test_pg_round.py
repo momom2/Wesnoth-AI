@@ -298,7 +298,8 @@ def test_a_lean_step_takes_no_stage_c_decision():
 def test_a_lean_radius_scales_the_target_and_carries_into_the_next_eps():
     """Prereg departure 47: --lean-radius R searches to R times min(eps,
     edge), records R, and its next eps is that target, so the round after
-    reads R times the edge again; R needs --lean and must be positive."""
+    reads R times the edge again; R needs --lean and is a finite 1 or more
+    (below 1 the radius would shrink every round: the code review's L1)."""
     import tools.pg_round as pr
     from wesnoth_ai.pg_step import KL_RTOL, SIDE_KL_RANGE
     params = _heads_params()
@@ -315,7 +316,8 @@ def test_a_lean_radius_scales_the_target_and_carries_into_the_next_eps():
         assert ("departure 47" in dec["reason"]) == (radius != 1.0)
     readout, *_ = pr._lean_step({}, _KLEvaluator, "heads_only", 2 * eps, d, pr.norm(d), [], None, 2.0)
     assert readout["decision"]["next_eps"] == pytest.approx(2 * edge)
-    for kw in ({"lean": False, "radius": 2.0}, {"lean": True, "radius": -1.0}):
+    for kw in ({"lean": False, "radius": 2.0}, {"lean": True, "radius": -1.0}, {"lean": True, "radius": 0.5},
+               {"lean": True, "radius": float("inf")}):
         with pytest.raises(ValueError, match="lean radius"):
             pr.run_round({}, params, None, "heads_only", 1e-3, **kw)
 

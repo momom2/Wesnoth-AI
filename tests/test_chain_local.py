@@ -460,6 +460,22 @@ def test_rounds_lean_radius_reaches_the_rounds_with_its_first_round(tmp_path):
     assert args.rounds_lean_radius == 2.0 and args.rounds_lean_radius_from == 25
     assert cl.parse_args(ARGV).rounds_lean_radius is None
     for bad in (["--rounds-lean-radius", "2"], ["--rounds-lean", "--rounds-lean-radius", "0"],
-                ["--rounds-lean", "--rounds-lean-radius-from", "25"]):
+                ["--rounds-lean", "--rounds-lean-radius", "0.5"], ["--rounds-lean", "--rounds-lean-radius-from", "25"],
+                ["--rounds-lean", "--rounds-lean-radius", "2", "--rounds-lean-radius-from", "0"]):
         with pytest.raises(SystemExit):
             cl.parse_args(ARGV + bad)
+
+
+def test_after_stop_takes_only_its_own_rounds_stop(tmp_path):
+    """The code review's L3: --after-stop 3 refuses a STOP that names round
+    30 (departure 47's stops read there), and still takes one naming round
+    3 before a comma or an apostrophe."""
+    args = _after_stop_args(tmp_path / "thirty", stop="STOP after round 30's claim: below by more than 2 SE")
+    f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": 0}, rounds_writes=_rounds_upto({1, 2, 3}, 3))
+    assert f.chain(args)() == 1 and f.ran == []
+    assert "CHAIN_REFUSED: --after-stop 3 needs round 3's design stop" in _log(args)
+    for name, stop in (("apostrophe", "STOP after round 3's claim: REDEPLOY"), ("comma", "REDEPLOY, after round 3, x")):
+        args = _after_stop_args(tmp_path / name, stop=stop)
+        f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": 0}, rounds_writes=_rounds_upto({1, 2, 3}, 3))
+        f.chain(args)()
+        assert [s for s, _, _ in f.ran][:1] == ["scripts/rounds_local.py"], name
