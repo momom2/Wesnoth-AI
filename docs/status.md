@@ -163,11 +163,13 @@ by +134.1 ± 3.3.
 - **The heads' gradient signal is falling.** Its norm went from 3.97 (round
   2) to about 1.3 (rounds 11-13), while the noise per split stayed flat, so
   each round's 5,000 games buy less (`training/metrics/denoise_20261105.json`).
-- **The trunk has never trained in self-play.** The pipeline is not why,
-  and the memory is the main reason found (2026-11-10). The readings are
-  `training/metrics/trunk_*_20261110.json` on `feature/local-gpu-stage1`,
-  and the account is that branch's `docs/autonomy_20261029.md`, the entry
-  of 2026-11-10 14:20.
+- **The trunk has never trained in self-play.** The pipeline is not why.
+  The memory is why the step is small: on a few game-sides it turns a
+  trunk step into a divergence, and the KL search sizes the step on that
+  (2026-11-10). The readings are `training/metrics/trunk_*_20261110.json`
+  on `feature/local-gpu-stage1` (69ce95ff), and the account is that
+  branch's `docs/autonomy_20261029.md`, the entries of 2026-11-10 14:20
+  and 19:07.
   - The planted signal reaches the gradient at its size: 0.0222 ± 0.0031
     against 0.0232 planted, in the heads and the trunk alike. Stage C's
     planted check missed (about 6 SE, both seats) on its forecast of how a
@@ -189,20 +191,66 @@ by +134.1 ± 3.3.
     - A smaller step does not avoid it. On the one side read, the response
       at 1/64 of the step is linear and still costs about 500 times a
       median side.
+    - Nine more sides were walked, down to the 5000th by the step's KL.
+      The memory holds 94% to 99% of the KL on those ranked 2nd to 100th,
+      81% at the 500th and about half at the 2500th and 5000th.
+  - **The mechanism** (13 sides walked; a write's parts read on four):
+    - `own2`'s memory holds one learned pattern, the same on every game
+      and in every slot. It is up by turn 2 and released some turns later
+      (turns 9 to 16 on eight of the nine diverging sides). The policy
+      reads it far more than a random memory direction: a shift of 0.1 of
+      the memory's norm along the gap costs a KL of 0.004 to 0.019 a
+      decision, against 8e-5 to 4e-4.
+    - While the pattern is held, a difference along it is regenerated, not
+      stored. The gate keeps 0.67 to 0.84 of it a write and the trunk
+      writes back 0.15 to 0.34, so it changes by 0.96 to 1.05 a write. A
+      random difference loses 10% to 13% a write.
+    - A trunk step writes the pattern higher (+0.008 to +0.012 after one
+      write, on all 13 sides). That push is the largest single part of the
+      gradient: one weight direction, at a cosine of 0.62 with it, holding
+      42.5% of the step's first-order gain on 8.2% of its squared norm.
+    - The pushes add up. At decision 100 the gap on the pattern is 116 to
+      420 times one write's on the nine diverging sides. The stepped
+      memory then releases the pattern 2 to 5 turns late on three of them
+      and not within the decisions read on five. Between the two releases
+      the policies differ by a KL of 0.1 to 0.2 a decision.
+    - Without that direction the step loses 98% to 99.7% of its KL on four
+      diverging sides outside the direction's fit. The direction alone
+      brings back 74% to 88%.
+    - What is left of the step feeds the same loop: at 3 times its size
+      the memory diverges again (the KL grows 18 to 67 times, not 9).
+  - **So the step is sized on the memory's divergence.** At a given memory
+    it changes the policy by about 2e-5 a decision, 60 to 100 times under
+    the 0.00135 it is sized to.
   - **Those sides return no measurable gain** (the top 1%: −0.0035 ±
     0.0046 of the step's 0.0148). Outside the top 5%, the step gains 1.30
     per √KL against the heads' 2.89. So the diverging sides explain a
-    factor of about 2.7 of the gap of 6, and a factor of 2.2 remains.
+    factor of about 2.7 of the gap of 6, and a factor of 2.2 remains. On
+    its KL at a given memory the trunk step is about as efficient as the
+    heads' (2.5 to 3.4 per √KL against 3.0), so that factor reads as the
+    memory's too. This is reasoned, not measured: the step's first-order
+    gain includes what comes through the memory inside a window.
   - **Not the cause:** the optimizer (sgd, reduced AdamW and muon read
     alike), the fp16 rounding of the stepped weights, or the pass's noise
     (about 0.1% of the trunk step's KL, against 1% of the heads').
   - As the step is sized, on the mean KL over all sides, mixing the trunk
     in adds under 1%. Sized on a KL the diverging sides cannot fill, the
     mix would add at most about 10% (reasoned from the rates above, not
-    measured).
-  - Open: the remaining factor of 2.2 (the KL's cut by module was not
-    read), and a memory that does not diverge (`BACKLOG.md`, "Rework the
-    memory system").
+    measured). Sized on its KL at a given memory, the step could be about
+    8 times larger, for a first-order gain of about 0.10 against the
+    heads-only step's 0.109. That is an upper bound, also reasoned: a
+    memory that does not diverge would still move.
+  - Open: which remedy, and it is the user's choice. The candidates:
+    - a memory with no such loop (`BACKLOG.md`, "Rework the memory
+      system");
+    - a pass that trains through the loop, past its 16-decision windows;
+    - a memory written by a frozen trunk;
+    - a step with its push taken out, which gives up 42.5% of the
+      first-order gain and still diverges at 3 times the step;
+    - heads-only rounds, as now.
+  - Not established: whether the push's signal comes through the
+    decision's own policy or through the memory inside a 16-decision
+    window, and whether a pattern held longer plays better.
   - P stays skipped (departure 31).
 - **Serving:** fp16 here against bf16 on a box. The fp16 path matches
   fp32's argmax on 200 of 200 bench positions; bf16 has fewer mantissa
@@ -222,8 +270,10 @@ by +134.1 ± 3.3.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
   - training the trunk. Its step's KL must first stop going to the few
-    game-sides where the memory diverges: a reworked memory (`BACKLOG.md`),
-    or a step sized on a trimmed KL, tested by games;
+    game-sides where the memory diverges: a reworked memory (`BACKLOG.md`)
+    or another of the remedies listed under "What the numbers do not
+    show". A step sized on a trimmed KL would hide the divergence on those
+    sides, not remove it;
   - a step that budgets its KL by decision class. Per decision, recruits
     return about 3.4 times what moves do, while moves take 69-90% of the
     step.

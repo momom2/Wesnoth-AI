@@ -19,20 +19,31 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     self-play rounds never train what a write does more than 16 decisions
     later. The slot memory is 8% of a full-network step's trunk norm² in
     stage C (training/metrics/trunk_diagnosis_20261110.json).
-  - Today's memory is the main reason found for the trunk not training
-    (2026-11-10; `docs/status.md`, "What the numbers do not show"). On a
-    few game-sides `own2`'s recurrence amplifies what a stepped trunk
-    writes, and those sides take 65-88% of a full-network step's KL for no
-    measurable gain. The trunk's writes drive it, not the memory's own
-    weights: stepping `slot_memory.*` alone reads under 1% of the step's
-    KL on the three sides walked.
-  - Two tests for a new memory, from that reading
-    (`scripts/window_20261029/trunk_memory_lane.py` and `trunk_step_tail.py`
-    on `feature/local-gpu-stage1`):
+  - Today's memory is why a trunk step is small (2026-11-10;
+    `docs/status.md`, "What the numbers do not show"). On a few game-sides
+    `own2`'s recurrence amplifies what a stepped trunk writes, and those
+    sides take 65-88% of a full-network step's KL for no measurable gain.
+    The trunk's writes drive it, not the memory's own weights: stepping
+    `slot_memory.*` alone reads under 1% of the step's KL on the three
+    sides walked.
+  - The mechanism: `own2`'s memory holds one pattern through a game's
+    first turns, and while it is held the gate and the trunk together
+    regenerate a difference along it (0.96 to 1.05 a write, where a random
+    difference loses 10% to 13%). A trunk step writes that pattern higher
+    at every write. By decision 100 the pushes add up to 116 to 420 times
+    one write's, and the release comes turns late or not within the
+    decisions read.
+  - Three tests for a new memory, from those readings
+    (`scripts/window_20261029/trunk_memory_lane.py`, `trunk_step_tail.py`
+    and `trunk_memory_states.py` on `feature/local-gpu-stage1`):
     - a memory gap set once decays on every game-side walked (today a gap
       of about 1% peaks at 60%, 54% and 8% on three);
     - a full-network step's KL does not gather in a few game-sides (today
-      the top 1% hold 65%, against a heads-only step's 4%).
+      the top 1% hold 65%, against a heads-only step's 4%);
+    - a step's KL through the memory stays near its KL at a given memory
+      (today the memory holds 94% to 99% of it on the sides ranked 2nd to
+      100th, and the step's own change of the policy is 60 to 100 times
+      under the KL it is sized to).
   - The memory stays (rulings 2026-10-05 and 2026-10-09): this changes its
     form, not whether there is one.
 
