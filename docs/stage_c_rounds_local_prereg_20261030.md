@@ -1416,6 +1416,11 @@ Design §6, unchanged:
       - The gate stands on these games: departure 38's guard is that a gate is not overridden on the data that failed it.
       - Round 19 is not stepped.
       - Departure 40's final plays the last adopted round, 18 (round.json's candidate, SHA-256 c5796941...). It runs the chain's own match_local command into final_match_r18, at seed base 900,000 and 12,800 decisive games, and was launched by hand at 21:46:04.
+      - **Its result** (2026-11-10 03:02, no failed games, no display reset): round 18 reads **+105.7 ± 3.2** Elo against own2 (8,290-4,510, 7 no-results excluded). Paired game by game on the common seeds (same map, factions and seat):
+        - round 18 minus round 16: **+0.0154 ± 0.0048** in score on 12,785 seeds, 3.2 SE. That clears the evening review's bar for going on (2 SE);
+        - round 18 minus round 15: +0.0124 ± 0.0049;
+        - round 18 minus round 12: +0.0305 ± 0.0051;
+        - round 16 minus round 15 read −0.0028 ± 0.0047, so the gain came in rounds 17-18.
     - **Departure 41 does not arm.** Its first condition (CHAIN_FINAL_DONE into final_match_r20) cannot hold, and the user is back, which hands the decision to them. The ways on, for the user:
       - replay round 19's games on fresh seeds and continue if the gate passes there. rounds_local derives a round's seeds from its index, so this needs a seed offset (a code change). It costs about 2.25 h before the step;
       - or end the line on this final.
@@ -1515,6 +1520,18 @@ Design §6, unchanged:
       - Not changed, and recorded:
         - --end-by budgets a match round at 1.2 times the longest plain lean round, about 1.3 h short (this predates the change);
         - CI has not run on these commits, since nothing can be pushed. The stand-in is the full suite on the desktop at 5d67c834, run before the launch.
+    - **The launch** (2026-11-10 03:03):
+      - The full suite at 5d67c834: 2,253 passed, 139 skipped, 0 failed.
+      - `deploy_lean.sh` passed its checks and made the hand steps:
+        - final_match_r18's result.json was copied to round_18/argmax;
+        - play was moved to play_failed42;
+        - seed_base.txt was written as 29,500,000 and held.txt as 1,250 (the old one kept as held_failed42.txt);
+        - r19_play.failed was renamed to r19_play.failed42, not deleted;
+        - times.json's round 19 entry was popped (the old file kept as times_pre43.json);
+        - the REDEPLOY STOP was written.
+      - `arm_lean.ps1 -Head 5d67c834` started the watcher (pid 13492) and the chain (pid 14428), in the run worktree at 5d67c834.
+      - At 03:03:07 chain.log reads CHAIN_AFTER_STOP (the stop moved to STOP_round03_8). runner.log reads "|H| 1250 ... average 8, lean True". Rounds 1-18 were re-read without play, and round 19's games started on round_18/pi.pt: label pi19, seed base 29,500,000, 6,250 games held from 5,000.
+      - retry19_watch.log reads RETRY19_WATCH start (floor z −2.0).
     - Nothing is adopted; configs/reference_player.json is untouched.
 
 44. **The averaged direction takes 8 earlier rounds, not 2** (no code change: chain_local `--rounds-average 8`; registered 2026-11-10 01:00, before round 19's replay and after departure 43).
