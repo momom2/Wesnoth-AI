@@ -1574,7 +1574,7 @@ Design §6, unchanged:
     - **Departure 44's kill** reads the mean over the rounds 19-24 read so far: K 8's mean cosine below K 2's returns the average to 2 at the next round. Each round's values are reported. On round 19 alone K 8 reads 0.610 and K 2 0.333.
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-46. **The pass's floor reads 25 game-sides, not 100** (`feature/lean-rounds` 604ba0aa: rounds_local FLOOR_SIDES; registered 2026-11-10 10:30, before round 21's pass, the first it takes).
+46. **The pass's floor reads 25 game-sides, not 100** (`feature/lean-rounds` 604ba0aa: rounds_local FLOOR_SIDES; deployed at 21862a0a, which adds the code review's fixes and a test that the floor's size leaves the pass's sums bit-identical; registered 2026-11-10 10:30, before round 21's pass, the first it takes).
     - **Why:** the floor (tools/pg_floor.py) is a check, not training, and it costs far more than its design said.
       - Over rounds 2-19 it took 1,392-1,833 s of each pass, 16-21% (pass.json rate.floor_seconds), about 29 min a round. pg_floor's docstring estimates about 1% of a pass.
       - Its upper bound held between 3.6e-6 and 4.3e-6, about a twenty-fifth of the replay limit (1.07-1.09e-4).
@@ -1589,11 +1589,12 @@ Design §6, unchanged:
       - a pass refused for the floor.
     - **Deployment:**
       - A hand-written STOP ends rounds_local between steps (rc 2, which plays no final: chain_local ROUNDS_ENDED is (0, 3)).
-      - The run worktree checks out 604ba0aa.
+      - The run worktree checks out 21862a0a.
+      - The STOP is written once round 20's step has started (the code review's M1), so rounds_local reads it at round 21's top, after round 20's end is stamped, and the gap falls in no round's wall.
       - chain_local is relaunched with arm_lean.ps1's flags and departure 47's, and `--after-stop 3` moves the STOP aside.
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-47. **From round 25, a lean step searches to twice the radius** (604ba0aa: chain_local `--rounds-lean-radius 2 --rounds-lean-radius-from 25`; registered 2026-11-10 10:30, before any step at it).
+47. **From round 25, a lean step searches to twice the radius** (604ba0aa: chain_local `--rounds-lean-radius 2 --rounds-lean-radius-from 25`; deployed at 21862a0a, which refuses a radius below 1 since next eps is the target; registered 2026-11-10 10:30, before any step at it).
     - **Why:** a lean step is no longer read, and the range's edge (SIDE_KL_RANGE, 0.5 nat a side-game) exists so the halves' importance weights can read a step.
       - The gain grows with the step's length. Over rounds 8-18, half A's exact gain at the 1x rung averaged 0.0430 against 0.0301 at the 0.5x rung (round.json, recomputed), a ratio of 1.43. That is about √2 for twice the KL, which is what a gain linear in the length gives.
       - The halves resolve no curvature up to 1x, and 2x was never read: it fell outside the range.
