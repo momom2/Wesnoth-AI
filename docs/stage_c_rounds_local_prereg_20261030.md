@@ -1611,3 +1611,19 @@ Design §6, unchanged:
       If round 24's stops pause the line, this departure does not apply.
     - **What is lost:** a step twice the KL may overshoot where the gain bends. The six-round stops bound that to about 30 h.
     - Nothing is adopted; configs/reference_player.json is untouched.
+48. **The line stopped after round 22** (no code change; written 2026-11-10 22:51, after the fact: the window did not arrange the stop).
+    - **What happened:**
+      - At 22:29:14 the user asked for a stop after the round.
+      - Between 22:29:48 and 22:29:53 every process of the line ended, five minutes into round 23's games. The 64 games in flight exited with rc 3221225786 (0xC000013A, a console interrupt or close), and the chain, rounds_local and the games' runner left no log line.
+      - The system's logs show no fault, display reset or restart, and there is no STOP file. So the line's console was closed or interrupted. By whom is not established (docs/autonomy_20261029.md, 2026-11-10 22:51).
+    - **What changes:**
+      - The line is not relaunched without the user's word. The window's heartbeat and review schedule is deleted.
+      - Round 22 is the last finished round (adopted 22:24:38). Rounds 19-22 ran lean.
+      - Round 24's claim and argmax match are not played, and neither is the line's final. So departures 43, 44 and 46 have no reading from games, departure 45's decider is not read, and departure 47 (from round 25) never took effect.
+    - **What is read anyway:** departure 44's kill on the running mean over rounds 19-22. K 8 reads 0.550 against K 2's 0.433, a paired difference of +0.117 ± 0.078, so it does not trigger. This is a proxy, not a verdict.
+    - **If the line resumes** (`wesnoth_runs\tools\arm_lean47.ps1 -Head 21862a0a`, the 12:52 arming's script, after a hand STOP naming "after round 3", which `--after-stop 3` needs and moves aside):
+      - round 23 resumes from its markers: its 230 results stay, and the 64 failed games are replayed;
+      - departure 45's GPU-hours leave out the time from 22:29:53 to the new start, which times.json would count in round 23;
+      - the number is also reported with round 21's readers taken out (about 13 to 23 minutes of its pass: the 22:01 review's M6), beside the floor's time put back.
+    - **What is lost:** the six-round reading of the lean package, unless the line resumes, and the five minutes of games in flight.
+    - Nothing is adopted; configs/reference_player.json is untouched.

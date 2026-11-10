@@ -9,6 +9,11 @@ decision after the reference's peak on p where it reads under RELEASED); and
 the reference's own level on p at turn 2 and its rank correlation with the
 turn number.
 
+The release turn is the first dip only. A pattern raised again after it is
+not seen (826876:1's second hold, to about turn 14; 820061:2's from turn 5),
+and a reading ends at trunk_memory_states.py's last decision (240 at most),
+so None means "not within the decisions read", not "never".
+
     python scripts/window_20261029/trunk_memory_gap.py --pattern <p.npy> --reading pass=<states.json>,<arrays dir> [--reading ...] [--sides <name> ...] --out training/metrics/trunk_memory_gap_20261110.json
 """
 import argparse

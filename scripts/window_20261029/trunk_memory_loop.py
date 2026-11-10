@@ -326,8 +326,8 @@ def main() -> int:
     try:
         import psutil
         psutil.Process().nice(psutil.IDLE_PRIORITY_CLASS)
-    except Exception:                                   # a reading, not a run: priority is best effort
-        pass
+    except Exception as error:                          # a reading, not a run: priority is best effort
+        print(f"WARNING: not at Idle priority ({error!r})", flush=True)
     import numpy as np
     import torch
     torch.set_num_threads(a.threads)

@@ -44,8 +44,8 @@ def idle(threads: int) -> None:
     try:
         import psutil
         psutil.Process().nice(psutil.IDLE_PRIORITY_CLASS)
-    except Exception:
-        pass
+    except Exception as error:                          # priority is best effort, but never silent
+        print(f"WARNING: not at Idle priority ({error!r})", flush=True)
     torch.set_num_threads(threads)
 
 
