@@ -4,6 +4,24 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
+## Open (2026-11-10)
+
+- **Rework the memory system** (the user, 2026-11-10: "I have an idea for
+  attention-based memory rather than fully unstructured"). The design is the
+  user's to give; it replaces the model's memory, so it is an architectural
+  change that needs their go-ahead.
+  - Today's memory (`wesnoth_ai/memory.py`, `SlotMemory`): a side's 64 float32
+    slots, read by the trunk as MEMORY tokens and rewritten after every
+    decision through a learned gate per slot and channel (GTrXL), with
+    nothing that ties a slot to what it holds.
+  - Bearing on it: the gradient pass cuts the trunk's and the memory's
+    gradient at 16-decision windows (tools/pg_pass.py `window`), so the
+    self-play rounds never train what a write does more than 16 decisions
+    later. The slot memory is 8% of a full-network step's trunk norm² in
+    stage C (training/metrics/trunk_diagnosis_20261110.json).
+  - The memory stays (rulings 2026-10-05 and 2026-10-09): this changes its
+    form, not whether there is one.
+
 ## NEXT (2026-10-09)
 
 **Measured 2026-10-09** (runs Q1, Q2, Q7 approved by the user; five boxes,
