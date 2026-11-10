@@ -106,6 +106,9 @@ GPU's time, against about half before.
   A reading with none before it is only logged.
 - A round is measured as its own step ran (its decision's "lean"): a lean
   run resumed over earlier rounds plays and reads their claims as before.
+- `--lean-radius R --lean-radius-from K` (prereg departure 47): the steps
+  of rounds K on search to R times the radius (tools/pg_round.py
+  --lean-radius).
 
 A round's games start from SEED_BASE + k * SEED_STRIDE, or from the base in
 its seed_base.txt (prereg departure 42's replay), which must leave the
@@ -182,7 +185,12 @@ LEAN_KL_SIDES = 250             # the KL subsample: round 18's, 5 % of 5,000 hel
 # Elo per unit of E[z] at a win rate of 1/2: Elo = 400 log10(p / (1 - p))
 # and E[z] = 2 p - 1, so dElo / dE[z] = 200 / ln 10 / (p (1 - p)) = 347.4.
 ELO_PER_Z = 347.4
-FLOOR_SIDES = 100
+# The game-sides each pass's floor reads (tools/pg_floor.py). 100 through
+# round 20; 25 after (prereg departure 46): over rounds 2-19 the floor took
+# 16-21 % of each pass while its upper bound held at 3.6-4.3e-6, a twenty-
+# fifth of the replay limit, so a quarter of the sides doubles its SE (from
+# about 1e-7 to 2e-7) and leaves the check as it was.
+FLOOR_SIDES = 25
 # The arms that read the head maps' gradient alone, so a heads-only pass
 # serves them (--heads-only-pass): wesnoth_ai/pg_step.py HEADS_ONLY_ARMS,
 # which tests/test_rounds_local.py holds equal (this file imports no torch).
@@ -218,6 +226,8 @@ class Rounds(Steps):
         self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
         self.lean = bool(getattr(args, "lean", False))                    # prereg departure 43
+        self.lean_radius = float(getattr(args, "lean_radius", None) or 1.0)   # prereg departure 47
+        self.lean_radius_from = int(getattr(args, "lean_radius_from", None) or 1)
 
     # ---- the rounds' files
     def rdir(self, k: int) -> Path:
@@ -480,6 +490,8 @@ class Rounds(Steps):
             previous = ["--previous", str(prev / "direction.pt")] if (prev / "direction.pt").exists() else []
             previous += self.average_args(k)
             lean = ["--lean"] if self.lean else []
+            if self.lean and self.lean_radius != 1.0 and k >= self.lean_radius_from:
+                lean += ["--lean-radius", repr(self.lean_radius)]
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
                                                *self.factory_args(pi, dirs, labels, d / "eval_cache",
@@ -802,6 +814,10 @@ def main() -> int:
     ap.add_argument("--lean", action="store_true",
                     help="each step by its KL search alone, and two smaller matches every LEAN_EVERY-th round "
                          "(module docstring, prereg departure 43)")
+    ap.add_argument("--lean-radius", type=float, default=1.0, metavar="R",
+                    help="lean steps search to R times the radius (prereg departure 47)")
+    ap.add_argument("--lean-radius-from", type=int, default=1, metavar="K",
+                    help="--lean-radius takes the steps of rounds K on")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -826,11 +842,16 @@ def main() -> int:
         ap.error(f"--rebase-after {args.rebase_after}: name the round whose stop was acted on")
     if args.average < 0:
         ap.error(f"--average {args.average}: a number of earlier rounds")
+    if args.lean_radius != 1.0 and not (args.lean and args.lean_radius > 0):
+        ap.error(f"--lean-radius {args.lean_radius}: a positive scale of the --lean steps' radius")
+    if args.lean_radius_from < 1:
+        ap.error(f"--lean-radius-from {args.lean_radius_from}: name a round")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, |H| {args.held}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
                   f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}, average "
-                  f"{args.average}, lean {args.lean}")
+                  f"{args.average}, lean {args.lean}, lean radius {args.lean_radius:g} from round "
+                  f"{args.lean_radius_from}, floor {FLOOR_SIDES} game-sides")
     return run(Rounds(args), args.rounds)
 
 

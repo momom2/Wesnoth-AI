@@ -43,6 +43,9 @@ cannot take its input, as below), s is searched to the radius, eps or the
 range's edge if that is lower, and the step is adopted unread: no half reads
 it, so no importance weight is checked and no cross-play rung is written.
 The decision holds that one rung, with no halves, and `"lean": true`.
+`--lean-radius R` (prereg departure 47) searches to R times that radius
+instead; its next eps is the target, so from the next round on the radius
+reads R times the edge.
 
 `--average-with` (prereg departure 37; the heads-only arm): earlier rounds'
 direction.pt files. Beside d the round reads their average with d
@@ -136,16 +139,20 @@ def _write_json(path: Path, obj: Dict) -> None:
 def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, eps: float,
               previous: Optional[Dict[str, torch.Tensor]] = None, adopt: Optional[Dict] = None,
               stage_c: Optional[Dict] = None, average: Optional[Sequence[Dict[str, torch.Tensor]]] = None,
-              average_of: Optional[Sequence[str]] = None, lean: bool = False) -> tuple:
+              average_of: Optional[Sequence[str]] = None, lean: bool = False, radius: float = 1.0) -> tuple:
     """(readout, d, s or None, the direction s steps along): the round's
     direction, its ladder (or stage C's decision, `adopt`, taken as read)
     and the step to write. `stage_c` is stage_c.json, whose span Fisher
     round 1's probe_span takes. `average` (the earlier rounds' directions,
     `average_of` their paths) adds the averaged direction beside d (module
     docstring), and the step may go along it. `lean` takes the step by its
-    KL search alone (module docstring, prereg departure 43)."""
+    KL search alone, to `radius` times the radius (module docstring, prereg
+    departures 43 and 47)."""
     if lean and adopt is not None:
         raise ValueError("--lean takes no stage C decision: round 1's step is stage C's")
+    if radius != 1.0 and not (lean and radius > 0):
+        raise ValueError(f"a lean radius of {radius}: it scales a lean step's radius, so it needs --lean and "
+                         f"must be positive")
     fisher, source = (round_span_fisher(pass_, params, factory, stage_c if adopt is not None else None)
                       if arm == "probe_span" else (None, None))
     d = direction(pass_, arm, params, fisher)
@@ -168,7 +175,7 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
             readout["decision"]["lean"] = True
         return readout, d, None, d
     if lean:
-        return _lean_step(readout, factory, arm, eps, d, size, average or [], average_of)
+        return _lean_step(readout, factory, arm, eps, d, size, average or [], average_of, radius)
     step_d, decision = d, None
     if average:
         readout["average"] = {"of": [str(p) for p in (average_of or [])]}
@@ -220,10 +227,11 @@ def _average(readout: Dict, arm: str, d: Dict[str, torch.Tensor], size: float,
 
 
 def _lean_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torch.Tensor], size: float,
-               average: Sequence[Dict[str, torch.Tensor]], average_of: Optional[Sequence[str]]) -> tuple:
+               average: Sequence[Dict[str, torch.Tensor]], average_of: Optional[Sequence[str]],
+               radius: float = 1.0) -> tuple:
     """Prereg departure 43's step (module docstring): run_round's return,
-    the step searched to the radius along the averaged direction (or d)
-    and adopted unread."""
+    the step searched to `radius` times the radius (departure 47) along the
+    averaged direction (or d) and adopted unread."""
     step_d, along = d, "plain"
     if average:
         readout["average"] = {"of": [str(p) for p in (average_of or [])]}
@@ -236,13 +244,14 @@ def _lean_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torch.
     evaluator = factory(step_d)
     sides = evaluator.game_sides()
     edge = SIDE_KL_RANGE / decisions_per_side(sides)
-    target = min(eps, edge)
+    target = radius * min(eps, edge)
     point = kl_search(evaluator.mean_kl, target, s0=1.0 / norm(step_d))
+    scaled = f" at {radius:g} times the radius (prereg departure 47)" if radius != 1.0 else ""
     decision = Decision(True, point.s, eps, target, 0,
-                        f"lean step (prereg departure 43): KL {point.kl:.4g} a decision along {along}, unread",
-                        [Rung(1.0, target, point.s, point.kl, True, {})])
+                        f"lean step (prereg departure 43): KL {point.kl:.4g} a decision along {along}{scaled}, "
+                        f"unread", [Rung(radius, target, point.s, point.kl, target <= edge, {})])
     readout["decision"] = {**decision.summary(), "lean": True}
-    readout["lean"] = {"along": along, "edge": edge, "kl_evals": point.evals}
+    readout["lean"] = {"along": along, "edge": edge, "radius": radius, "kl_evals": point.evals}
     readout["heldout"] = {"game_sides": len(sides), "decisions_per_side": decisions_per_side(sides)}
     return readout, d, point.s, step_d
 
@@ -282,9 +291,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="where the chosen rung's network is written when a cross-play match must read it")
     ap.add_argument("--lean", action="store_true",
                     help="the step by its KL search alone, adopted unread (prereg departure 43)")
+    ap.add_argument("--lean-radius", type=float, default=1.0, metavar="R",
+                    help="a lean step searches to R times the radius (prereg departure 47)")
     args = ap.parse_args(argv)
     if args.lean and args.adopt_from is not None:
         ap.error("--lean takes no --adopt-from: round 1's step is stage C's")
+    if args.lean_radius != 1.0 and not (args.lean and args.lean_radius > 0):
+        ap.error(f"--lean-radius {args.lean_radius}: a positive scale of a --lean step's radius")
     module, _, name = args.factory.partition(":")
     factory, params, sha = getattr(importlib.import_module(module), name)(**_factory_args(args.factory_arg))
     pass_ = load_pass(args.pass_path)
@@ -305,7 +318,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     previous = torch.load(args.previous, map_location="cpu", weights_only=True) if args.previous else None
     average = [torch.load(p, map_location="cpu", weights_only=True) for p in args.average_with or []]
     readout, d, s, step_d = run_round(pass_, params, factory, arm, eps, previous, adopt, stage_c, average,
-                                      args.average_with, lean=args.lean)
+                                      args.average_with, lean=args.lean, radius=args.lean_radius)
     if args.direction_out is not None:
         torch.save(d, args.direction_out)
         if step_d is not d:              # what rebuilds an averaged candidate (the code review's L4)

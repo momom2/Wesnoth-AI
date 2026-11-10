@@ -803,3 +803,24 @@ def test_a_plain_run_over_lean_rounds_is_refused_before_it_plays(tmp_path, monke
     rc, out = _run(tmp_path, tools, rounds=4)
     assert rc == 1 and tools.names() == []
     assert "ROUNDS_REFUSED: rounds [2, 3] stepped lean" in (out / "runner.log").read_text(encoding="utf-8")
+
+
+def test_lean_radius_takes_the_steps_from_its_first_round_and_the_floor_reads_its_sides(tmp_path, monkeypatch):
+    """Prereg departure 47: with --lean-radius 2 --lean-radius-from 4 the
+    steps of rounds 4 on pass pg_round --lean-radius 2.0 and the earlier
+    ones none; departure 46: every pass's floor reads FLOOR_SIDES (25)
+    game-sides."""
+    _reference(monkeypatch)
+    tools = FakeTools()
+    rc, _ = _run(tmp_path, tools, rounds=5, lean=True, held=1250, lean_radius=2.0, lean_radius_from=4)
+    assert rc == 0
+    for k in range(2, 6):
+        step = tools.cmd(f"round {k} step")
+        assert ("--lean-radius" in step) == (k >= 4)
+        if k >= 4:
+            assert step[step.index("--lean-radius") + 1] == "2.0"
+        p = tools.cmd(f"round {k} pass")
+        assert p[p.index("--floor-sides") + 1] == str(rl.FLOOR_SIDES) == "25"
+    plain = FakeTools()
+    assert _run(tmp_path / "unscaled", plain, rounds=3, lean=True, held=1250)[0] == 0
+    assert not any("--lean-radius" in plain.cmd(f"round {k} step") for k in (2, 3))

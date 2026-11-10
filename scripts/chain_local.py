@@ -24,9 +24,10 @@ worktree P and the rounds should run (pinned at a tested commit):
    passes and the link holds). A step that fails is never run again.
    With --skip-p, P is not run and the rounds run with --no-p-gate
    (prereg departure 31: P's played check cannot resolve at the plant's
-   size). --rounds-n-train, --rounds-held, --rounds-average and
-   --rounds-lean are rounds_local's --n-train, --held, --average and
-   --lean (prereg departures 25, 34, 37 and 43).
+   size). --rounds-n-train, --rounds-held, --rounds-average,
+   --rounds-lean, --rounds-lean-radius and --rounds-lean-radius-from are
+   rounds_local's --n-train, --held, --average, --lean, --lean-radius and
+   --lean-radius-from (prereg departures 25, 34, 37, 43 and 47).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them, or 1 too with --final-after-failure: prereg departure
    43, since a failed part taints only its own round), it plays the
@@ -284,6 +285,9 @@ class Chain:
         heads += ["--rebase-after", str(a.after_stop)] if getattr(a, "after_stop", None) is not None else []
         heads += ["--average", str(a.rounds_average)] if getattr(a, "rounds_average", None) else []
         heads += ["--lean"] if getattr(a, "rounds_lean", False) else []
+        if getattr(a, "rounds_lean_radius", None) is not None:
+            heads += ["--lean-radius", repr(a.rounds_lean_radius)]
+            heads += ["--lean-radius-from", str(getattr(a, "rounds_lean_radius_from", None) or 1)]
         p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
@@ -388,6 +392,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                          "previous rounds' beside it (prereg departure 37)")
     ap.add_argument("--rounds-lean", action="store_true",
                     help="passed to rounds_local --lean (prereg departure 43)")
+    ap.add_argument("--rounds-lean-radius", type=float, default=None, metavar="R",
+                    help="passed to rounds_local --lean-radius (prereg departure 47)")
+    ap.add_argument("--rounds-lean-radius-from", type=int, default=None, metavar="K",
+                    help="passed to rounds_local --lean-radius-from")
     ap.add_argument("--final-after-failure", action="store_true",
                     help="play the final match after a failed round too (module docstring item 4, prereg "
                          "departure 43)")
@@ -440,6 +448,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             ap.error("--after-stop plays no tail and no continuation")
         if args.after_stop < 1 or args.rounds <= args.after_stop:
             ap.error(f"--after-stop {args.after_stop}: the rounds must go past it (--rounds {args.rounds})")
+    if args.rounds_lean_radius is not None and not (args.rounds_lean and args.rounds_lean_radius > 0):
+        ap.error(f"--rounds-lean-radius {args.rounds_lean_radius}: a positive scale of --rounds-lean's radius")
+    if args.rounds_lean_radius_from is not None and args.rounds_lean_radius is None:
+        ap.error("--rounds-lean-radius-from goes with --rounds-lean-radius")
     for out in ("tail_out", "continue_final_out"):
         if getattr(args, out) is not None and getattr(args, out) == args.final_out:
             ap.error(f"--{out.replace('_', '-')} must differ from --final-out (match_local refuses a changed match)")

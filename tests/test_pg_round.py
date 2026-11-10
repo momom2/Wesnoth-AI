@@ -295,6 +295,31 @@ def test_a_lean_step_takes_no_stage_c_decision():
         pr.run_round({}, _heads_params(), None, "heads_only", 1e-3, adopt={"adopt": True}, lean=True)
 
 
+def test_a_lean_radius_scales_the_target_and_carries_into_the_next_eps():
+    """Prereg departure 47: --lean-radius R searches to R times min(eps,
+    edge), records R, and its next eps is that target, so the round after
+    reads R times the edge again; R needs --lean and must be positive."""
+    import tools.pg_round as pr
+    from wesnoth_ai.pg_step import KL_RTOL, SIDE_KL_RANGE
+    params = _heads_params()
+    torch.manual_seed(3)
+    d = {n: torch.randn_like(t) for n, t in params.items()}
+    edge = SIDE_KL_RANGE / 10
+    eps = 0.98 * edge
+    for radius, target in ((1.0, eps), (2.0, 2 * eps)):
+        readout, _, s, step_d = pr._lean_step({}, _KLEvaluator, "heads_only", eps, d, pr.norm(d), [], None, radius)
+        dec = readout["decision"]
+        assert dec["next_eps"] == pytest.approx(target) and readout["lean"]["radius"] == radius
+        assert abs(_KLEvaluator(step_d).mean_kl(s) - target) <= KL_RTOL * target
+        assert dec["rungs"][0]["multiplier"] == radius and dec["rungs"][0]["in_range"] == (radius == 1.0)
+        assert ("departure 47" in dec["reason"]) == (radius != 1.0)
+    readout, *_ = pr._lean_step({}, _KLEvaluator, "heads_only", 2 * eps, d, pr.norm(d), [], None, 2.0)
+    assert readout["decision"]["next_eps"] == pytest.approx(2 * edge)
+    for kw in ({"lean": False, "radius": 2.0}, {"lean": True, "radius": -1.0}):
+        with pytest.raises(ValueError, match="lean radius"):
+            pr.run_round({}, params, None, "heads_only", 1e-3, **kw)
+
+
 @needs_core
 @pytest.mark.slow
 def test_a_lean_round_through_the_command_line_writes_the_averaged_step(tmp_path):

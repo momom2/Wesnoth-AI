@@ -444,3 +444,22 @@ def test_final_newer_than_skips_a_final_on_a_round_already_measured(tmp_path):
         if not matches:
             assert "CHAIN_NO_FINAL: no round after round 5 adopted a candidate" in _log(args)
     assert cl.parse_args(ARGV + ["--final-newer-than", "18"]).final_newer_than == 18
+
+
+def test_rounds_lean_radius_reaches_the_rounds_with_its_first_round(tmp_path):
+    """Prereg departure 47: --rounds-lean-radius and --rounds-lean-radius-from
+    are rounds_local's --lean-radius and --lean-radius-from; the radius needs
+    --rounds-lean, and the first round needs the radius."""
+    args = _after_stop_args(tmp_path, stop="STOP after round 3's claim: REDEPLOY")
+    args.rounds_lean, args.rounds_lean_radius, args.rounds_lean_radius_from = True, 2.0, 25
+    f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": 0}, rounds_writes=_rounds_upto({1, 2, 3}, 3))
+    f.chain(args)()
+    cmd = f.ran[0][1]
+    assert cmd[cmd.index("--lean-radius") + 1] == "2.0" and cmd[cmd.index("--lean-radius-from") + 1] == "25"
+    args = cl.parse_args(ARGV + ["--rounds-lean", "--rounds-lean-radius", "2", "--rounds-lean-radius-from", "25"])
+    assert args.rounds_lean_radius == 2.0 and args.rounds_lean_radius_from == 25
+    assert cl.parse_args(ARGV).rounds_lean_radius is None
+    for bad in (["--rounds-lean-radius", "2"], ["--rounds-lean", "--rounds-lean-radius", "0"],
+                ["--rounds-lean", "--rounds-lean-radius-from", "25"]):
+        with pytest.raises(SystemExit):
+            cl.parse_args(ARGV + bad)
