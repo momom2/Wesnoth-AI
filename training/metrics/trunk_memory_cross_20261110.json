@@ -1,0 +1,515 @@
+{
+ "first": 48,
+ "small": 0.0003,
+ "floor": 1e-07,
+ "readings": {
+  "states_all.json": {
+   "direction": "pass",
+   "s": 7.360455533727685e-05,
+   "decisions": 414,
+   "cosine": {
+    "median": 0.6679394695868575,
+    "q25": 0.37693155735482997,
+    "q75": 0.8701968930838151,
+    "above_0": 0.9130434782608695
+   },
+   "logged_logp_correlation": 0.5519174860943953,
+   "sides": {
+    "game_own2a_own2b_s2_827637:2": {
+     "[1,6)": {
+      "decisions": 5,
+      "cosine": 0.7711552682779799,
+      "memory_over_weights": 0.13128998797453045
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.8293006519102152,
+      "memory_over_weights": 0.25226129206389486
+     },
+     "[12,24)": {
+      "decisions": 8,
+      "cosine": 0.8220545108090078,
+      "memory_over_weights": 2.986121011511388
+     }
+    },
+    "game_own2a_own2b_s2_827637:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.8404157017686738,
+      "memory_over_weights": 0.12190304185005585
+     },
+     "[6,12)": {
+      "decisions": 4,
+      "cosine": 0.41505392691340676,
+      "memory_over_weights": 0.38941980228330586
+     },
+     "[12,24)": {
+      "decisions": 9,
+      "cosine": 0.8188831859749862,
+      "memory_over_weights": 0.5552347616138594
+     },
+     "[24,48)": {
+      "decisions": 24,
+      "cosine": -0.007302711769303687,
+      "memory_over_weights": 0.7081061445699008
+     }
+    },
+    "game_own2a_own2b_s1_823184:1": {
+     "[1,6)": {
+      "decisions": 5,
+      "cosine": 0.29215765288554113,
+      "memory_over_weights": 0.09306490973040181
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.7037063012576085,
+      "memory_over_weights": 0.5709887110721353
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.5716523798535915,
+      "memory_over_weights": 0.23852597447861712
+     },
+     "[24,48)": {
+      "decisions": 8,
+      "cosine": 0.6423441961178247,
+      "memory_over_weights": 6.068883595638658
+     }
+    },
+    "game_own2a_own2b_s1_829524:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.424925106950285,
+      "memory_over_weights": 0.03676122735304184
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.6822837387419345,
+      "memory_over_weights": 0.31232177134197675
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.7334634836168735,
+      "memory_over_weights": 0.954353494835028
+     },
+     "[24,48)": {
+      "decisions": 4,
+      "cosine": 0.8385495937940244,
+      "memory_over_weights": 6.632059495562243
+     }
+    },
+    "game_own2a_own2b_s1_822120:2": {
+     "[1,6)": {
+      "decisions": 3,
+      "cosine": 0.8969770778799582,
+      "memory_over_weights": 0.031196806692390326
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.8854438235693507,
+      "memory_over_weights": 0.23851134099344412
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.7565978340839732,
+      "memory_over_weights": 1.3054267512967654
+     },
+     "[24,48)": {
+      "decisions": 9,
+      "cosine": 0.810419125443103,
+      "memory_over_weights": 6.086843309471114
+     }
+    },
+    "game_own2a_own2b_s1_820244:2": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.4235259446207792,
+      "memory_over_weights": 0.23714466997632308
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.71601166011433,
+      "memory_over_weights": 0.7322108730522555
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.9275675806505308,
+      "memory_over_weights": 5.691454898212077
+     },
+     "[24,48)": {
+      "decisions": 3,
+      "cosine": 0.9387498144478673,
+      "memory_over_weights": 9.487729328161455
+     }
+    },
+    "game_own2a_own2b_s2_829001:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.4713584502728191,
+      "memory_over_weights": 0.048571650583518075
+     },
+     "[6,12)": {
+      "decisions": 4,
+      "cosine": 0.6218653538527028,
+      "memory_over_weights": 0.3451389466384407
+     },
+     "[12,24)": {
+      "decisions": 9,
+      "cosine": 0.8117943358748858,
+      "memory_over_weights": 4.249360370383447
+     },
+     "[24,48)": {
+      "decisions": 15,
+      "cosine": 0.8567519522888463,
+      "memory_over_weights": 6.205723609436437
+     }
+    },
+    "game_own2a_own2b_s1_824432:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.3455276800836681,
+      "memory_over_weights": 0.03374562264315427
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.7862772710401743,
+      "memory_over_weights": 0.34213381752064526
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.6629803147756914,
+      "memory_over_weights": 2.668384894839158
+     }
+    },
+    "game_own2a_own2b_s2_823025:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.7960930452354076,
+      "memory_over_weights": 0.17116157885871336
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.79476216149356,
+      "memory_over_weights": 0.4820134490488284
+     },
+     "[12,24)": {
+      "decisions": 9,
+      "cosine": 0.8971638778121062,
+      "memory_over_weights": 2.5666764577026533
+     }
+    },
+    "game_own2a_own2b_s1_826876:1": {
+     "[1,6)": {
+      "decisions": 3,
+      "cosine": 0.544216928060116,
+      "memory_over_weights": 0.1054555698209667
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.8344782420803329,
+      "memory_over_weights": 0.2438296734693488
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.7066378810035635,
+      "memory_over_weights": 1.6882868376516869
+     },
+     "[24,48)": {
+      "decisions": 24,
+      "cosine": 0.5943005924557963,
+      "memory_over_weights": 1.5936780069999186
+     }
+    },
+    "game_own2a_own2b_s2_820061:2": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.5938695360506044,
+      "memory_over_weights": 0.14179785419303656
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.6895040019827492,
+      "memory_over_weights": 0.4321655701874616
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.19517088725645348,
+      "memory_over_weights": 0.38144155600473845
+     },
+     "[24,48)": {
+      "decisions": 22,
+      "cosine": 0.8168572010068944,
+      "memory_over_weights": 1.0705259809096046
+     }
+    },
+    "game_own2a_own2b_s1_820436:2": {
+     "[1,6)": {
+      "decisions": 5,
+      "cosine": 0.3771366545010052,
+      "memory_over_weights": 0.20154299509952275
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.8309352463693772,
+      "memory_over_weights": 0.47693696727556323
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.8426663897487656,
+      "memory_over_weights": 4.726869956509152
+     },
+     "[24,48)": {
+      "decisions": 15,
+      "cosine": 0.6340693636012943,
+      "memory_over_weights": 5.232953278471456
+     }
+    },
+    "game_own2a_own2b_s1_820776:2": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.5107117750938265,
+      "memory_over_weights": 0.048974738824235725
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.8389983663300664,
+      "memory_over_weights": 0.31521708366309936
+     },
+     "[12,24)": {
+      "decisions": 10,
+      "cosine": 0.6159105667980103,
+      "memory_over_weights": 4.456696842857424
+     },
+     "[24,48)": {
+      "decisions": 24,
+      "cosine": 0.23951584020718936,
+      "memory_over_weights": 1.3225998464118174
+     }
+    }
+   }
+  },
+  "states_push.json": {
+   "direction": "push.pt",
+   "s": 7.360455533727685e-05,
+   "decisions": 155,
+   "cosine": {
+    "median": 0.7624695335173975,
+    "q25": 0.34141700652534324,
+    "q75": 0.8917864948940724,
+    "above_0": 0.8580645161290322
+   },
+   "logged_logp_correlation": 0.6622126101074108,
+   "sides": {
+    "game_own2a_own2b_s1_822120:2": {
+     "[1,6)": {
+      "decisions": 3,
+      "cosine": 1.0412063565717848,
+      "memory_over_weights": 0.1564506926788372
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.9464550252337974,
+      "memory_over_weights": 1.4356574296699705
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.7903651122065098,
+      "memory_over_weights": 2.172143927178131
+     },
+     "[24,48)": {
+      "decisions": 9,
+      "cosine": 0.8627310817246698,
+      "memory_over_weights": 11.787966883842754
+     }
+    },
+    "game_own2a_own2b_s1_820244:2": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.29215663732347036,
+      "memory_over_weights": 1.0750199353998182
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.7471866650043675,
+      "memory_over_weights": 1.4258984617519208
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.856222163849468,
+      "memory_over_weights": 6.941053487115893
+     },
+     "[24,48)": {
+      "decisions": 4,
+      "cosine": 0.9318664076510483,
+      "memory_over_weights": 7.388172010368903
+     }
+    },
+    "game_own2a_own2b_s2_829001:1": {
+     "[1,6)": {
+      "decisions": 4,
+      "cosine": 0.39170600765031427,
+      "memory_over_weights": 0.2646368234504205
+     },
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.6066048673550378,
+      "memory_over_weights": 0.2570983400493903
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.8468348933546629,
+      "memory_over_weights": 9.710561485244053
+     },
+     "[24,48)": {
+      "decisions": 15,
+      "cosine": 0.6729446268478997,
+      "memory_over_weights": 7.332839678420305
+     }
+    },
+    "game_own2a_own2b_s1_824432:1": {
+     "[1,6)": {
+      "decisions": 5,
+      "cosine": 0.050680981513035135,
+      "memory_over_weights": 0.13129316180946438
+     },
+     "[6,12)": {
+      "decisions": 4,
+      "cosine": 0.8409806878530937,
+      "memory_over_weights": 0.903316577680538
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.8626577208358885,
+      "memory_over_weights": 6.161007152741065
+     },
+     "[24,48)": {
+      "decisions": 3,
+      "cosine": 0.3515628763846329,
+      "memory_over_weights": 64.43656376599739
+     }
+    },
+    "game_own2a_own2b_s1_820776:2": {
+     "[1,6)": {
+      "decisions": 3,
+      "cosine": 0.04185288402122683,
+      "memory_over_weights": 0.2737518930810908
+     },
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.7612642632704203,
+      "memory_over_weights": 0.7064046155632436
+     },
+     "[12,24)": {
+      "decisions": 10,
+      "cosine": 0.6373694343458746,
+      "memory_over_weights": 5.9788811684387015
+     },
+     "[24,48)": {
+      "decisions": 24,
+      "cosine": -0.09364769864264036,
+      "memory_over_weights": 2.805886313263138
+     }
+    }
+   }
+  },
+  "states_rest.json": {
+   "direction": "rest.pt",
+   "s": 7.360455533727685e-05,
+   "decisions": 188,
+   "cosine": {
+    "median": 0.47502306327542976,
+    "q25": 0.13876320556053115,
+    "q75": 0.6932908983523748,
+    "above_0": 0.824468085106383
+   },
+   "logged_logp_correlation": 0.3535823240751283,
+   "sides": {
+    "game_own2a_own2b_s1_822120:2": {
+     "[6,12)": {
+      "decisions": 4,
+      "cosine": 0.42841672827890503,
+      "memory_over_weights": 0.07706490642708383
+     },
+     "[12,24)": {
+      "decisions": 10,
+      "cosine": 0.5935324966892376,
+      "memory_over_weights": 0.2803882818271225
+     },
+     "[24,48)": {
+      "decisions": 23,
+      "cosine": 0.6673418902941758,
+      "memory_over_weights": 7.949054506104822
+     }
+    },
+    "game_own2a_own2b_s1_820244:2": {
+     "[6,12)": {
+      "decisions": 6,
+      "cosine": 0.48829155169900107,
+      "memory_over_weights": 0.08231605295035822
+     },
+     "[12,24)": {
+      "decisions": 12,
+      "cosine": 0.6372758361050697,
+      "memory_over_weights": 0.6865163639850711
+     },
+     "[24,48)": {
+      "decisions": 17,
+      "cosine": 0.5463011015631543,
+      "memory_over_weights": 19.372996350973857
+     }
+    },
+    "game_own2a_own2b_s2_829001:1": {
+     "[6,12)": {
+      "decisions": 4,
+      "cosine": 0.3755024893021729,
+      "memory_over_weights": 0.15588144667941997
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.5313696783127551,
+      "memory_over_weights": 1.144881051858105
+     },
+     "[24,48)": {
+      "decisions": 24,
+      "cosine": 0.6024962272505521,
+      "memory_over_weights": 2.938235809756394
+     }
+    },
+    "game_own2a_own2b_s1_824432:1": {
+     "[6,12)": {
+      "decisions": 3,
+      "cosine": 0.419287953362306,
+      "memory_over_weights": 0.09426702097123156
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.31756626195408955,
+      "memory_over_weights": 0.4176757100665624
+     },
+     "[24,48)": {
+      "decisions": 20,
+      "cosine": 0.4319062715253743,
+      "memory_over_weights": 12.679401083309607
+     }
+    },
+    "game_own2a_own2b_s1_820776:2": {
+     "[6,12)": {
+      "decisions": 5,
+      "cosine": 0.6213203811641095,
+      "memory_over_weights": 0.0554939442753023
+     },
+     "[12,24)": {
+      "decisions": 11,
+      "cosine": 0.2333984901758417,
+      "memory_over_weights": 0.2586159282520966
+     },
+     "[24,48)": {
+      "decisions": 23,
+      "cosine": 0.33452213778308854,
+      "memory_over_weights": 0.13582354573991892
+     }
+    }
+   }
+  }
+ }
+}
