@@ -19,6 +19,20 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     self-play rounds never train what a write does more than 16 decisions
     later. The slot memory is 8% of a full-network step's trunk norm² in
     stage C (training/metrics/trunk_diagnosis_20261110.json).
+  - Today's memory is the main reason found for the trunk not training
+    (2026-11-10; `docs/status.md`, "What the numbers do not show"). On a
+    few game-sides `own2`'s recurrence amplifies what a stepped trunk
+    writes, and those sides take 65-88% of a full-network step's KL for no
+    measurable gain. The trunk's writes drive it, not the memory's own
+    weights: stepping `slot_memory.*` alone reads under 1% of the step's
+    KL on the three sides walked.
+  - Two tests for a new memory, from that reading
+    (`scripts/window_20261029/trunk_memory_lane.py` and `trunk_step_tail.py`
+    on `feature/local-gpu-stage1`):
+    - a memory gap set once decays on every game-side walked (today a gap
+      of about 1% peaks at 60%, 54% and 8% on three);
+    - a full-network step's KL does not gather in a few game-sides (today
+      the top 1% hold 65%, against a heads-only step's 4%).
   - The memory stays (rulings 2026-10-05 and 2026-10-09): this changes its
     form, not whether there is one.
 

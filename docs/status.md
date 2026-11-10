@@ -20,8 +20,9 @@ adopted as the new reference yet: that is the user's call. Since
 adopted unread, and evaluation falls from about 32% of a round to about
 11% (42% to 18% counting the held-out games). A 3,200-game claim and a
 3,200-game argmax match every 6th round can pause it. The trunk has never
-trained: its pipeline is sound, but at equal KL its steps buy about 9 times
-less than the heads' ("What the numbers do not show").
+trained: its pipeline is sound, but on a few game-sides the memory diverges
+under a full-network step, and those sides take most of the step's KL for
+no gain ("What the numbers do not show").
 
 ## The reference player
 
@@ -162,22 +163,46 @@ by +134.1 ± 3.3.
 - **The heads' gradient signal is falling.** Its norm went from 3.97 (round
   2) to about 1.3 (rounds 11-13), while the noise per split stayed flat, so
   each round's 5,000 games buy less (`training/metrics/denoise_20261105.json`).
-- **The trunk has never trained in self-play,** and the pipeline is not
-  why (2026-11-10; `training/metrics/trunk_diagnosis_20261110.json` on
-  `feature/local-gpu-stage1`).
+- **The trunk has never trained in self-play.** The pipeline is not why,
+  and the memory is the main reason found (2026-11-10). The readings are
+  `training/metrics/trunk_*_20261110.json` on `feature/local-gpu-stage1`,
+  and the account is that branch's `docs/autonomy_20261029.md`, the entry
+  of 2026-11-10 14:20.
   - The planted signal reaches the gradient at its size: 0.0222 ± 0.0031
     against 0.0232 planted, in the heads and the trunk alike. Stage C's
     planted check missed (about 6 SE, both seats) on its forecast of how a
     trunk-heavy step moves the attack mass, read through 16-decision
     windows. That is the instrument, not the training.
-  - A full-network step spends nearly all its KL on the trunk, and at
-    equal KL it gains about 9 times less than a heads-only step (0.0124
-    against 0.1097 on half A; sgd and muon alike). Mixing the two would
-    add under 1%.
-  - Open: why a trunk move is that expensive, and whether a full-memory
-    gradient (the pass cuts it at 16 decisions) or a step that budgets its
-    KL by module finds a better one. The per-module reading is
-    `scripts/window_20261029/trunk_kl_by_module.py`.
+  - Per √KL, a full-network step gains 0.50 against a heads-only step's
+    3.03 (first order, on stage C's half A).
+  - **A few game-sides hold a full-network step's KL.** The 1% that move
+    most hold 65% of it and the top 5% hold 88%. A heads-only step reads
+    4% and 16%.
+  - **On those sides the memory diverges.** Three were walked decision by
+    decision, each network reading the other's memory:
+    - `own2` reading the stepped network's memory reproduces 97-99% of the
+      step's KL. The stepped network reading `own2`'s memory shows 2e-5 a
+      decision, as an ordinary side does.
+    - `own2`'s own recurrence amplifies there: a memory gap of about 1%,
+      set once, peaks at 60%, 54% and 8%. On a fourth, ordinary side it
+      decays.
+    - A smaller step does not avoid it. On the one side read, the response
+      at 1/64 of the step is linear and still costs about 500 times a
+      median side.
+  - **Those sides return no measurable gain** (the top 1%: −0.0035 ±
+    0.0046 of the step's 0.0148). Outside the top 5%, the step gains 1.30
+    per √KL against the heads' 2.89. So the diverging sides explain a
+    factor of about 2.7 of the gap of 6, and a factor of 2.2 remains.
+  - **Not the cause:** the optimizer (sgd, reduced AdamW and muon read
+    alike), the fp16 rounding of the stepped weights, or the pass's noise
+    (about 0.1% of the trunk step's KL, against 1% of the heads').
+  - As the step is sized, on the mean KL over all sides, mixing the trunk
+    in adds under 1%. Sized on a KL the diverging sides cannot fill, the
+    mix would add at most about 10% (reasoned from the rates above, not
+    measured).
+  - Open: the remaining factor of 2.2 (the KL's cut by module was not
+    read), and a memory that does not diverge (`BACKLOG.md`, "Rework the
+    memory system").
   - P stays skipped (departure 31).
 - **Serving:** fp16 here against bf16 on a box. The fp16 path matches
   fp32's argmax on 200 of 200 bench positions; bf16 has fewer mantissa
@@ -196,7 +221,9 @@ by +134.1 ± 3.3.
   skipped); CI has not run on it.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
-  - training the trunk, once a direction is found that pays for its KL;
+  - training the trunk. Its step's KL must first stop going to the few
+    game-sides where the memory diverges: a reworked memory (`BACKLOG.md`),
+    or a step sized on a trimmed KL, tested by games;
   - a step that budgets its KL by decision class. Per decision, recruits
     return about 3.4 times what moves do, while moves take 69-90% of the
     step.
