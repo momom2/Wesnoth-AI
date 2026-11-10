@@ -7,17 +7,19 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-09.
+Last updated 2026-11-10.
 
 ## In one paragraph
 
 Self-play now beats the reference. The policy-iteration rounds, run on the
 desktop's RX 6600 from 2026-10-29, took `own2` through 18 adopted rounds.
-At `own2`'s own decode, round 16 beats `own2` by +102.7 ± 3.2 Elo on fresh
-seeds. Nothing has been adopted as the new reference yet: that is the
-user's call. The gains at argmax have slowed since round 12, and much of
-what remains is on one map. Where to take the training next is the open
-question ("Open" below).
+At `own2`'s own decode, round 18 beats `own2` by +105.7 ± 3.2 Elo, and
+paired on the same seeds it leads round 16 by 3.2 SE. Nothing has been
+adopted as the new reference yet: that is the user's call. Since
+2026-11-10 03:03 the line runs lean (departures 43-44): each step is
+adopted unread, and evaluation falls from about 42% of the GPU to about
+11%. A 3,200-game claim and a 3,200-game argmax match every 6th round can
+pause it.
 
 ## The reference player
 
@@ -46,7 +48,7 @@ followed by fine-tuning on its own recorded games.
 ## Self-play: the policy-iteration rounds
 
 - **Design:** `docs/training_design_20261019/current_design.md`. The
-  pre-registration and its 42 departures are in
+  pre-registration and its 44 departures are in
   `docs/stage_c_rounds_local_prereg_20261030.md`. The autonomous window's
   card, plan, reviews and log are in `docs/autonomy_20261029.md`.
 - **A round:**
@@ -60,6 +62,17 @@ followed by fine-tuning on its own recorded games.
      a 10,000-game cross-play match decides instead.
   4. Every third round, a claim match plays the round's policy at T=1
      against `own2` at its decode.
+- **A lean round** (from round 19, departures 43-44; `--rounds-lean` on
+  `feature/lean-rounds`):
+  - 5,000 games plus 1,250 held out;
+  - the same pass;
+  - a step that is the KL search alone, along the average of the round's
+    direction and the 8 before it, to the radius. It is adopted unread.
+  - Every 6th round, a 3,200-game claim and a 3,200-game argmax match on
+    the finals' seeds. The line pauses unless the claim gains 2 combined SE
+    over the last claim and the argmax match 1 SE over the last argmax
+    reading.
+  - About 5.1 h a round.
 - **Code:** `scripts/rounds_local.py` and `scripts/chain_local.py`, over
   `tools/pg_corrections.py`, `tools/pg_pass.py`, `tools/pg_round.py` and
   `tools/pg_eval.py`. The library is `wesnoth_ai/pg_*.py`.
@@ -73,19 +86,22 @@ followed by fine-tuning on its own recorded games.
   and rounds 2-18 played 150,000. Evaluation matches played about 210,000
   more.
 - **Run state:** `C:\Users\momom2\wesnoth_runs\` (`rounds_local/`,
-  `chain.log`). The code runs from the detached worktree `wesnoth_ai-run`
-  at f8697706.
-- **Round 19 stopped the line** (2026-11-09 20:41, departure 42, on
-  `feature/local-gpu-stage1`). Its games failed the readout's I-V gate:
-  v against recruit read z −3.66 against the gates' 3.45.
+  `chain.log`, `chain_lean.console.log`). The code runs from the detached
+  worktree `wesnoth_ai-run` at 5d67c834 (`feature/lean-rounds`).
+- **Round 19's first games failed a gate** (2026-11-09 20:41, departure
+  42). The readout's I-V check read v against recruit at z −3.66, against
+  the gates' 3.45.
   - The signal is diffuse: both shards, every map, not a few games. A
     bootstrap reproduces its SE, and over the line's 228 I-V readings z
-    reads RMS 1.03. So it fits the gates' 1% false-alarm rate, but it
-    stands on these games.
-  - The final match on round 18 (argmax against `own2`, seed base
-    900,000, 12,800 decisive games) runs into `final_match_r18/` from
-    21:46, due about 01:55 Nov 10. It pairs with round 16's final.
-  - Departure 41 does not re-arm.
+    reads RMS 1.03. It fits the gates' 1% false-alarm rate, but the gate
+    stands on those games.
+  - Round 19 is being replayed on fresh seeds from 29,500,000, under
+    departure 42's retry rule, from 2026-11-10 03:03. Every gate must pass
+    on the fresh games alone.
+  - `wesnoth_runs/tools/retry19_watch.py` writes a STOP before round 19's
+    step if the fresh games read v against recruit below z −2.
+  - The run ends by 2026-11-13 18:00, with the final into
+    `final_match_lean/`.
 
 ### Measured
 
@@ -103,6 +119,7 @@ sides), against `own2`, seed base 900,000:
 | round 12 | +82.9 ± 3.2 |
 | round 15 | +96.5 ± 3.2 |
 | round 16 | +94.1 ± 3.2 (fresh seeds, base 980,000: **+102.7 ± 3.2**) |
+| round 18 | **+105.7 ± 3.2** |
 
 **Claims** (the round's policy at T=1 against `own2` at its decode):
 
@@ -124,11 +141,12 @@ by +134.1 ± 3.3.
 
 ### What the numbers do not show
 
-- **At argmax the gains slow.**
+- **At argmax the gains are uneven.**
   - Paired on the same seeds, in score per round:
     - rounds 4-12: about +0.008;
     - rounds 13-15: +0.006;
-    - round 16: −0.003 ± 0.005.
+    - round 16: −0.003 ± 0.005;
+    - rounds 17-18: +0.0154 ± 0.0048 together, about +0.008 a round.
   - Off Arcanclave Citadel, round 16 minus round 12 reads only +0.0091 ±
     0.0054. Round 16 wins 560 of its 616 games on that map. Whether that is
     a sound plan or a hole in `own2` is not established.
@@ -150,15 +168,14 @@ by +134.1 ± 3.3.
 
 ## Open (for the user unless noted)
 
-- **After round 18's final: replay round 19 or end the line.** Replaying
-  draws round 19's games on fresh seeds, and the line goes on only if
-  every gate passes on them (the retry rule is in departure 42). The
-  2026-11-09 evening review advises ending the heads-only line if round
-  18 minus round 16, paired on the final's seeds, is under 2 SE.
-- **Adopt round 16, or a later round, as the reference.** The evidence is a
-  local match of 12,800 decisive games, and the checkpoint is
-  `C:\Users\momom2\wesnoth_runs\rounds_local\round_16\pi.pt` (SHA-256
-  88a45323...; copies in `C:\Users\momom2\wesnoth_checkpoints_window\`).
+- **Adopt round 18, or a later round, as the reference.** The evidence is
+  a local match of 12,800 decisive games (+105.7 ± 3.2), and the
+  checkpoint is `C:\Users\momom2\wesnoth_runs\rounds_local\round_18\pi.pt`
+  (SHA-256 c5796941...). Copies of rounds 3, 15, 16 and 18 are in
+  `C:\Users\momom2\wesnoth_checkpoints_window\`.
+- **Merging `feature/lean-rounds`** (3 commits, the code the line runs)
+  and the log commits on `feature/local-gpu-stage1` into `main`. The full
+  suite passed at 5d67c834; CI has not run on it.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
   - training the trunk, after the plant's miss is root-caused;
