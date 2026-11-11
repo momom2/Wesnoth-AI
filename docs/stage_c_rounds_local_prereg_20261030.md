@@ -1627,3 +1627,41 @@ Design §6, unchanged:
       - the number is also reported with round 21's readers taken out (about 13 to 23 minutes of its pass: the 22:01 review's M6), beside the floor's time put back.
     - **What is lost:** the six-round reading of the lean package, unless the line resumes, and the five minutes of games in flight.
     - Nothing is adopted; configs/reference_player.json is untouched.
+49. **Round 22 is read before the rounds change** (no code change; written 2026-11-11 18:10, before the match).
+    - **Why:** from round 23 the step changes (departure 50), so round 24's claim and argmax match would read two regimes together. Rounds 19-22 are the lean package's, and no game has read them (departure 48).
+    - **The match:** departure 43's argmax match, on round 22's policy in place of round 24's.
+      - `scripts/match_local.py --label lean22 --checkpoint rounds_local/round_22/pi.pt --games 3200 --seed-base 900000 --out rounds_local/round_22/argmax`, at the reference's decode, from the run worktree at 21862a0a.
+      - It plays once the match test's decode match ends (docs/trunk_step_match_prereg_20261111.md on main, departure 3).
+    - **What decides:** round 22 minus round 18, paired by seed in score with round 18's final match on the same 3,200 seeds (`final_match_r18`). The lean rounds gained at the reference's decode at +2 SE or more and lost at −2 SE or under; otherwise the gain is not shown.
+    - **What is lost:** departure 45's own number, the claim's Elo per GPU-hour over rounds 19-24. No claim is played at round 22, and rounds 23-24 are no longer the lean package's. Departure 44's kill on the running mean stands as read in departure 48.
+    - **If round 22 lost:** the policy the next rounds start from is the user's to choose (round 18's or round 22's).
+    - **What it leaves the rounds:** `round_22/argmax/result.json` becomes the earlier argmax reading that round 24's stop reads against (departure 43's second stop).
+    - **Wall:** about 57 minutes (round 6's 12,800 games took 13,749 s). It is inspected at 90. Nothing is adopted.
+50. **The KL rule leaves the rounds: steps of fixed length, on a full pass** (code: `feature/fixed-step-rounds`, cut from 21862a0a; from round 23; written 2026-11-11 18:10. Not launched: the line stays stopped until the user says to start it).
+    - **The user's instruction** (2026-11-11, after the match test): "desactivate that 'safety' rule entirely."
+      - The match test (docs/trunk_step_match_prereg_20261111.md on main) read a full-network step 8 times its KL-sized length at +52.5 ± 6.2 Elo over `own2` at T=1.
+      - With the heads' step added it read +88.2 ± 6.3, against the heads' +34.6 ± 6.2.
+    - **What changes, from round 23:**
+      - The pass is the full one: every parameter's gradient, under reduced AdamW (`scripts/rounds_local.py` FIXED_ARM).
+      - The step reads no KL (`tools/pg_round.py --fixed-step`). The head maps move 0.5 in weight space along their direction, averaged with the 8 rounds before (departure 44's average, kept). Every other parameter moves 0.019 along the round's own direction. Each group's direction is scaled to unit norm first.
+      - The step is adopted unread, as a lean step is.
+      - Departure 47 lapses: there is no radius to double.
+    - **Where the two lengths come from:**
+      - 0.5 is what the KL search gave the head maps in rounds 13-22 (s times the averaged direction's norm: 0.42 to 0.54).
+      - 0.019 is the match test's 8 times: 8 × 7.3605e-05 × 32.35, the last being the rest's norm in stage C's direction.
+    - **What stays:**
+      - 5,000 training games and 1,250 held-out: the labels' corrections are fitted on the held-out games.
+      - The pass's replay check.
+      - The two matches every 6th round and their stops (departure 43).
+    - **Cost:** a full pass ran at 85 decisions a second in stage C, against 271 for round 22's heads-only pass. So a round's pass goes from about 2.5 h to about 8 h, and a round from 4.7 h to about 10 h. This is not measured on this code. The step loses its KL search (minutes).
+    - **The first reading is round 23 alone.** The rounds run to round 23 and stop. Then round 23's policy plays round 22's, both at T=1, over 3,200 decisive games (near an even score, so an SE of about 6 Elo).
+      - At +2 SE or more the fixed step gains in the line, and the rounds go on to round 24's claim and argmax match.
+      - At −2 SE or under it loses: the rounds stay stopped, and the two lengths are the question.
+      - Between the two it is not shown, and the user decides whether to go on.
+      - There is no forecast number. One such step from `own2` read +88, but round 22's heads have less signal left than `own2`'s had, and the rest's 0.019 was sized at `own2`.
+    - **Kill criteria:**
+      - a pass past 12 h (1.5 times its estimate) is inspected;
+      - the pass's replay check stops the round by itself;
+      - a display reset stops the line.
+    - **What is confounded:** round 24's claim reads rounds 19-22 (lean) and 23-24 (fixed) together against round 18's. Its argmax match reads rounds 23-24 against departure 49's reading of round 22.
+    - **Not changed:** the reference player, the corrections and the games' decode. Nothing is adopted.
