@@ -150,6 +150,26 @@ departure written before it launches.
      read: whether that is the whole cause.
    - So the estimate for heads2 is the last match's 49 minutes, and 1.5
      times it is about 75.
+3. **One reading at the reference's decode** (written 2026-11-11 17:58,
+   after the result below and before the match starts).
+   - **Why:** the result says nothing about strength where the reference
+     plays ("What it does not show"). The user has since asked for the KL
+     rule to go from the rounds, so the reading bears on what comes next.
+   - **The match:** mix8 alone, as `trunk_mix8`, against `own2` at
+     `raw:t0+eo-1.5` on both sides (match_local without `--t1`), 3,200
+     decisive games on seeds 900,000-903,199, the standard matches' first
+     3,200. Into `...\trunk_step_match_20261111\mix8_decode`.
+   - **Forecast:** about +22 Elo. The rounds' gains at this decode read
+     about a quarter of their T=1 size (round 3: +31.8 against +134.1).
+   - **What decides:** mix8 gains at the reference's decode if it reads
+     at least +2 SE over `own2` (about +12.4). Under −2 SE it loses
+     there. Otherwise the gain is not shown at this resolution.
+   - **No heads arm:** one heads-only step reads about +10 there by the
+     rounds' record, which 3,200 games cannot resolve.
+   - **Wall:** about 57 minutes (round 6's 12,800 took 13,749 s). It is
+     inspected at 90.
+   - This is still not a strength claim for an adoption: one match of
+     3,200, and the candidate is one step from `own2`.
 
 ## Result
 
