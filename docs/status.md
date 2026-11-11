@@ -57,9 +57,9 @@ followed by fine-tuning on its own recorded games.
 ## Self-play: the policy-iteration rounds
 
 - **Design:** `docs/training_design_20261019/current_design.md`. The
-  pre-registration and its 48 departures are in
+  pre-registration and its 50 departures are in
   `docs/stage_c_rounds_local_prereg_20261030.md` (main's copy holds 1-41;
-  42-48 are on `feature/local-gpu-stage1`). The autonomous window's
+  42-50 are on `feature/local-gpu-stage1`). The autonomous window's
   card, plan, reviews and log are in `docs/autonomy_20261029.md`.
 - **A round:**
   1. π_k plays itself at T=1: 5,000 games to train on, plus 2,500 held out
@@ -67,8 +67,8 @@ followed by fine-tuning on its own recorded games.
   2. One gradient pass computes the outcome-labelled policy gradient over
      the **policy heads only**; the trunk and the memory do not move.
   3. One step is taken on a KL ladder. It is read on the held-out games
-     (half A chooses the step, half B confirms it) and adopted if half B
-     reads it positive. When the importance weights fail their ESS check,
+     (half A chooses the step, half B confirms it) and adopted unless half
+     B reads it below −2 SE. When the importance weights fail their ESS check,
      a 10,000-game cross-play match decides instead.
   4. Every third round, a claim match plays the round's policy at T=1
      against `own2` at its decode.
@@ -167,8 +167,10 @@ sides), against `own2`, seed base 900,000:
 | round 15 | −43.4 ± 3.1 |
 | round 18 | −8.7 ± 3.1 |
 
-Every claim landed within 2 SE of the forecast the rounds' own half-B
-readings made.
+Round 3's claim read 2.2 SE under the forecast the rounds' own half-B
+readings made, and fired the transfer stop (departure 33 went on past
+it). The later claims are recorded as within 2 SE of theirs; the
+2026-11-11 audit did not re-check that.
 
 **Both sides at T=1:** round 16 beats `own2` by +429.1 ± 5.7 Elo, round 3
 by +134.1 ± 3.3.
@@ -361,16 +363,33 @@ both sides, 3,200 decisive games on the same seeds:
   - more games per step, against the falling signal-to-noise;
   - training the trunk. The match of 2026-11-11 says a full-network step
     sized 8 times larger gains and adds to the heads' step, so a reworked
-    memory is not a precondition. What a round needs is not built:
-    - a rule that sizes the step apart from the divergence (its KL at a
-      given memory is the candidate);
-    - a full-network pass, about 8 h for a round's games at stage C's
-      rate against 2.5 h heads-only. Whether the trunk pays for that per
+    memory is not a precondition. The user then asked for the KL rule to
+    go entirely (2026-11-11), and it is built, not launched:
+    - `feature/fixed-step-rounds` (27cea50a; the desktop suite passed at
+      f34d8766, 2,263 passed and 139 skipped): from round 23 the pass is
+      the full one and the step has two fixed lengths in weight space,
+      0.5 for the head maps and 0.019 for the rest, with no KL read
+      (departure 50);
+    - a full pass is about 8 h for a round's games at stage C's rate,
+      against 2.5 h heads-only. Whether the trunk pays for that per
       GPU-hour, and whether its gain repeats over rounds, is not read;
-    - a reading at the reference's decode, which the match did not take;
+    - departure 49 reads round 22 at the reference's decode first, and
+      the line starts only on the user's word;
   - a step that budgets its KL by decision class. Per decision, recruits
     return about 3.4 times what moves do, while moves take 69-90% of the
     step.
+- **What else to take out of training** (`docs/training_dynamics_audit_20261111.md`,
+  the audit the user asked for on 2026-11-11). It lists every mechanism
+  between "learn from who won" and the training that runs. Apart from the
+  match test, none has a reading in games. The ones it singles out:
+  - downstream of the KL rule, so now unsupported: the arm chosen once at
+    equal KL, and the 5,000-game round;
+  - never measured and now live: the 16-decision window and the
+    per-weight normalisation of the direction;
+  - something other than the network decides play: the end-of-turn
+    offset at the reference's decode (fitted on `relset`), the attack's
+    hex, the advancement, and rejected recruit hexes that the mask reads
+    and the network cannot see (against CLAUDE.md's Principle 6).
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6
