@@ -384,7 +384,12 @@ both sides, 3,200 decisive games on the same seeds:
 - **What else to take out of training** (`docs/training_dynamics_audit_20261111.md`,
   the audit the user asked for on 2026-11-11). It lists every mechanism
   between "learn from who won" and the training that runs. Apart from the
-  match test, none has a reading in games. The ones it singles out:
+  match test, none has a reading in games.
+  `docs/training_dynamics_theory_20261111.md` judges each on theory, at
+  the user's request, and names the loop theory would keep: every game
+  trained on, one form of weight, Adam with momentum and a learning rate,
+  rounds of about 1,000 games, exact checks only, one periodic match. The
+  ones the audit singles out:
   - downstream of the KL rule, so now unsupported: the arm chosen once at
     equal KL, and the 5,000-game round;
   - never measured and now live: the 16-decision window and the

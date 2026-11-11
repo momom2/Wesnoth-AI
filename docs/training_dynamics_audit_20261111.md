@@ -145,6 +145,11 @@ path.
 
 ## What the audit suggests
 
+The user then asked for each mechanism to be judged on theory instead of
+tested one by one: `docs/training_dynamics_theory_20261111.md`. It keeps
+C1, which the list below proposed to test first, and it names the loop
+theory would keep.
+
 Three kinds of item deserve a reading in games, as the KL rule got today.
 Each is one factor.
 
