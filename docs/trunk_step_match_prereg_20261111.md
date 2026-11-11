@@ -108,6 +108,58 @@ departure written before it launches.
 - **Whether a remedy for the loop would do better** (a frozen writer,
   longer windows, a new memory).
 
+## Departures
+
+1. **Stage 2's size, its statistic and a control arm** (written
+   2026-11-11 at about 15:45, while full3 plays and before any stage 2
+   candidate is built).
+   - **Stage 1 so far:** full8 +52.5 ± 6.2 and heads +34.6 ± 6.2 (the
+     log below). So full8 gains, and stage 2 runs.
+   - **m = 8,** unless full3 reads above full8.
+   - **Two candidates,** 3,200 decisive games each on the same seeds,
+     mix8 first:
+     - `trunk_mix8t1`: the head maps at s_H and every other parameter at
+       8·s_F. If the two gains add (0.099 and 0.150 in outcome), it reads
+       about +88 Elo.
+     - `trunk_heads2t1`, a control added here: the head maps alone at
+       stage C's 2ε rung (s = 0.040149; its first-order gain there is
+       0.153, about +54 Elo). Without it, "mix beats heads" cannot be told
+       from "any larger step beats heads".
+   - **The statistic** is the paired difference in score by seed, since
+     the arms play the same maps, factions and seats. A seed counts where
+     both games are decisive
+     (`scripts/window_20261029/trunk_step_pairs.py`, written before these
+     games). It was first run on full8 minus heads, after both were
+     played: +0.0253 ± 0.0113 (2.2 SE; +17.9 Elo).
+   - **What decides:**
+     - the trunk's step adds to a heads-only step if mix8 minus heads
+       reads at least +2 SE;
+     - it adds more than a larger heads step does if mix8 minus heads2
+       reads at least +2 SE;
+     - otherwise the addition is not shown at this resolution, and it is
+       reported with its distance from the additive forecast.
+   - **Why 3,200 games:** if the gains add, mix8 leads heads by about 54
+     Elo and heads2 by about 34, which is 6 and 4 SE of a difference.
+   - **Cost:** about 80 more minutes of the desktop's GPU.
+
 ## Result
 
-Pending.
+Pending. The run's log:
+
+- 14:12:52 the pre-registration was committed (29482e10).
+- 14:14 the candidates were built (`feature/local-gpu-stage1` f87cfd22;
+  `C:\Users\momom2\wesnoth_runs\trunk_step_match_20261111\candidates\`,
+  SHA-256 in `candidates.json`: heads 6b899267, full3 c55e9b63, full8
+  4a7f2bce).
+  - The direction's norms equal stage C's record (32.69 in all, 4.74 on
+    the head maps).
+  - What moved equals the step times the norm to 2 parts in a million.
+  - A second run compared the files on disk with the weights built.
+- 14:15:47 full8 started.
+- 14:53:51 **full8: +52.5 ± 6.2 Elo** over `own2t1` (1,840 wins to
+  1,360, no no-result game; 2,281 s). It gains, at 8.5 SE, and reads
+  above its forecast of +41 ± 15.
+- 14:54 heads started.
+- 15:33:16 **heads: +34.6 ± 6.2 Elo** (1,759 to 1,441, no no-result
+  game; 2,345 s). The yardstick gains, at 5.6 SE, on its forecast of
+  +38 ± 2, so the full arms are read.
