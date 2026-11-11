@@ -1,0 +1,144 @@
+{
+ "prereg": "docs/trunk_step_match_prereg_20261111.md (main)",
+ "procedure": "raw:t1 against raw:t1",
+ "reference": "own2t1",
+ "seed_base": 950000,
+ "games": 3200,
+ "code": "21862a0a",
+ "s_full": 7.360455533727685e-05,
+ "s_heads": 0.028277857723196097,
+ "arms": {
+  "heads": {
+   "label": "trunk_headst1",
+   "checkpoint_sha256": "6b899267426171b9552c5bd7587534f37d3b969d49198cea1c011625d162fce1",
+   "head_step": 0.028277857723196097,
+   "step": 0.0,
+   "elo": 34.629849778793556,
+   "se": 6.171421096167788,
+   "wins": 1759,
+   "losses": 1441,
+   "no_result": 0,
+   "outcome": 0.09937499999999999,
+   "seconds": 2345,
+   "infer_fp16": true
+  },
+  "full3": {
+   "label": "trunk_full3t1",
+   "checkpoint_sha256": "c55e9b63a1d42161049e9367b8e23720f8a799adc2d1c14e8f55c2e62db5ee77",
+   "head_step": 0.00022081366601183055,
+   "step": 0.00022081366601183055,
+   "elo": 27.845632167714534,
+   "se": 6.160625313968134,
+   "wins": 1728,
+   "losses": 1472,
+   "no_result": 0,
+   "outcome": 0.08000000000000007,
+   "seconds": 2609,
+   "infer_fp16": true
+  },
+  "full8": {
+   "label": "trunk_full8t1",
+   "checkpoint_sha256": "4a7f2bcea032848bf02d027581521f2ef973c24ec96d8abcc4a053222fe28332",
+   "head_step": 0.0005888364426982148,
+   "step": 0.0005888364426982148,
+   "elo": 52.49491026676361,
+   "se": 6.211120511628279,
+   "wins": 1840,
+   "losses": 1360,
+   "no_result": 0,
+   "outcome": 0.1499999999999999,
+   "seconds": 2281,
+   "infer_fp16": true
+  },
+  "heads2": {
+   "label": "trunk_heads2t1",
+   "checkpoint_sha256": "e1ad6fffae09f25011d702fb64de9c465bc7b4188b3389f66fb196a350d5c9bf",
+   "head_step": 0.040149413711021806,
+   "step": 0.0,
+   "elo": 48.725664050391,
+   "se": 6.201381539667935,
+   "wins": 1823,
+   "losses": 1377,
+   "no_result": 0,
+   "outcome": 0.13937500000000003,
+   "seconds": 2454,
+   "infer_fp16": true
+  },
+  "mix8": {
+   "label": "trunk_mix8t1",
+   "checkpoint_sha256": "d8ce049cf42ba4f2879fef466fa711e69ad4818df36b3ee56659c8ccab32a9ff",
+   "head_step": 0.028277857723196097,
+   "step": 0.0005888364426982148,
+   "elo": 88.2476270201017,
+   "se": 6.3400476346922625,
+   "wins": 1998,
+   "losses": 1202,
+   "no_result": 0,
+   "outcome": 0.24875000000000003,
+   "seconds": 2954,
+   "infer_fp16": true
+  }
+ },
+ "pairs": {
+  "full3-heads": {
+   "seeds": 3200,
+   "score": -0.0096875,
+   "se": 0.011220023134764678,
+   "z": -0.8634117669493718
+  },
+  "full8-heads": {
+   "seeds": 3200,
+   "score": 0.0253125,
+   "se": 0.0112818861773457,
+   "z": 2.2436407886145946
+  },
+  "heads2-heads": {
+   "seeds": 3200,
+   "score": 0.02,
+   "se": 0.011062286356403554,
+   "z": 1.8079445202955473
+  },
+  "mix8-heads": {
+   "seeds": 3200,
+   "score": 0.0746875,
+   "se": 0.011011081367999278,
+   "z": 6.7829396136385816
+  },
+  "full8-full3": {
+   "seeds": 3200,
+   "score": 0.035,
+   "se": 0.011138672357235313,
+   "z": 3.142205720528727
+  },
+  "heads2-full3": {
+   "seeds": 3200,
+   "score": 0.0296875,
+   "se": 0.0112003292323075,
+   "z": 2.6505917267472823
+  },
+  "mix8-full3": {
+   "seeds": 3200,
+   "score": 0.084375,
+   "se": 0.011204859551950257,
+   "z": 7.530214868718649
+  },
+  "heads2-full8": {
+   "seeds": 3200,
+   "score": -0.0053125,
+   "se": 0.011479139340339077,
+   "z": -0.46279602002314196
+  },
+  "mix8-full8": {
+   "seeds": 3200,
+   "score": 0.049375,
+   "se": 0.011104059076287285,
+   "z": 4.446572164357474
+  },
+  "mix8-heads2": {
+   "seeds": 3200,
+   "score": 0.0546875,
+   "se": 0.011047749065182312,
+   "z": 4.950103381000131
+  }
+ }
+}
