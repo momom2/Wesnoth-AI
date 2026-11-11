@@ -1637,6 +1637,10 @@ Design §6, unchanged:
     - **If round 22 lost:** the policy the next rounds start from is the user's to choose (round 18's or round 22's).
     - **What it leaves the rounds:** `round_22/argmax/result.json` becomes the earlier argmax reading that round 24's stop reads against (departure 43's second stop).
     - **Wall:** about 57 minutes (round 6's 12,800 games took 13,749 s). It is inspected at 90. Nothing is adopted.
+    - **Result** (2026-11-11 19:54): round 22 reads **+114.7 ± 6.5 Elo** over `own2` at the reference's decode (2,110 to 1,090 over 3,200 decisive games, no no-result game; 3,655 s, inside the 90 minutes).
+      - Paired with round 18's final on the 3,197 seeds both decided (the same map, factions and seat on each), round 22 minus round 18 is **+0.0116 ± 0.0097** in score, 1.2 SE (0.6591 against 0.6475: +114.5 against +105.6 Elo on those seeds).
+      - So a gain over the four lean rounds is not shown at this size, and neither is a loss. Round 22's policy is not weaker than round 18's as far as 3,200 games read, and the next rounds can start from it.
+      - The pairing is `scripts/window_20261029/trunk_step_pairs.py`'s, run over the two matches' game records.
 50. **The KL rule leaves the rounds: steps of fixed length, on a full pass** (code: `feature/fixed-step-rounds`, cut from 21862a0a; from round 23; written 2026-11-11 18:10. Not launched: the line stays stopped until the user says to start it).
     - **The user's instruction** (2026-11-11, after the match test): "desactivate that 'safety' rule entirely."
       - The match test (docs/trunk_step_match_prereg_20261111.md on main) read a full-network step 8 times its KL-sized length at +52.5 ± 6.2 Elo over `own2` at T=1.
