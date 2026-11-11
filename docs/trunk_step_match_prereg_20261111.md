@@ -111,8 +111,8 @@ departure written before it launches.
 ## Departures
 
 1. **Stage 2's size, its statistic and a control arm** (written
-   2026-11-11 at about 15:45, while full3 plays and before any stage 2
-   candidate is built).
+   2026-11-11 at 15:35, while full3 plays and before any stage 2
+   candidate is built; committed 15:35:48, d631e88f).
    - **Stage 1 so far:** full8 +52.5 ± 6.2 and heads +34.6 ± 6.2 (the
      log below). So full8 gains, and stage 2 runs.
    - **m = 8,** unless full3 reads above full8.
@@ -141,6 +141,15 @@ departure written before it launches.
    - **Why 3,200 games:** if the gains add, mix8 leads heads by about 54
      Elo and heads2 by about 34, which is 6 and 4 SE of a difference.
    - **Cost:** about 80 more minutes of the desktop's GPU.
+2. **heads2 is inspected at 75 minutes, not 60** (written 2026-11-11
+   17:08, as heads2 starts).
+   - The matches' walls grew: 2,281 s, 2,345 s, 2,609 s and 2,954 s, in
+     the order played. No game failed or was replaced in any of them.
+   - The desktop is in use beside the matches (a browser, a game launcher
+     and a chat client hold most of the CPU time read at 17:08). Not
+     read: whether that is the whole cause.
+   - So the estimate for heads2 is the last match's 49 minutes, and 1.5
+     times it is about 75.
 
 ## Result
 
@@ -163,3 +172,18 @@ Pending. The run's log:
 - 15:33:16 **heads: +34.6 ± 6.2 Elo** (1,759 to 1,441, no no-result
   game; 2,345 s). The yardstick gains, at 5.6 SE, on its forecast of
   +38 ± 2, so the full arms are read.
+- 15:33 full3 started.
+- 16:17:10 **full3: +27.8 ± 6.2 Elo** (1,728 to 1,472, no no-result
+  game; 2,609 s). It gains, at 4.5 SE, and reads above its forecast of
+  +15 ± 6. It is under full8, so stage 2 keeps m = 8.
+- By seed (`trunk_step_pairs.py`, in score): full8 minus full3 +0.0350 ±
+  0.0111 (3.1 SE), full8 minus heads +0.0253 ± 0.0113 (2.2 SE), full3
+  minus heads −0.0097 ± 0.0112 (−0.9 SE).
+- 16:17 the stage 2 candidates were built and all five files checked
+  again (mix8 d8ce049c, heads2 e1ad6fff); 16:17:54 mix8 started.
+- 17:07:11 **mix8: +88.2 ± 6.3 Elo** (1,998 to 1,202, no no-result
+  game; 2,954 s). The additive forecast was about +88.
+  - By seed: mix8 minus heads **+0.0747 ± 0.0110** (6.8 SE; +53.6 Elo),
+    so the trunk's step adds to a heads-only step (departure 1's first
+    rule).
+  - mix8 minus full8 +0.0494 ± 0.0111 (4.5 SE; +35.8 Elo).
