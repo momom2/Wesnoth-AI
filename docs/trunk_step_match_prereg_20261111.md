@@ -200,6 +200,12 @@ decisive games, `raw:t1` on both sides, the same seeds, fp16 serving, code
 - **Larger is better as far as read:** full8 leads full3 by +0.0350 ±
   0.0111 (3.1 SE), and the gain per unit of step falls from 0.027 at 3
   times to 0.019 at 8. Nothing past 8 times was played.
+- **At the reference's decode** (departure 3): mix8 reads **+15.9 ± 6.1
+  Elo** over `own2` at `raw:t0+eo-1.5` (1,673 to 1,527 over 3,200
+  decisive games on seeds 900,000-903,199; 6 no-result games replaced,
+  0.2%; 3,314 s). That is 2.6 SE, so it gains there too, on a forecast of
+  about +22. It is 18% of its T=1 reading, where the rounds' gains have
+  read about a quarter.
 
 What this does not settle, beyond "What it does not show" above:
 
@@ -262,3 +268,6 @@ What this does not settle, beyond "What it does not show" above:
   (an arm a directory: `result.json`, `fit.json`, `games/`), and the
   summary `training/metrics/trunk_step_match_20261111.json` on
   `feature/local-gpu-stage1`.
+- 17:57 mix8's match at the reference's decode started (departure 3).
+- 18:52:38 **mix8 at the reference's decode: +15.9 ± 6.1 Elo** (1,673 to
+  1,527; 6 no-result games replaced; 3,314 s, inside the 90 minutes).

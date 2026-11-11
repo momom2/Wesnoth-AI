@@ -193,8 +193,11 @@ both sides, 3,200 decisive games on the same seeds:
 - The two steps' gains add: by seed, the last row leads the heads-only
   step by +0.0747 ± 0.0110 in score (6.8 SE) and the larger heads-only
   step by +0.0547 ± 0.0110 (5.0 SE).
-- Not read: the reference's decode, a second step, any size past 8 times,
-  and a round's 5,000-game pass.
+- At the reference's decode the last row reads +15.9 ± 6.1 Elo over
+  `own2` (3,200 decisive games, 2.6 SE): the one reading there, and not a
+  claim for an adoption.
+- Not read: a second step, any size past 8 times, and a round's
+  5,000-game pass.
 
 ### What the numbers do not show
 
