@@ -22,7 +22,9 @@ adopted unread, and evaluation falls from about 32% of a round to about
 (departure 48). It ended on 2026-11-10 22:29:53 in round 23's games, and
 round 22 is its last finished round. Rounds 19-22 were adopted unread;
 the 3,200-game claim and argmax match that judge them were due at round
-24 and have not been played. The trunk has never trained in a round: the
+24 and have not been played. One match since reads round 22 level with
+round 18 at the reference's decode (+114.7 ± 6.5 against +105.7 ± 3.2;
++1.2 SE paired). The trunk has never trained in a round: the
 KL search sizes a full-network step on a few game-sides where the memory
 diverges ("What the numbers do not show"). A match on 2026-11-11 shows
 that this sizing is what blocks it. At 8 times that size the full-network
@@ -124,8 +126,13 @@ followed by fine-tuning on its own recorded games.
     `round_22\pi.pt`). Round 23 holds 230 game results of 5,000.
   - Rounds 19-22 ran lean and were adopted unread. Round 24's claim and
     argmax match judge departures 43 and 44 (departure 45). They have not
-    been played, and neither has a final match on the lean line, so no
-    game yet says whether rounds 19-22 gained strength.
+    been played, and neither has a final match on the lean line.
+  - **Round 22 read at the reference's decode** (2026-11-11, departure
+    49): +114.7 ± 6.5 Elo over `own2` (3,200 decisive games). Paired by
+    seed with round 18's final, round 22 leads by +0.0116 ± 0.0097 in
+    score (1.2 SE). So the four lean rounds show no loss, and a gain is
+    not shown at this size. Round 22's policy is a sound place to go on
+    from.
   - It was not relaunched: that is the user's call. A new start resumes
     round 23 from its markers (by the tools' own account; not tried). It
     takes two steps, as the 12:52 arming did:
