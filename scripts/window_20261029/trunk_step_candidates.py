@@ -3,6 +3,7 @@ as checkpoints (docs/trunk_step_match_prereg_20261111.md on main; CPU,
 float32, a minute or two).
 
   heads     theta_k + s_H d on the head maps alone: stage C's heads_only arm
+  heads<x>  the head maps alone at stage C's ladder rung of x times its KL
   full<m>   theta_k + m s_F d: stage C's full-network (reduced_adamw) arm at
             m times its step
   mix<m>    the head maps at s_H and every other parameter at m s_F
@@ -33,11 +34,15 @@ NORM_RTOL = 1e-6    # the direction's norms against stage C's record: the same f
 MOVED_RTOL = 1e-2   # what moved against step * |d|: theta + s d rounds each weight to float32
 
 
-def steps(a, s_f: float, s_h: float) -> dict:
+def steps(a, s_f: float, s_h: float, rungs: dict) -> dict:
     """{label: (the head maps' step, every other parameter's step)}."""
     out = {}
     if a.heads:
         out["heads"] = (s_h, 0.0)
+    for mult in a.heads_rung:
+        if mult not in rungs:
+            raise SystemExit(f"stage C's ladder has no rung at {mult:g} eps: {sorted(rungs)}")
+        out[f"heads{mult:g}"] = (rungs[mult], 0.0)
     for m in a.full:
         out[f"full{m:g}"] = (m * s_f, m * s_f)
     for m in a.mix:
@@ -48,6 +53,8 @@ def steps(a, s_f: float, s_h: float) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--heads", action="store_true", help="stage C's heads-only step")
+    ap.add_argument("--heads-rung", type=float, nargs="*", default=[], metavar="MULT",
+                    help="the head maps alone at stage C's ladder rung of MULT times its KL (heads<MULT>)")
     ap.add_argument("--full", type=float, nargs="*", default=[], metavar="M",
                     help="the full-network step at M times stage C's")
     ap.add_argument("--mix", type=float, nargs="*", default=[], metavar="M",
@@ -93,7 +100,10 @@ def main() -> int:
         before = json.loads((a.out / "candidates.json").read_text(encoding="utf-8"))
         if before.get("base_sha256") == base_sha:
             out["candidates"] = before["candidates"]
-    for label, (s_head, s_rest) in steps(a, s_f, s_h).items():
+    if a.heads_rung and record["ladder"]["arm"] != "heads_only":
+        raise SystemExit(f"stage C's ladder is on the {record['ladder']['arm']} arm, not the head maps'")
+    rungs = {float(r["multiplier"]): float(r["s"]) for r in record["ladder"]["rungs"]}
+    for label, (s_head, s_rest) in steps(a, s_f, s_h, rungs).items():
         with torch.no_grad():
             for n, p in named:
                 step = s_head if head_of(n) else s_rest
