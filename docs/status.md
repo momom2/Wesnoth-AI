@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-10.
+Last updated 2026-11-11.
 
 ## In one paragraph
 
@@ -22,10 +22,13 @@ adopted unread, and evaluation falls from about 32% of a round to about
 (departure 48). It ended on 2026-11-10 22:29:53 in round 23's games, and
 round 22 is its last finished round. Rounds 19-22 were adopted unread;
 the 3,200-game claim and argmax match that judge them were due at round
-24 and have not been played. The trunk has never
-trained: its pipeline is sound, but on a few game-sides the memory diverges
-under a full-network step, and those sides take most of the step's KL for
-no gain ("What the numbers do not show").
+24 and have not been played. The trunk has never trained in a round: the
+KL search sizes a full-network step on a few game-sides where the memory
+diverges ("What the numbers do not show"). A match on 2026-11-11 shows
+that this sizing is what blocks it. At 8 times that size the full-network
+step gains +52.5 ± 6.2 Elo over `own2` at T=1, and added to the
+heads-only step it reads +88.2 ± 6.3 against the heads' +34.6 ± 6.2 ("A
+larger full-network step", under Measured). No round does this yet.
 
 ## The reference player
 
@@ -170,6 +173,27 @@ readings made.
 **Both sides at T=1:** round 16 beats `own2` by +429.1 ± 5.7 Elo, round 3
 by +134.1 ± 3.3.
 
+**A larger full-network step** (2026-11-11;
+`docs/trunk_step_match_prereg_20261111.md`). One step from `own2` along
+stage C's pass (20,000 games), each candidate against `own2` at T=1 on
+both sides, 3,200 decisive games on the same seeds:
+
+| step | Elo |
+|---|---|
+| heads only, at its KL-sized step (what a round takes) | +34.6 ± 6.2 |
+| heads only, at twice that KL | +48.7 ± 6.2 |
+| full network, 3 times its KL-sized step | +27.8 ± 6.2 |
+| full network, 8 times | +52.5 ± 6.2 |
+| the heads at their step and the rest at 8 times | **+88.2 ± 6.3** |
+
+- Every pre-registered rule read on the gaining side, and each arm read
+  at or above its first-order forecast.
+- The two steps' gains add: by seed, the last row leads the heads-only
+  step by +0.0747 ± 0.0110 in score (6.8 SE) and the larger heads-only
+  step by +0.0547 ± 0.0110 (5.0 SE).
+- Not read: the reference's decode, a second step, any size past 8 times,
+  and a round's 5,000-game pass.
+
 ### What the numbers do not show
 
 - **At argmax the gains are uneven.**
@@ -190,7 +214,10 @@ by +134.1 ± 3.3.
 - **The trunk has never trained in self-play.** The pipeline is not why.
   The memory is why the step is small: on a few game-sides it turns a
   trunk step into a divergence, and the KL search sizes the step on that
-  (2026-11-10). The readings are `training/metrics/trunk_*_20261110.json`
+  (2026-11-10). **The divergence does not cost a larger step its gain**
+  (the match of 2026-11-11, "A larger full-network step" above). So the
+  account below explains why the step came out small; it no longer says
+  the trunk cannot be trained on this memory. The readings are `training/metrics/trunk_*_20261110.json`
   on `feature/local-gpu-stage1` (69ce95ff), and the account is that
   branch's `docs/autonomy_20261029.md`, the entries of 2026-11-10 14:20
   and 19:07. The 22:01 review's limits are folded in below: the sides
@@ -287,6 +314,11 @@ by +134.1 ± 3.3.
       top 5% do today (a KL of 1.1e-4 to 1.5e-4 a decision), at their
       measured 1.30 per √KL.
   - Open: which remedy, and it is the user's choice. The candidates:
+    - a step sized apart from the divergence, which the match of
+      2026-11-11 supports: the heads at their own KL and the rest at its
+      KL at a given memory (about 8 times today's step). It needs a
+      sizing rule in the rounds and a full-network pass, which ran at
+      about a third of a heads-only pass's rate in stage C;
     - a memory with no such loop (`BACKLOG.md`, "Rework the memory
       system");
     - a pass that trains through the loop, past its 16-decision windows;
@@ -327,11 +359,15 @@ by +134.1 ± 3.3.
   skipped); CI has not run on it.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
-  - training the trunk. Its step's KL must first stop going to the few
-    game-sides where the memory diverges: a reworked memory (`BACKLOG.md`)
-    or another of the remedies listed under "What the numbers do not
-    show". A step sized on a trimmed KL would hide the divergence on those
-    sides, not remove it;
+  - training the trunk. The match of 2026-11-11 says a full-network step
+    sized 8 times larger gains and adds to the heads' step, so a reworked
+    memory is not a precondition. What a round needs is not built:
+    - a rule that sizes the step apart from the divergence (its KL at a
+      given memory is the candidate);
+    - a full-network pass, about 8 h for a round's games at stage C's
+      rate against 2.5 h heads-only. Whether the trunk pays for that per
+      GPU-hour, and whether its gain repeats over rounds, is not read;
+    - a reading at the reference's decode, which the match did not take;
   - a step that budgets its KL by decision class. Per decision, recruits
     return about 3.4 times what moves do, while moves take 69-90% of the
     step.

@@ -10,6 +10,14 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   attention-based memory rather than fully unstructured"). The design is the
   user's to give; it replaces the model's memory, so it is an architectural
   change that needs their go-ahead.
+  - **The rework is not needed to train the trunk** (2026-11-11,
+    `docs/trunk_step_match_prereg_20261111.md`). On today's memory a
+    full-network step 8 times its KL-sized length gains +52.5 ± 6.2 Elo
+    over `own2` at T=1, and adds to the heads' step (+88.2 ± 6.3 together).
+    The divergence below sets the step's size and does not cost its gain,
+    as far as one step from `own2` shows. So the rework's case now rests
+    on what a structured memory would do for play and for reading the
+    network, not on unblocking the trunk.
   - Today's memory (`wesnoth_ai/memory.py`, `SlotMemory`): a side's 64 float32
     slots, read by the trunk as MEMORY tokens and rewritten after every
     decision through a learned gate per slot and channel (GTrXL), with

@@ -153,7 +153,50 @@ departure written before it launches.
 
 ## Result
 
-Pending. The run's log:
+**Sizing alone unblocks the trunk, and its step adds to the heads'.**
+Every pre-registered rule reads on the gaining side. Five matches of 3,200
+decisive games, `raw:t1` on both sides, the same seeds, fp16 serving, code
+21862a0a; no game was capped, failed or replaced.
+
+| arm | Elo over `own2t1` | forecast | in outcome (2·score − 1) |
+|---|---|---|---|
+| heads (the yardstick) | +34.6 ± 6.2 | +38 ± 2 | 0.099 |
+| full3 | +27.8 ± 6.2 | +15 ± 6 | 0.080 |
+| full8 | +52.5 ± 6.2 | +41 ± 15 | 0.150 |
+| heads2 (the control) | +48.7 ± 6.2 | +54 | 0.139 |
+| mix8 | **+88.2 ± 6.3** | about +88 if the gains add | 0.249 |
+
+- **Stage 1.** The yardstick gains (5.6 SE). Both full arms gain (4.5 and
+  8.5 SE), at or above their first-order forecasts. So a full-network
+  step 3 or 8 times stage C's size keeps its gain: the memory's
+  divergence, which the KL search sized the step on, does not cost it in
+  games at these sizes.
+- **Stage 2** (the paired score difference by seed):
+  - mix8 minus heads **+0.0747 ± 0.0110** (6.8 SE; +53.6 Elo): the
+    trunk's step adds to a heads-only step.
+  - mix8 minus heads2 **+0.0547 ± 0.0110** (5.0 SE; +39.5 Elo): it adds
+    more than a larger heads step does.
+  - The gains add: 0.099 and 0.150 forecast 0.249, and mix8 reads 0.249.
+- **Larger is better as far as read:** full8 leads full3 by +0.0350 ±
+  0.0111 (3.1 SE), and the gain per unit of step falls from 0.027 at 3
+  times to 0.019 at 8. Nothing past 8 times was played.
+
+What this does not settle, beyond "What it does not show" above:
+
+- **How a round should size the step.** The multiples here were set by
+  hand. The 8 came from the step's KL at a given memory (about 2e-5 a
+  decision at s_F, so about ε at 8 times): a rule a round could apply,
+  not yet built.
+- **What a full-network pass costs.** Stage C's ran at 85 decisions a
+  second (89,633 s for 7.6 million), against 271 for round 22's
+  heads-only pass. At that rate a round's pass goes from 2.5 h to about
+  8 h. Whether the trunk's step pays for it per GPU-hour is not read.
+- **Whether the gain repeats.** Each further step pushes the memory's
+  pattern again; this is one step.
+- **Why the divergence is harmless here.** Not read: the candidates'
+  memories were not walked.
+
+### The run's log
 
 - 14:12:52 the pre-registration was committed (29482e10).
 - 14:14 the candidates were built (`feature/local-gpu-stage1` f87cfd22;
@@ -187,3 +230,15 @@ Pending. The run's log:
     so the trunk's step adds to a heads-only step (departure 1's first
     rule).
   - mix8 minus full8 +0.0494 ± 0.0111 (4.5 SE; +35.8 Elo).
+- 17:07:56 heads2 started (departure 2).
+- 17:48:53 **heads2: +48.7 ± 6.2 Elo** (1,823 to 1,377, no no-result
+  game; 2,454 s, inside departure 2's 75 minutes).
+  - By seed: mix8 minus heads2 **+0.0547 ± 0.0110** (5.0 SE; +39.5 Elo),
+    so the trunk's step adds more than a larger heads step does
+    (departure 1's second rule).
+  - heads2 minus heads +0.0200 ± 0.0111 (1.8 SE); heads2 minus full8
+    −0.0053 ± 0.0115 (−0.5 SE).
+- The records: `C:\Users\momom2\wesnoth_runs\trunk_step_match_20261111\`
+  (an arm a directory: `result.json`, `fit.json`, `games/`), and the
+  summary `training/metrics/trunk_step_match_20261111.json` on
+  `feature/local-gpu-stage1`.
