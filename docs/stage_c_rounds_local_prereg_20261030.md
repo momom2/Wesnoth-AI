@@ -1645,6 +1645,7 @@ Design §6, unchanged:
       - The pass is the full one: every parameter's gradient, under reduced AdamW (`scripts/rounds_local.py` FIXED_ARM).
       - The step reads no KL (`tools/pg_round.py --fixed-step`). The head maps move 0.5 in weight space along their direction, averaged with the 8 rounds before (departure 44's average, kept). Every other parameter moves 0.019 along the round's own direction. Each group's direction is scaled to unit norm first.
       - The step is adopted unread, as a lean step is.
+      - The pass keeps its 16-decision window, so the memory's gradient is still cut there (added 2026-11-11 18:40 from the audit, docs/training_dynamics_audit_20261111.md on main: a heads-only pass did not feel the window, and a full pass does). Stage C's pass, whose direction the match test stepped along, had the same window.
       - Departure 47 lapses: there is no radius to double.
     - **Where the two lengths come from:**
       - 0.5 is what the KL search gave the head maps in rounds 13-22 (s times the averaged direction's norm: 0.42 to 0.54).
@@ -1665,3 +1666,4 @@ Design §6, unchanged:
       - a display reset stops the line.
     - **What is confounded:** round 24's claim reads rounds 19-22 (lean) and 23-24 (fixed) together against round 18's. Its argmax match reads rounds 23-24 against departure 49's reading of round 22.
     - **Not changed:** the reference player, the corrections and the games' decode. Nothing is adopted.
+    - **Tests** (added 2026-11-11 18:40): the full suite passed on the desktop at f34d8766 (2,263 passed, 139 skipped, the lean code's count and the five new tests). 27cea50a then corrected this departure's number in comments and messages (49 to 50), and the three changed files' tests passed again (69). CI has not run.
