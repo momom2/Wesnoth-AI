@@ -29,7 +29,7 @@ worktree P and the rounds should run (pinned at a tested commit):
    --rounds-fixed-step and --rounds-fixed-step-from are rounds_local's
    --n-train, --held, --average, --lean, --lean-radius, --lean-radius-from,
    --fixed-step and --fixed-step-from (prereg departures 25, 34, 37, 43, 47
-   and 49).
+   and 50).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them, or 1 too with --final-after-failure: prereg departure
    43, since a failed part taints only its own round), it plays the
@@ -406,7 +406,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--rounds-lean-radius-from", type=int, default=None, metavar="K",
                     help="passed to rounds_local --lean-radius-from")
     ap.add_argument("--rounds-fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
-                    help="passed to rounds_local --fixed-step (prereg departure 49)")
+                    help="passed to rounds_local --fixed-step (prereg departure 50)")
     ap.add_argument("--rounds-fixed-step-from", type=int, default=None, metavar="K",
                     help="passed to rounds_local --fixed-step-from")
     ap.add_argument("--final-after-failure", action="store_true",

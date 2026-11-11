@@ -110,7 +110,7 @@ GPU's time, against about half before.
   of rounds K on search to R times the radius (tools/pg_round.py
   --lean-radius).
 
-**--fixed-step HEADS REST --fixed-step-from K** (prereg departure 49; with
+**--fixed-step HEADS REST --fixed-step-from K** (prereg departure 50; with
 --lean): the steps of rounds K on read no KL. The head maps move HEADS in
 weight space along their averaged direction and every other parameter moves
 REST along its own (tools/pg_round.py --fixed-step). With REST above 0
@@ -237,7 +237,7 @@ class Rounds(Steps):
         self.n_train = self.n_design
         self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
-        fixed = getattr(args, "fixed_step", None)                         # prereg departure 49
+        fixed = getattr(args, "fixed_step", None)                         # prereg departure 50
         self.fixed = (float(fixed[0]), float(fixed[1])) if fixed else None
         self.fixed_from = int(getattr(args, "fixed_step_from", None) or 2)
         self.lean = bool(getattr(args, "lean", False))                    # prereg departure 43
@@ -393,7 +393,7 @@ class Rounds(Steps):
         return int(f.read_text(encoding="utf-8")) if f.exists() else None
 
     def fixed_round(self, k: int) -> bool:
-        """Whether round k's step is --fixed-step's (prereg departure 49)."""
+        """Whether round k's step is --fixed-step's (prereg departure 50)."""
         return self.lean and self.fixed is not None and k >= self.fixed_from
 
     def full_fixed(self, k: int) -> bool:
@@ -853,7 +853,7 @@ def main() -> int:
                     help="--lean-radius takes the steps of rounds K on")
     ap.add_argument("--fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
                     help="lean steps of these lengths in weight space, the head maps' and the rest's, with no KL "
-                         "read (module docstring, prereg departure 49)")
+                         "read (module docstring, prereg departure 50)")
     ap.add_argument("--fixed-step-from", type=int, default=2, metavar="K",
                     help="--fixed-step takes the steps of rounds K on (round 1's is stage C's)")
     ap.add_argument("--normal-priority", action="store_true")

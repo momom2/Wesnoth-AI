@@ -47,7 +47,7 @@ The decision holds that one rung, with no halves, and `"lean": true`.
 that radius instead; its next eps is the target, so from the next round on
 the radius reads R times the edge (once R times eps passes the edge).
 
-`--fixed-step HEADS REST` (prereg departure 49; with --lean): no KL is read
+`--fixed-step HEADS REST` (prereg departure 50; with --lean): no KL is read
 at all. The head maps move HEADS in weight space along their direction,
 averaged with the earlier rounds' head maps when --average-with is given
 (pg_step.averaged), and every other parameter moves REST along its own. Each
@@ -159,7 +159,7 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
     docstring), and the step may go along it. `lean` takes the step by its
     KL search alone, to `radius` times the radius (module docstring, prereg
     departures 43 and 47). `fixed` (the head maps' length, the rest's)
-    takes a lean step of those lengths with no KL read (departure 49)."""
+    takes a lean step of those lengths with no KL read (departure 50)."""
     if lean and adopt is not None:
         raise ValueError("--lean takes no stage C decision: round 1's step is stage C's")
     if radius != 1.0 and not (lean and math.isfinite(radius) and radius >= 1.0):
@@ -289,7 +289,7 @@ def check_fixed(fixed: Sequence[float], arm: str, lean: bool, radius: float) -> 
 
 def _fixed_step(readout: Dict, eps: float, d: Dict[str, torch.Tensor], average: Sequence[Dict[str, torch.Tensor]],
                 average_of: Optional[Sequence[str]], fixed: Sequence[float]) -> tuple:
-    """Prereg departure 49's step (module docstring): run_round's return.
+    """Prereg departure 50's step (module docstring): run_round's return.
     The head maps move fixed[0] along their direction (averaged with
     `average`'s head maps, each scaled to unit norm, when that can be
     taken) and every other parameter fixed[1] along its own, and the step
@@ -324,11 +324,11 @@ def _fixed_step(readout: Dict, eps: float, d: Dict[str, torch.Tensor], average: 
                                                  "rest_norm": norm(rest) if rest else 0.0, "moved": moved}}
     if not any(moved.values()):
         readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps, "chosen": None,
-                               "reason": "fixed step (prereg departure 49): no group with a length has a direction",
+                               "reason": "fixed step (prereg departure 50): no group with a length has a direction",
                                "rungs": [], "lean": True, "fixed": True}
         return readout, d, None, d
     decision = Decision(True, 1.0, eps, eps, None,
-                        f"fixed step (prereg departure 49): the head maps {moved['heads']:g} along {along}, the rest "
+                        f"fixed step (prereg departure 50): the head maps {moved['heads']:g} along {along}, the rest "
                         f"{moved['rest']:g}, in weight space; no KL read, unread", [])
     readout["decision"] = {**decision.summary(), "lean": True, "fixed": True}
     return readout, d, 1.0, step_d
@@ -373,7 +373,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="a lean step searches to R times the radius (prereg departure 47)")
     ap.add_argument("--fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
                     help="a lean step of these lengths in weight space, the head maps' and the rest's, with no KL "
-                         "read (prereg departure 49)")
+                         "read (prereg departure 50)")
     args = ap.parse_args(argv)
     if args.lean and args.adopt_from is not None:
         ap.error("--lean takes no --adopt-from: round 1's step is stage C's")

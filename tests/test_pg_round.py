@@ -384,7 +384,7 @@ def _group_norm(d, heads: bool) -> float:
 
 
 def test_a_fixed_step_moves_each_group_its_length_and_reads_no_kl(monkeypatch):
-    """Prereg departure 49: the head maps move HEADS in weight space along
+    """Prereg departure 50: the head maps move HEADS in weight space along
     their direction averaged with the earlier rounds' head maps, every other
     parameter moves REST along its own, and the step is adopted at s = 1
     with no rung, marked lean and fixed, eps carried unchanged. No evaluator
@@ -464,7 +464,7 @@ def test_a_fixed_step_with_no_direction_to_move_keeps_the_policy_and_bad_lengths
 @needs_core
 @pytest.mark.slow
 def test_a_fixed_round_through_the_command_line_writes_the_step_of_the_two_lengths(tmp_path):
-    """Prereg departure 49 on the miniature stage 1: --lean --fixed-step on
+    """Prereg departure 50 on the miniature stage 1: --lean --fixed-step on
     the reduced_adamw arm writes the candidate theta_k + step, the step
     saved as step.pt with the two lengths on its groups, d saved apart, and
     no chosen network; without --lean it is refused."""

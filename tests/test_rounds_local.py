@@ -827,7 +827,7 @@ def test_lean_radius_takes_the_steps_from_its_first_round_and_the_floor_reads_it
 
 
 def test_fixed_step_rounds_take_the_full_pass_and_pass_their_lengths(tmp_path, monkeypatch):
-    """Prereg departure 49: with --fixed-step 0.5 0.019 --fixed-step-from 4
+    """Prereg departure 50: with --fixed-step 0.5 0.019 --fixed-step-from 4
     the steps of rounds 4 on run pg_round --lean --fixed-step with the two
     lengths under FIXED_ARM and no --lean-radius, and their pass is the full
     one even with --heads-only-pass on the heads_only arm; the earlier

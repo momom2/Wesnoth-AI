@@ -467,7 +467,7 @@ def test_rounds_lean_radius_reaches_the_rounds_with_its_first_round(tmp_path):
 
 
 def test_rounds_fixed_step_reaches_the_rounds_with_its_first_round(tmp_path):
-    """Prereg departure 49: --rounds-fixed-step and --rounds-fixed-step-from
+    """Prereg departure 50: --rounds-fixed-step and --rounds-fixed-step-from
     are rounds_local's --fixed-step and --fixed-step-from; the step needs
     --rounds-lean and two lengths that are not both 0, and the first round
     needs the step."""
