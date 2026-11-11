@@ -47,6 +47,16 @@ The decision holds that one rung, with no halves, and `"lean": true`.
 that radius instead; its next eps is the target, so from the next round on
 the radius reads R times the edge (once R times eps passes the edge).
 
+`--fixed-step HEADS REST` (prereg departure 49; with --lean): no KL is read
+at all. The head maps move HEADS in weight space along their direction,
+averaged with the earlier rounds' head maps when --average-with is given
+(pg_step.averaged), and every other parameter moves REST along its own. Each
+group's direction is scaled to unit norm first, so the two lengths alone
+size the step, which is adopted unread. A REST above 0 needs an arm that
+reads every parameter. The decision holds no rung, `"lean": true` and
+`"fixed": true`, and eps is carried to the next round unchanged; the step
+itself is saved beside --direction-out as step.pt.
+
 `--average-with` (prereg departure 37; the heads-only arm): earlier rounds'
 direction.pt files. Beside d the round reads their average with d
 (pg_step.averaged: each scaled to unit norm, one weight each) on
@@ -88,10 +98,10 @@ for _p in (_ROOT, _ROOT / "tools"):
 import numpy as np  # noqa: E402
 
 from wesnoth_ai.pg_cross_play import cross_play_case  # noqa: E402
-from wesnoth_ai.pg_step import (ARMS, AVERAGE_MULTIPLIERS, DEFAULT_ARM, LADDER_MULTIPLIERS,  # noqa: E402
-                                SIDE_KL_RANGE, Decision, Rung, averaged, decisions_per_side, direction, dot,
-                                head_directions, head_of, kl_search, ladder, norm, paired_difference, paired_ladder,
-                                span_fisher)
+from wesnoth_ai.pg_step import (ARMS, AVERAGE_MULTIPLIERS, DEFAULT_ARM, HEADS_ONLY_ARMS,  # noqa: E402
+                                LADDER_MULTIPLIERS, SIDE_KL_RANGE, Decision, Rung, averaged, decisions_per_side,
+                                direction, dot, head_directions, head_of, kl_search, ladder, norm, paired_difference,
+                                paired_ladder, span_fisher)
 
 
 def eps_of(path: Path) -> float:
@@ -139,7 +149,8 @@ def _write_json(path: Path, obj: Dict) -> None:
 def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, eps: float,
               previous: Optional[Dict[str, torch.Tensor]] = None, adopt: Optional[Dict] = None,
               stage_c: Optional[Dict] = None, average: Optional[Sequence[Dict[str, torch.Tensor]]] = None,
-              average_of: Optional[Sequence[str]] = None, lean: bool = False, radius: float = 1.0) -> tuple:
+              average_of: Optional[Sequence[str]] = None, lean: bool = False, radius: float = 1.0,
+              fixed: Optional[Sequence[float]] = None) -> tuple:
     """(readout, d, s or None, the direction s steps along): the round's
     direction, its ladder (or stage C's decision, `adopt`, taken as read)
     and the step to write. `stage_c` is stage_c.json, whose span Fisher
@@ -147,12 +158,15 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
     `average_of` their paths) adds the averaged direction beside d (module
     docstring), and the step may go along it. `lean` takes the step by its
     KL search alone, to `radius` times the radius (module docstring, prereg
-    departures 43 and 47)."""
+    departures 43 and 47). `fixed` (the head maps' length, the rest's)
+    takes a lean step of those lengths with no KL read (departure 49)."""
     if lean and adopt is not None:
         raise ValueError("--lean takes no stage C decision: round 1's step is stage C's")
     if radius != 1.0 and not (lean and math.isfinite(radius) and radius >= 1.0):
         raise ValueError(f"a lean radius of {radius}: it scales a lean step's radius, so it needs --lean and "
                          f"is at least 1 (below 1 the next eps would shrink every round)")
+    if fixed is not None:
+        check_fixed(fixed, arm, lean, radius)
     fisher, source = (round_span_fisher(pass_, params, factory, stage_c if adopt is not None else None)
                       if arm == "probe_span" else (None, None))
     d = direction(pass_, arm, params, fisher)
@@ -174,6 +188,8 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
         if lean:
             readout["decision"]["lean"] = True
         return readout, d, None, d
+    if fixed is not None:
+        return _fixed_step(readout, eps, d, average or [], average_of, fixed)
     if lean:
         return _lean_step(readout, factory, arm, eps, d, size, average or [], average_of, radius)
     step_d, decision = d, None
@@ -256,6 +272,68 @@ def _lean_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torch.
     return readout, d, point.s, step_d
 
 
+def check_fixed(fixed: Sequence[float], arm: str, lean: bool, radius: float) -> None:
+    """Raises ValueError unless `fixed` is a step --fixed-step can take
+    (module docstring): two finite lengths, neither negative and not both
+    0, on a lean step at radius 1, the rest's 0 on an arm that reads the
+    head maps alone."""
+    if len(fixed) != 2 or not all(math.isfinite(x) and x >= 0 for x in fixed) or not any(x > 0 for x in fixed):
+        raise ValueError(f"a fixed step of {list(fixed)}: two lengths in weight space, the head maps' and the "
+                         f"rest's, neither negative and not both 0")
+    if not lean or radius != 1.0:
+        raise ValueError("a fixed step is a lean step with no radius to scale: it needs --lean and no --lean-radius")
+    if fixed[1] > 0 and arm in HEADS_ONLY_ARMS:
+        raise ValueError(f"a fixed step moves the rest of the network by {fixed[1]}, and the {arm} arm reads the "
+                         f"head maps alone: give an arm that reads every parameter")
+
+
+def _fixed_step(readout: Dict, eps: float, d: Dict[str, torch.Tensor], average: Sequence[Dict[str, torch.Tensor]],
+                average_of: Optional[Sequence[str]], fixed: Sequence[float]) -> tuple:
+    """Prereg departure 49's step (module docstring): run_round's return.
+    The head maps move fixed[0] along their direction (averaged with
+    `average`'s head maps, each scaled to unit norm, when that can be
+    taken) and every other parameter fixed[1] along its own, and the step
+    is adopted unread at s = 1: no KL is searched or read. A group whose
+    direction is zero stays where it is; when both do, pi_k stays."""
+    heads = {n: t for n, t in d.items() if head_of(n)}
+    rest = {n: t for n, t in d.items() if not head_of(n)}
+    head_d, along = heads, "plain"
+    if average and heads and norm(heads) > 0:
+        readout["average"] = {"of": [str(p) for p in (average_of or [])]}
+        try:
+            head_d = averaged([heads, *average])
+            size_avg = norm(head_d)
+            if not size_avg > 0:
+                raise ValueError("the averaged direction is zero")
+            readout["average"].update({"norm": size_avg, "cosine_plain": dot(heads, head_d) / (norm(heads) * size_avg)})
+            along = "average"
+        except ValueError as e:                          # the head maps go along d, as a lean step's do
+            head_d = heads
+            readout["average"]["error"] = f"{type(e).__name__}: {e}"
+            print(f"PG_ROUND_AVERAGE_FAILED: {readout['average']['error']}; the fixed step's head maps go along d",
+                  file=sys.stderr, flush=True)
+    step_d = {n: torch.zeros_like(t, dtype=torch.float32) for n, t in d.items()}
+    moved = {}
+    for group, part, length in (("heads", head_d, float(fixed[0])), ("rest", rest, float(fixed[1]))):
+        size = norm(part) if part else 0.0
+        moved[group] = length if size > 0 else 0.0
+        if length > 0 and size > 0:
+            step_d.update({n: t.float() * (length / size) for n, t in part.items()})
+    readout["lean"] = {"along": along, "fixed": {"heads": float(fixed[0]), "rest": float(fixed[1]),
+                                                 "heads_norm": norm(heads) if heads else 0.0,
+                                                 "rest_norm": norm(rest) if rest else 0.0, "moved": moved}}
+    if not any(moved.values()):
+        readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps, "chosen": None,
+                               "reason": "fixed step (prereg departure 49): no group with a length has a direction",
+                               "rungs": [], "lean": True, "fixed": True}
+        return readout, d, None, d
+    decision = Decision(True, 1.0, eps, eps, None,
+                        f"fixed step (prereg departure 49): the head maps {moved['heads']:g} along {along}, the rest "
+                        f"{moved['rest']:g}, in weight space; no KL read, unread", [])
+    readout["decision"] = {**decision.summary(), "lean": True, "fixed": True}
+    return readout, d, 1.0, step_d
+
+
 def paired_a(rungs: Dict[str, list]) -> Optional[Dict[str, float]]:
     """Departure 37's number: ΔĴ on half A of the averaged direction's eps
     rung less the plain direction's, paired by game; None unless both read
@@ -293,11 +371,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="the step by its KL search alone, adopted unread (prereg departure 43)")
     ap.add_argument("--lean-radius", type=float, default=1.0, metavar="R",
                     help="a lean step searches to R times the radius (prereg departure 47)")
+    ap.add_argument("--fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
+                    help="a lean step of these lengths in weight space, the head maps' and the rest's, with no KL "
+                         "read (prereg departure 49)")
     args = ap.parse_args(argv)
     if args.lean and args.adopt_from is not None:
         ap.error("--lean takes no --adopt-from: round 1's step is stage C's")
     if args.lean_radius != 1.0 and not (args.lean and math.isfinite(args.lean_radius) and args.lean_radius >= 1.0):
         ap.error(f"--lean-radius {args.lean_radius}: a scale of at least 1 of a --lean step's radius")
+    if args.fixed_step is not None and not (args.lean and args.lean_radius == 1.0):
+        ap.error("--fixed-step is a --lean step with no --lean-radius")
     module, _, name = args.factory.partition(":")
     factory, params, sha = getattr(importlib.import_module(module), name)(**_factory_args(args.factory_arg))
     pass_ = load_pass(args.pass_path)
@@ -318,11 +401,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     previous = torch.load(args.previous, map_location="cpu", weights_only=True) if args.previous else None
     average = [torch.load(p, map_location="cpu", weights_only=True) for p in args.average_with or []]
     readout, d, s, step_d = run_round(pass_, params, factory, arm, eps, previous, adopt, stage_c, average,
-                                      args.average_with, lean=args.lean, radius=args.lean_radius)
+                                      args.average_with, lean=args.lean, radius=args.lean_radius,
+                                      fixed=args.fixed_step)
     if args.direction_out is not None:
         torch.save(d, args.direction_out)
         if step_d is not d:              # what rebuilds an averaged candidate (the code review's L4)
-            averaged_out = args.direction_out.with_name("direction_average.pt")
+            fixed = "fixed" in (readout.get("lean") or {})
+            averaged_out = args.direction_out.with_name("step.pt" if fixed else "direction_average.pt")
             torch.save(step_d, averaged_out)
             readout["lean" if "lean" in readout else "paired"]["direction"] = str(averaged_out)
     readout["candidate"] = None

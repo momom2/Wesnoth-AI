@@ -369,3 +369,123 @@ def test_a_lean_round_with_a_zero_direction_is_still_marked_lean(monkeypatch):
     assert s is None and readout["decision"]["lean"] and not readout["decision"]["adopt"]
     readout, _, _, _ = pr.run_round({}, params, None, "heads_only", 1e-3)
     assert "lean" not in readout["decision"]
+
+
+def _whole_params():
+    """_heads_params' head maps and two parameters off them."""
+    torch.manual_seed(4)
+    return {**_heads_params(), "encoder.layers.0.linear1.weight": torch.randn(4, 3),
+            "slot_memory.gate.weight": torch.randn(2, 5)}
+
+
+def _group_norm(d, heads: bool) -> float:
+    from wesnoth_ai.pg_step import head_of, norm
+    return norm({n: t for n, t in d.items() if bool(head_of(n)) == heads})
+
+
+def test_a_fixed_step_moves_each_group_its_length_and_reads_no_kl(monkeypatch):
+    """Prereg departure 49: the head maps move HEADS in weight space along
+    their direction averaged with the earlier rounds' head maps, every other
+    parameter moves REST along its own, and the step is adopted at s = 1
+    with no rung, marked lean and fixed, eps carried unchanged. No evaluator
+    is bound, so no KL is read. An earlier direction that lacks a head map
+    leaves the head maps along d, the reason recorded."""
+    import tools.pg_round as pr
+    from wesnoth_ai.pg_cross_play import cross_play_case
+    from wesnoth_ai.pg_step import averaged, dot, head_of, norm
+    params = _whole_params()
+    torch.manual_seed(6)
+    d = {n: torch.randn_like(t) for n, t in params.items()}
+    earlier = {n: torch.randn_like(t) for n, t in params.items()}           # a full direction: its head maps are read
+    heads = {n: t for n, t in d.items() if head_of(n)}
+    rest = {n: t for n, t in d.items() if not head_of(n)}
+
+    def factory(direction):
+        raise AssertionError("a fixed step binds no evaluator")
+
+    pass_ = {"total": d, "games": 4, "decisions": 40}
+    monkeypatch.setattr(pr, "direction", lambda p, arm, prm, fisher: d)
+    readout, d_out, s, step_d = pr.run_round(pass_, params, factory, "reduced_adamw", 1e-3, average=[earlier],
+                                             average_of=["earlier.pt"], lean=True, fixed=(0.5, 0.019))
+    want = averaged([heads, earlier])
+    assert d_out is d and s == 1.0 and set(step_d) == set(d)
+    assert _group_norm(step_d, True) == pytest.approx(0.5, rel=1e-5)
+    assert _group_norm(step_d, False) == pytest.approx(0.019, rel=1e-5)
+    step_heads = {n: step_d[n] for n in heads}
+    assert dot(step_heads, want) / (norm(step_heads) * norm(want)) == pytest.approx(1.0, abs=1e-6)
+    step_rest = {n: step_d[n] for n in rest}
+    assert dot(step_rest, rest) / (norm(step_rest) * norm(rest)) == pytest.approx(1.0, abs=1e-6)
+    dec = readout["decision"]
+    assert dec["adopt"] and dec["lean"] and dec["fixed"] and dec["s"] == 1.0 and dec["rungs"] == []
+    assert dec["eps"] == dec["next_eps"] == 1e-3 and "no KL read" in dec["reason"]
+    assert cross_play_case(dec, dec["rungs"]) is None
+    fixed = readout["lean"]["fixed"]
+    assert readout["lean"]["along"] == "average" and fixed["moved"] == {"heads": 0.5, "rest": 0.019}
+    assert fixed["heads_norm"] == pytest.approx(norm(heads)) and fixed["rest_norm"] == pytest.approx(norm(rest))
+    assert readout["average"]["of"] == ["earlier.pt"] and readout["average"]["norm"] == pytest.approx(norm(want))
+    short = {n: t for n, t in earlier.items() if not n.startswith("actor_head")}
+    readout, _, _, step_d = pr._fixed_step({}, 1e-3, d, [short], ["short.pt"], (0.5, 0.019))
+    assert readout["lean"]["along"] == "plain" and "lacks" in readout["average"]["error"]
+    step_heads = {n: step_d[n] for n in heads}
+    assert dot(step_heads, heads) / (norm(step_heads) * norm(heads)) == pytest.approx(1.0, abs=1e-6)
+    readout, _, _, step_d = pr._fixed_step({}, 1e-3, d, [], None, (0.5, 0.0))
+    assert _group_norm(step_d, True) == pytest.approx(0.5, rel=1e-5) and _group_norm(step_d, False) == 0.0
+    assert "average" not in readout and readout["lean"]["fixed"]["moved"] == {"heads": 0.5, "rest": 0.0}
+
+
+def test_a_fixed_step_with_no_direction_to_move_keeps_the_policy_and_bad_lengths_are_refused():
+    """A group whose direction is zero stays; when no group with a length
+    has a direction, pi_k stays and the round is still marked lean and
+    fixed. A fixed step needs --lean at radius 1, two finite lengths that
+    are not negative and not both 0, and an arm that reads every parameter
+    when the rest moves."""
+    import tools.pg_round as pr
+    from wesnoth_ai.pg_step import head_of
+    params = _whole_params()
+    torch.manual_seed(7)
+    d = {n: (torch.zeros_like(t) if head_of(n) else torch.randn_like(t)) for n, t in params.items()}
+    readout, _, s, step_d = pr._fixed_step({}, 1e-3, d, [], None, (0.5, 0.019))
+    assert s == 1.0 and _group_norm(step_d, True) == 0.0 and _group_norm(step_d, False) == pytest.approx(0.019, rel=1e-5)
+    assert readout["lean"]["fixed"]["moved"] == {"heads": 0.0, "rest": 0.019}
+    readout, d_out, s, step_d = pr._fixed_step({}, 1e-3, d, [], None, (0.5, 0.0))
+    dec = readout["decision"]
+    assert s is None and step_d is d_out and not dec["adopt"] and dec["lean"] and dec["fixed"] and dec["next_eps"] == 1e-3
+    for arm, kw in (("reduced_adamw", {"lean": False, "fixed": (0.5, 0.019)}),
+                    ("reduced_adamw", {"lean": True, "radius": 2.0, "fixed": (0.5, 0.019)}),
+                    ("reduced_adamw", {"lean": True, "fixed": (0.0, 0.0)}),
+                    ("reduced_adamw", {"lean": True, "fixed": (-0.5, 0.019)}),
+                    ("reduced_adamw", {"lean": True, "fixed": (0.5, float("inf"))}),
+                    ("reduced_adamw", {"lean": True, "fixed": (0.5,)}),
+                    ("heads_only", {"lean": True, "fixed": (0.5, 0.019)})):
+        with pytest.raises(ValueError, match="fixed step"):
+            pr.run_round({}, params, None, arm, 1e-3, **kw)
+
+
+@needs_core
+@pytest.mark.slow
+def test_a_fixed_round_through_the_command_line_writes_the_step_of_the_two_lengths(tmp_path):
+    """Prereg departure 49 on the miniature stage 1: --lean --fixed-step on
+    the reduced_adamw arm writes the candidate theta_k + step, the step
+    saved as step.pt with the two lengths on its groups, d saved apart, and
+    no chosen network; without --lean it is refused."""
+    from helpers.pg_run import e2e_run
+    from tools.pg_round import main
+    run = e2e_run()
+    common = ["--pass", str(run.pass_path), "--factory", "tools.pg_eval:network_factory", *_factory_args(run),
+              "--eps", "0.001", "--arm", "reduced_adamw"]
+    out, candidate, net = tmp_path / "round.json", tmp_path / "pi.pt", tmp_path / "rung.pt"
+    assert main(common + ["--lean", "--fixed-step", "0.05", "0.01", "--out", str(out), "--candidate", str(candidate),
+                          "--direction-out", str(tmp_path / "direction.pt"), "--chosen-network", str(net)]) == 0
+    r = json.loads(out.read_text(encoding="utf-8"))
+    dec = r["decision"]
+    assert dec["adopt"] and dec["lean"] and dec["fixed"] and dec["s"] == 1.0 and dec["next_eps"] == 0.001
+    assert r["lean"]["direction"] == str(tmp_path / "step.pt") and r["candidate"]["s"] == 1.0
+    assert r["chosen_network"] is None and not net.exists() and "paired" not in r
+    step = torch.load(tmp_path / "step.pt", weights_only=True)
+    d = torch.load(tmp_path / "direction.pt", weights_only=True)
+    assert set(step) == set(d) and _group_norm(d, False) > 0
+    assert _group_norm(step, True) == pytest.approx(0.05, rel=1e-5)
+    assert _group_norm(step, False) == pytest.approx(0.01, rel=1e-5)
+    _same_network(candidate, run.checkpoint, step, 1.0)
+    with pytest.raises(SystemExit):
+        main(common + ["--fixed-step", "0.05", "0.01", "--out", str(out), "--candidate", str(candidate)])

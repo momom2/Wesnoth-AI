@@ -110,6 +110,14 @@ GPU's time, against about half before.
   of rounds K on search to R times the radius (tools/pg_round.py
   --lean-radius).
 
+**--fixed-step HEADS REST --fixed-step-from K** (prereg departure 49; with
+--lean): the steps of rounds K on read no KL. The head maps move HEADS in
+weight space along their averaged direction and every other parameter moves
+REST along its own (tools/pg_round.py --fixed-step). With REST above 0
+those rounds step under FIXED_ARM, which reads every parameter, so their
+pass is the full one whatever --arm and --heads-only-pass say. They are
+measured and stopped as lean rounds.
+
 A round's games start from SEED_BASE + k * SEED_STRIDE, or from the base in
 its seed_base.txt (prereg departure 42's replay), which must leave the
 round's games inside its own block.
@@ -195,7 +203,11 @@ FLOOR_SIDES = 25
 # serves them (--heads-only-pass): wesnoth_ai/pg_step.py HEADS_ONLY_ARMS,
 # which tests/test_rounds_local.py holds equal (this file imports no torch).
 HEADS_ONLY_ARMS = ("heads_only", "probe_span")
-ARMS = ("sgd", "reduced_adamw", "muon", "heads_only", "probe_span")    # wesnoth_ai/pg_step.py ARMS, held equal too
+# --fixed-step's arm when the rest of the network moves (prereg departure
+# 49): reduced AdamW over every parameter, the direction the match test's
+# candidates stepped along (docs/trunk_step_match_prereg_20261111.md).
+FIXED_ARM = "reduced_adamw"
+ARMS =("sgd", "reduced_adamw", "muon", "heads_only", "probe_span")    # wesnoth_ai/pg_step.py ARMS, held equal too
 END_BY_MARGIN = 1.2             # --end-by: a round may run this much longer than the longest so far
 END_BY_FORMAT = "%Y-%m-%d %H:%M"
 PASS_FP16 = ["--fp16", "--packed-trunk", "--floor-chunk", "8", "--floor-sides", str(FLOOR_SIDES)]
@@ -225,6 +237,9 @@ class Rounds(Steps):
         self.n_train = self.n_design
         self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
+        fixed = getattr(args, "fixed_step", None)                         # prereg departure 49
+        self.fixed = (float(fixed[0]), float(fixed[1])) if fixed else None
+        self.fixed_from = int(getattr(args, "fixed_step_from", None) or 2)
         self.lean = bool(getattr(args, "lean", False))                    # prereg departure 43
         self.lean_radius = float(getattr(args, "lean_radius", None) or 1.0)   # prereg departure 47
         self.lean_radius_from = int(getattr(args, "lean_radius_from", None) or 1)
@@ -377,23 +392,38 @@ class Rounds(Steps):
         f = self.rdir(k) / "held.txt"
         return int(f.read_text(encoding="utf-8")) if f.exists() else None
 
-    def pass_scope(self) -> List[str]:
-        """["--heads-only"] when --heads-only-pass is given and stage C's arm
-        reads the head maps alone (HEADS_ONLY_ARMS); else nothing, the
+    def fixed_round(self, k: int) -> bool:
+        """Whether round k's step is --fixed-step's (prereg departure 49)."""
+        return self.lean and self.fixed is not None and k >= self.fixed_from
+
+    def full_fixed(self, k: int) -> bool:
+        """Whether round k's fixed step moves more than the head maps, so
+        it reads every parameter's gradient (FIXED_ARM, the full pass)."""
+        return self.fixed_round(k) and self.fixed[1] > 0
+
+    def pass_scope(self, k: int) -> List[str]:
+        """["--heads-only"] when --heads-only-pass is given and round k's
+        arm reads the head maps alone (HEADS_ONLY_ARMS); else nothing, the
         full pass."""
         if not self.a.heads_only_pass:
             return []
-        return ["--heads-only"] if self.arm() in HEADS_ONLY_ARMS else []
+        return ["--heads-only"] if self.arm(k) in HEADS_ONLY_ARMS else []
 
-    def arm(self) -> Optional[str]:
-        """The step's arm: --arm, else stage C's winner."""
+    def arm(self, k: int) -> Optional[str]:
+        """Round k's arm: FIXED_ARM for a fixed step that moves the rest of
+        the network; else --arm, else stage C's winner."""
+        if self.full_fixed(k):
+            return FIXED_ARM
         if getattr(self.a, "arm", None):
             return self.a.arm
         stage_c = json.loads((self.sc / "stage_c.json").read_text(encoding="utf-8"))
         return (stage_c.get("optimizer") or {}).get("winner")
 
-    def arm_args(self) -> List[str]:
-        """pg_round's arm: --arm when given, else stage C's winner read there."""
+    def arm_args(self, k: int) -> List[str]:
+        """pg_round's arm for round k: FIXED_ARM for a fixed step that moves
+        the rest; else --arm when given, else stage C's winner read there."""
+        if self.full_fixed(k):
+            return ["--arm", FIXED_ARM]
         if getattr(self.a, "arm", None):
             return ["--arm", self.a.arm]
         return ["--arm-from", str(self.sc / "stage_c.json")]
@@ -476,7 +506,7 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s pass")
             rc = self.step(f"round {k} pass", ["tools/pg_pass.py", "--checkpoint", pi, "--games", *dirs,
                                                "--labels", str(labels), "--out", str(d / "pass.pt"), "--device",
-                                               "cuda", "--workers", self.workers, *PASS_FP16, *self.pass_scope(),
+                                               "cuda", "--workers", self.workers, *PASS_FP16, *self.pass_scope(k),
                                                *self.window_args(),
                                                "--corrections", str(d / "corrections.json")], f"round_{k:02d}.log",
                                    PASS_CUT_MIN)
@@ -490,13 +520,16 @@ class Rounds(Steps):
             previous = ["--previous", str(prev / "direction.pt")] if (prev / "direction.pt").exists() else []
             previous += self.average_args(k)
             lean = ["--lean"] if self.lean else []
-            if self.lean and self.lean_radius != 1.0 and k >= self.lean_radius_from:
+            if self.fixed_round(k):
+                lean += ["--fixed-step", repr(self.fixed[0]), repr(self.fixed[1])]
+            elif self.lean and self.lean_radius != 1.0 and k >= self.lean_radius_from:
                 lean += ["--lean-radius", repr(self.lean_radius)]
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
                                                *self.factory_args(pi, dirs, labels, d / "eval_cache",
                                                                   self.held_size(k)), "--eps-from",
-                                               str(prev / "round.json"), *self.arm_args(), *previous, "--out", str(d / "round.json"), "--candidate",
+                                               str(prev / "round.json"), *self.arm_args(k), *previous, "--out",
+                                               str(d / "round.json"), "--candidate",
                                                str(d / "pi.pt"), "--direction-out", str(d / "direction.pt"),
                                                "--chosen-network", str(d / "rung.pt"), *lean],
                            f"round_{k:02d}.log", STEP_CUT_MIN)
@@ -818,6 +851,11 @@ def main() -> int:
                     help="lean steps search to R times the radius (prereg departure 47)")
     ap.add_argument("--lean-radius-from", type=int, default=1, metavar="K",
                     help="--lean-radius takes the steps of rounds K on")
+    ap.add_argument("--fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
+                    help="lean steps of these lengths in weight space, the head maps' and the rest's, with no KL "
+                         "read (module docstring, prereg departure 49)")
+    ap.add_argument("--fixed-step-from", type=int, default=2, metavar="K",
+                    help="--fixed-step takes the steps of rounds K on (round 1's is stage C's)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -847,12 +885,20 @@ def main() -> int:
                  f"the next eps would shrink every round)")
     if args.lean_radius_from < 1:
         ap.error(f"--lean-radius-from {args.lean_radius_from}: name a round")
+    if args.fixed_step is not None and not (args.lean and all(math.isfinite(x) and x >= 0 for x in args.fixed_step)
+                                            and any(x > 0 for x in args.fixed_step)):
+        ap.error(f"--fixed-step {args.fixed_step}: two lengths in weight space, neither negative and not both 0, "
+                 f"with --lean")
+    if args.fixed_step_from < 2:
+        ap.error(f"--fixed-step-from {args.fixed_step_from}: round 2 or later (round 1's step is stage C's)")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, |H| {args.held}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
                   f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}, average "
                   f"{args.average}, lean {args.lean}, lean radius {args.lean_radius:g} from round "
-                  f"{args.lean_radius_from}, floor {FLOOR_SIDES} game-sides")
+                  f"{args.lean_radius_from}, floor {FLOOR_SIDES} game-sides, fixed step "
+                  + (f"{args.fixed_step[0]:g} (head maps) and {args.fixed_step[1]:g} (rest) from round "
+                     f"{args.fixed_step_from}" if args.fixed_step else "none"))
     return run(Rounds(args), args.rounds)
 
 

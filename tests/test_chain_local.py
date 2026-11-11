@@ -466,6 +466,30 @@ def test_rounds_lean_radius_reaches_the_rounds_with_its_first_round(tmp_path):
             cl.parse_args(ARGV + bad)
 
 
+def test_rounds_fixed_step_reaches_the_rounds_with_its_first_round(tmp_path):
+    """Prereg departure 49: --rounds-fixed-step and --rounds-fixed-step-from
+    are rounds_local's --fixed-step and --fixed-step-from; the step needs
+    --rounds-lean and two lengths that are not both 0, and the first round
+    needs the step."""
+    args = _after_stop_args(tmp_path, stop="STOP after round 3's claim: REDEPLOY")
+    args.rounds_lean, args.rounds_fixed_step, args.rounds_fixed_step_from = True, [0.5, 0.019], 23
+    f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": 0}, rounds_writes=_rounds_upto({1, 2, 3}, 3))
+    f.chain(args)()
+    cmd = f.ran[0][1]
+    assert cmd[cmd.index("--fixed-step") + 1:cmd.index("--fixed-step") + 3] == ["0.5", "0.019"]
+    assert cmd[cmd.index("--fixed-step-from") + 1] == "23"
+    args = cl.parse_args(ARGV + ["--rounds-lean", "--rounds-fixed-step", "0.5", "0.019", "--rounds-fixed-step-from",
+                                 "23"])
+    assert args.rounds_fixed_step == [0.5, 0.019] and args.rounds_fixed_step_from == 23
+    assert cl.parse_args(ARGV).rounds_fixed_step is None
+    for bad in (["--rounds-fixed-step", "0.5", "0.019"], ["--rounds-lean", "--rounds-fixed-step", "0", "0"],
+                ["--rounds-lean", "--rounds-fixed-step", "-0.5", "0.019"],
+                ["--rounds-lean", "--rounds-fixed-step-from", "23"],
+                ["--rounds-lean", "--rounds-fixed-step", "0.5", "0.019", "--rounds-fixed-step-from", "1"]):
+        with pytest.raises(SystemExit):
+            cl.parse_args(ARGV + bad)
+
+
 def test_after_stop_takes_only_its_own_rounds_stop(tmp_path):
     """The code review's L3: --after-stop 3 refuses a STOP that names round
     30 (departure 47's stops read there), and still takes one naming round

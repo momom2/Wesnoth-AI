@@ -25,9 +25,11 @@ worktree P and the rounds should run (pinned at a tested commit):
    With --skip-p, P is not run and the rounds run with --no-p-gate
    (prereg departure 31: P's played check cannot resolve at the plant's
    size). --rounds-n-train, --rounds-held, --rounds-average,
-   --rounds-lean, --rounds-lean-radius and --rounds-lean-radius-from are
-   rounds_local's --n-train, --held, --average, --lean, --lean-radius and
-   --lean-radius-from (prereg departures 25, 34, 37, 43 and 47).
+   --rounds-lean, --rounds-lean-radius, --rounds-lean-radius-from,
+   --rounds-fixed-step and --rounds-fixed-step-from are rounds_local's
+   --n-train, --held, --average, --lean, --lean-radius, --lean-radius-from,
+   --fixed-step and --fixed-step-from (prereg departures 25, 34, 37, 43, 47
+   and 49).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them, or 1 too with --final-after-failure: prereg departure
    43, since a failed part taints only its own round), it plays the
@@ -291,7 +293,11 @@ class Chain:
             heads += ["--lean-radius", repr(a.rounds_lean_radius)]
         if getattr(a, "rounds_lean_radius_from", None) is not None:
             heads += ["--lean-radius-from", str(a.rounds_lean_radius_from)]
-        p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
+        if getattr(a, "rounds_fixed_step", None) is not None:
+            heads += ["--fixed-step", *(repr(float(x)) for x in a.rounds_fixed_step)]
+        if getattr(a, "rounds_fixed_step_from", None) is not None:
+            heads += ["--fixed-step-from", str(a.rounds_fixed_step_from)]
+        p =["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
 
@@ -399,6 +405,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="passed to rounds_local --lean-radius (prereg departure 47)")
     ap.add_argument("--rounds-lean-radius-from", type=int, default=None, metavar="K",
                     help="passed to rounds_local --lean-radius-from")
+    ap.add_argument("--rounds-fixed-step", type=float, nargs=2, default=None, metavar=("HEADS", "REST"),
+                    help="passed to rounds_local --fixed-step (prereg departure 49)")
+    ap.add_argument("--rounds-fixed-step-from", type=int, default=None, metavar="K",
+                    help="passed to rounds_local --fixed-step-from")
     ap.add_argument("--final-after-failure", action="store_true",
                     help="play the final match after a failed round too (module docstring item 4, prereg "
                          "departure 43)")
@@ -456,6 +466,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ap.error(f"--rounds-lean-radius {args.rounds_lean_radius}: a scale of at least 1 of --rounds-lean's radius")
     if args.rounds_lean_radius_from is not None and (args.rounds_lean_radius is None or args.rounds_lean_radius_from < 1):
         ap.error(f"--rounds-lean-radius-from {args.rounds_lean_radius_from}: a round, with --rounds-lean-radius")
+    fixed = args.rounds_fixed_step
+    if fixed is not None and not (args.rounds_lean and all(math.isfinite(x) and x >= 0 for x in fixed)
+                                  and any(x > 0 for x in fixed)):
+        ap.error(f"--rounds-fixed-step {fixed}: two lengths in weight space, neither negative and not both 0, with "
+                 f"--rounds-lean")
+    if args.rounds_fixed_step_from is not None and (fixed is None or args.rounds_fixed_step_from < 2):
+        ap.error(f"--rounds-fixed-step-from {args.rounds_fixed_step_from}: round 2 or later, with --rounds-fixed-step")
     for out in ("tail_out", "continue_final_out"):
         if getattr(args, out) is not None and getattr(args, out) == args.final_out:
             ap.error(f"--{out.replace('_', '-')} must differ from --final-out (match_local refuses a changed match)")

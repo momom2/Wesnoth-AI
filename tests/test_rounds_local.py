@@ -824,3 +824,41 @@ def test_lean_radius_takes_the_steps_from_its_first_round_and_the_floor_reads_it
     plain = FakeTools()
     assert _run(tmp_path / "unscaled", plain, rounds=3, lean=True, held=1250)[0] == 0
     assert not any("--lean-radius" in plain.cmd(f"round {k} step") for k in (2, 3))
+
+
+def test_fixed_step_rounds_take_the_full_pass_and_pass_their_lengths(tmp_path, monkeypatch):
+    """Prereg departure 49: with --fixed-step 0.5 0.019 --fixed-step-from 4
+    the steps of rounds 4 on run pg_round --lean --fixed-step with the two
+    lengths under FIXED_ARM and no --lean-radius, and their pass is the full
+    one even with --heads-only-pass on the heads_only arm; the earlier
+    rounds keep their arm, their heads-only pass and their radius. A fixed
+    step that leaves the rest still (REST 0) keeps the round's own arm and
+    pass."""
+    _reference(monkeypatch)
+    tools = FakeTools()
+    rc, _ = _run(tmp_path / "full", tools, rounds=5, arm="heads_only", heads_only_pass=True, lean=True, held=1250,
+                 lean_radius=2.0, lean_radius_from=3, fixed_step=[0.5, 0.019], fixed_step_from=4)
+    assert rc == 0
+    for k in range(2, 6):
+        step, p = tools.cmd(f"round {k} step"), tools.cmd(f"round {k} pass")
+        assert "--lean" in step and ("--fixed-step" in step) == (k >= 4)
+        assert ("--heads-only" in p) == (k < 4)
+        if k >= 4:
+            at = step.index("--fixed-step")
+            assert step[at + 1:at + 3] == ["0.5", "0.019"] and "--lean-radius" not in step
+            assert step[step.index("--arm") + 1] == rl.FIXED_ARM == "reduced_adamw" and "--arm-from" not in step
+        else:
+            assert "--arm-from" in step and ("--lean-radius" in step) == (k == 3)
+    heads = FakeTools()
+    rc, _ = _run(tmp_path / "heads", heads, rounds=3, arm="heads_only", heads_only_pass=True, lean=True, held=1250,
+                 fixed_step=[0.5, 0.0])
+    assert rc == 0
+    for k in (2, 3):
+        step = heads.cmd(f"round {k} step")
+        at = step.index("--fixed-step")
+        assert step[at + 1:at + 3] == ["0.5", "0.0"] and "--arm-from" in step
+        assert "--heads-only" in heads.cmd(f"round {k} pass")
+    plain = FakeTools()
+    assert _run(tmp_path / "plain", plain, rounds=3, lean=True, held=1250)[0] == 0
+    assert not any("--fixed-step" in plain.cmd(f"round {k} step") for k in (2, 3))
+    assert rl.FIXED_ARM not in rl.HEADS_ONLY_ARMS and rl.FIXED_ARM in rl.ARMS
