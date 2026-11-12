@@ -202,7 +202,7 @@ numbering. Nothing is built from them yet.
 
 | # | Item (ids above) | Decision |
 |---|---|---|
-| 1 | The corrections to the signal (A2-A5) | In discussion (below). |
+| 1 | The corrections to the signal (A2-A5) | Decided: the value estimate alone (below). |
 | 2 | The 8-round average (C4) | Remove ("Indeed, remove"). This document proposed ordinary momentum in its place. |
 | 3 | The games held out (A1) | Agreed: train on every game. |
 | 4 | The statistical checks (F1-F4, A6's gate) | The user asked for the list; not yet given. |
@@ -245,4 +245,7 @@ What was put to them:
   - A4 alone leans on a value head that nothing trains (above). Keeping
     it means training that head on each round's results.
 
-The user's answer: pending.
+**The user's answer (2026-11-12): A4 alone** ("We're going for option
+2"). So A2, A3 and A5 go, with the luck walk and the fits of β and γ,
+and the value head is to be trained on each round's results. Not built
+yet.
