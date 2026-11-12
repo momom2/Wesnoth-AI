@@ -205,8 +205,8 @@ numbering. Nothing is built from them yet.
 | 1 | The corrections to the signal (A2-A5) | Decided: the value estimate alone (below). |
 | 2 | The 8-round average (C4) | Remove ("Indeed, remove"). This document proposed ordinary momentum in its place. |
 | 3 | The games held out (A1) | Agreed: train on every game. |
-| 4 | The statistical checks (F1-F4, A6's gate) | The list was given on 2026-11-12 (below). The ruling is pending. |
-| 5 | The entry switch (A6) | Remove. To discuss first: that the fitted coefficients exist and work without it. |
+| 4 | The statistical checks (F1-F4, A6's gate) | Remove from the rounds (below). |
+| 5 | The entry switch (A6) | Remove. The fitted coefficients were read (below); whether one is kept is pending. |
 | 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
 | 7 | 5,000 games a round (E) | Reduce. The number is to discuss. |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
@@ -282,5 +282,43 @@ exact check has none.
 Recommended: no statistical check halts a round. I-sample and the value
 estimate's I-V stay as logged readings with a warning; one match against
 the reference every few hours of training replaces F5.
+
+**The user's answer (2026-11-12): remove them from the rounds.** The
+recommendation to keep two as warnings was withdrawn first, on the user's
+objection that such checks look useless:
+
+- the code does not change between rounds, so a check of the code can
+  find nothing new in a later round;
+- `tests/test_decision_log.py`
+  (`test_logging_changes_no_pick_and_the_log_matches_the_law_it_was_played_from`)
+  already asserts both properties exactly: the logged log-probability and
+  the logged value against the ones recomputed on the position before the
+  command.
+
+So no statistical check runs in a round. The exact checks stay, and the
+match against the reference is the strength reading.
+
+### Item 5: the fitted coefficients, without the switch
+
+The user asked to verify that fitted coefficients exist and work without
+the switch. From each round's `corrections.json` (rounds 2-22,
+`C:\Users\momom2\wesnoth_runs\rounds_local`):
+
+- The switch never turned a correction off: both entered in all 21
+  rounds.
+- The value estimate's coefficient, fitted alone on each of two halves of
+  the held-out games, reads 0.78 and 0.78 in round 2 and 0.73 and 0.69 in
+  round 22. The halves differ by at most 0.061 in any round.
+- Its cut of the noise is 15.5 to 54.0 standard errors in every round,
+  and 26-34% of the mean squared weight.
+- It drifts down, from 0.78 to about 0.70: the head is frozen while the
+  policy moves.
+- All of these were fitted with the dice terms in place. For `z − α·v_t`
+  alone the coefficient is not read.
+
+Recommended: no fitted coefficient, `z − v_t`. An estimate that equals
+the expected result has α = 1, since then E[z·v] = E[v²], and training
+the value head on results aims at that. With the optimum at α*, α = 1
+keeps (2α* − 1)/α*² of the cut: 82% at 0.70 and 92% at 0.78.
 
 The user's answer: pending.
