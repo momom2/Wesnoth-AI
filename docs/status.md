@@ -410,12 +410,15 @@ both sides, 3,200 decisive games on the same seeds:
   last section). Nothing is built from the rulings yet:
   - out: the 8-round average, the held-out games, the entry switch, the
     fixed step lengths and the end-of-turn offset;
+  - the step is the optimiser's own update with one learning rate for the
+    whole network, not a rate for each of two groups;
   - out too: every correction to the signal but the value estimate (the
     map baseline and both dice-luck terms), with the value head to be
     trained on each round's results;
   - smaller: the 5,000-game round, its new size to discuss;
-  - in discussion: the memory's gradient window, and self-play against
-    the current self alone.
+  - in discussion: which statistical checks may halt a round, the
+    memory's gradient window, and self-play against the current self
+    alone.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6

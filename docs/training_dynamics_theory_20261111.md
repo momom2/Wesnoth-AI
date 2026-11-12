@@ -205,9 +205,9 @@ numbering. Nothing is built from them yet.
 | 1 | The corrections to the signal (A2-A5) | Decided: the value estimate alone (below). |
 | 2 | The 8-round average (C4) | Remove ("Indeed, remove"). This document proposed ordinary momentum in its place. |
 | 3 | The games held out (A1) | Agreed: train on every game. |
-| 4 | The statistical checks (F1-F4, A6's gate) | The user asked for the list; not yet given. |
+| 4 | The statistical checks (F1-F4, A6's gate) | The list was given on 2026-11-12 (below). The ruling is pending. |
 | 5 | The entry switch (A6) | Remove. To discuss first: that the fitted coefficients exist and work without it. |
-| 6 | The fixed step lengths (C5) | Remove ("I don't understand, but in doubt, I lean towards simplification"). |
+| 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
 | 7 | 5,000 games a round (E) | Reduce. The number is to discuss. |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
 | 9 | The memory's gradient window (B2) | To discuss. |
@@ -249,3 +249,38 @@ What was put to them:
 2"). So A2, A3 and A5 go, with the luck walk and the fits of β and γ,
 and the value head is to be trained on each round's results. Not built
 yet.
+
+### Item 4: the statistical checks
+
+As listed to the user. A statistical check has a false-alarm rate; an
+exact check has none.
+
+- **Gone with rulings already made:**
+  - dice control's slope (the dice terms are out);
+  - A6's entry tests and its six I-V tests (the switch is out);
+  - the step's confirmation (D4), the transfer stop (F3) and the pause
+    (F4), which belonged to the KL rule's evaluator;
+  - the one-off gates before the rounds: stage C's, round 1's cross-play,
+    and stage P with its planted-signal check (F6, skipped since
+    departure 31).
+- **Run on every round's games, halting the round on a failure**
+  (`tools/selfplay_readout.py`; 18 tests sharing a 1% false-alarm rate):
+  - I-sample, five tests: the actions played follow the probabilities the
+    player logged (three chi-squares by kind of action, the sampled
+    action's position, the temperature score);
+  - I-V, twelve tests: no correction leans toward a kind of action (four
+    corrections by three kinds). With the value estimate alone, three;
+  - dice control, one test (gone, above).
+
+  They fired in 2 of 22 rounds (F1).
+- **Planned and never run:** the lean stops (F5), on a claim by 2 SE or an
+  argmax match by 1 SE, every 6th round. The claim was the KL rule's
+  evaluator's.
+- **Exact, so not on this list:** the legal mass and I-count on the games,
+  and the pass's checks (B5).
+
+Recommended: no statistical check halts a round. I-sample and the value
+estimate's I-V stay as logged readings with a warning; one match against
+the reference every few hours of training replaces F5.
+
+The user's answer: pending.
