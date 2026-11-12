@@ -405,6 +405,14 @@ both sides, 3,200 decisive games on the same seeds:
     offset at the reference's decode (fitted on `relset`), the attack's
     hex, the advancement, and rejected recruit hexes that the mask reads
     and the network cannot see (against CLAUDE.md's Principle 6).
+
+  The user ruled on ten of these on 2026-11-12 (the theory document's
+  last section). Nothing is built from the rulings yet:
+  - out: the 8-round average, the held-out games, the entry switch, the
+    fixed step lengths and the end-of-turn offset;
+  - smaller: the 5,000-game round, its new size to discuss;
+  - in discussion: the corrections to the signal, the memory's gradient
+    window, and self-play against the current self alone.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6

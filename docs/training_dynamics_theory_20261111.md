@@ -194,3 +194,55 @@ practice, so its dynamics are the best-understood there are.
   theory it is the part to keep.
 - The 20% of games held out and the per-round statistical gates have no
   theoretical need.
+
+## The user's decisions (2026-11-12)
+
+The user ruled on ten items of this document's summary, in their own
+numbering. Nothing is built from them yet.
+
+| # | Item (ids above) | Decision |
+|---|---|---|
+| 1 | The corrections to the signal (A2-A5) | In discussion (below). |
+| 2 | The 8-round average (C4) | Remove ("Indeed, remove"). This document proposed ordinary momentum in its place. |
+| 3 | The games held out (A1) | Agreed: train on every game. |
+| 4 | The statistical checks (F1-F4, A6's gate) | The user asked for the list; not yet given. |
+| 5 | The entry switch (A6) | Remove. To discuss first: that the fitted coefficients exist and work without it. |
+| 6 | The fixed step lengths (C5) | Remove ("I don't understand, but in doubt, I lean towards simplification"). |
+| 7 | 5,000 games a round (E) | Reduce. The number is to discuss. |
+| 8 | The end-of-turn offset (G2, G3) | Remove. |
+| 9 | The memory's gradient window (B2) | To discuss. |
+| 10 | Self-play against the current self alone (G12) | To discuss. |
+
+### Item 1: are the corrections needed, and should they not be learned?
+
+The user's question: "Do we need it? Isn't it supposed to be learned by
+the network rather than corrected by hand?"
+
+What was put to them:
+
+- **None is needed.** No correction changes what is learned (the
+  yardstick's first result). Together they are worth 1.85 times the
+  games. Round 22's mean squared weight per decision
+  (`round_22\corrections.json`), against 1 for the bare result:
+  - 0.838 with the baseline and the whole-game luck;
+  - 0.603 with the value estimate added;
+  - 0.542 with the luck re-timed.
+- **They are not built alike.**
+  - A4 is the network's own output.
+  - A3 and A5 score each fight on seven hand-chosen columns
+    (`tools/match_luck.py`, `COLUMNS`): hit points, cost-weighted
+    material in two forms, a leader's death, and three saturating values
+    of material. Seven coefficients are fitted to results.
+  - Their mean is zero whatever is decided, so they are no reward. They
+    are still a material score inside the training signal, which
+    Principle 3 names.
+- **Recommended: A4 alone,** `z − α·v_t`. This withdraws the table's
+  "keep the idea" for A3 and A5, on the user's criterion and not on
+  soundness.
+  - What it costs against A4 with the luck from the decision on is not
+    read. The whole-game luck with the baseline removes 16% of the bare
+    result's noise, so 10-20% more games is my estimate.
+  - A4 alone leans on a value head that nothing trains (above). Keeping
+    it means training that head on each round's results.
+
+The user's answer: pending.
