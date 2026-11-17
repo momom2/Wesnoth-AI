@@ -240,3 +240,37 @@ These were settled while building, before the launch.
 ## Results
 
 Filled in as the run goes.
+
+**Matches** (the sampling network against `own2` at its pinned decode,
+800 decisive games each, fp16 serving):
+
+| After round | Elo | Wins of 800 | Read |
+|---|---|---|---|
+| 0, the start network | +39.2 ± 12.4 | 445 | 2026-11-17 16:47 |
+| 6 | +49.8 ± 12.4 | 457 | 2026-11-17 18:43 |
+| 16 | +48.0 ± 12.4 | 455 | 2026-11-17 22:07 |
+
+- **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
+  start, and round 6 was +10.6 ± 17.5.
+- **The first reading is above zero,** where "What is measured" expected
+  it below. Sampling with no offset costs the start network 75.5 ± 14.0
+  Elo (+114.7 ± 6.5 at the reference's decode against +39.2 ± 12.4), not
+  the 140 read at round 15 of the rounds before.
+
+**The first 17 rounds** (2026-11-17 16:47 to 22:29, `progress.jsonl`):
+
+- **A round takes 18.0 minutes on average** (15.4 to 21.5), against the 23
+  estimated: its games 174 to 211 s, its pass 740 to 1,075 s at a median
+  of 68.5 decisions a second. The three matches took 14, 14 and 22
+  minutes. At this rate round 160 falls about 2.1 days after the launch.
+- **No warning and no kill criterion.** The gradient's norm reads 48 to 78
+  (median 61). The loss scale overflowed three times in 17 rounds, each a
+  group rerun at half the scale, never under 1. The peak allocation is
+  3.2 GB. The replay's mean difference stays within 2.6e-5.
+- **The update's norm fell from 0.036 to 0.0103,** as the averaged
+  gradient's noise part predicts (830 lr = 0.0083 once the average has
+  filled).
+- **Rounds 1, 7 and 17 drew the current network as their past self** (the
+  start, or the checkpoint a match had just read, which the pool holds),
+  so all 256 game-sides trained. The draw is uniform over the pool, as
+  registered; such a round is all self-play.

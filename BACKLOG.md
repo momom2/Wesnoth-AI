@@ -10,6 +10,17 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   attention-based memory rather than fully unstructured"). The design is the
   user's to give; it replaces the model's memory, so it is an architectural
   change that needs their go-ahead.
+  - **The idea's outline** (the user, 2026-11-17): it "comes from imitating
+    humans, who bypass the lack of a large context window by selectively
+    cleaning and merging new information with the old based on how much
+    emotional valence". They asked how feasible it is here and whether it
+    would plausibly improve the memory; no design is chosen yet.
+  - **Sizes that bear on it** (the simple loop's first 2,176 games,
+    2026-11-17): a game lasts 19 turns at the median, 30 at the 90th
+    percentile and 62 at most; a side takes 247 decisions a game on
+    average (1,306 at most), about 12 a turn. So 64 entries hold one entry
+    for every turn of every game read, and one a decision overflows them
+    in most games.
   - **The rework is not needed to train the trunk** (2026-11-11,
     `docs/trunk_step_match_prereg_20261111.md`). On today's memory a
     full-network step 8 times its KL-sized length gains +52.5 ± 6.2 Elo
@@ -26,7 +37,9 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     gradient at 16-decision windows (tools/pg_pass.py `window`), so the
     self-play rounds never train what a write does more than 16 decisions
     later. The slot memory is 8% of a full-network step's trunk norm² in
-    stage C (training/metrics/trunk_diagnosis_20261110.json).
+    stage C (training/metrics/trunk_diagnosis_20261110.json). The simple
+    loop (2026-11-17) no longer cuts it: its gradient runs over the whole
+    game-side (`docs/simple_loop_prereg_20261117.md`).
   - Today's memory is why a trunk step is small (2026-11-10;
     `docs/status.md`, "What the numbers do not show"). On a few game-sides
     `own2`'s recurrence amplifies what a stepped trunk writes, and those
