@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-11.
+Last updated 2026-11-17.
 
 ## In one paragraph
 
@@ -31,6 +31,15 @@ that this sizing is what blocks it. At 8 times that size the full-network
 step gains +52.5 ± 6.2 Elo over `own2` at T=1, and added to the
 heads-only step it reads +88.2 ± 6.3 against the heads' +34.6 ± 6.2 ("A
 larger full-network step", under Measured). No round does this yet.
+
+**A simpler loop replaces the rounds** (2026-11-17). The user ruled on ten
+of the rounds' mechanisms one by one and said "Launch training."
+(`docs/simple_loop_prereg_20261117.md`). A round is now 128 games and one
+Adam step on the whole network: the weight is the result less the logged
+value estimate, the memory's gradient runs over the whole game, the value
+head trains on the result, and 20% of the games are against a past self.
+It starts from round 22's network at a learning rate of 1e-5. A match
+every 16 rounds reads it. Nothing is read yet.
 
 ## The reference player
 
@@ -426,9 +435,16 @@ both sides, 3,200 decisive games on the same seeds:
     card, and its rate, are not measured;
   - 80% of a round's games are against the current self and 20% against
     past selves (2026-11-17);
-  - all ten are ruled on. Next: the build details stated for approval,
-    the whole-game pass's fit and rate measured, then the
-    pre-registration.
+  - all ten are ruled on, and the loop built from them was launched on
+    2026-11-17 (`docs/simple_loop_prereg_20261117.md`):
+    - the code is `feature/simple-loop` (23e4dff8), not merged; merging
+      it is the user's call;
+    - the whole-game pass fits the card (2.8 GB at its peak) and runs at
+      60 decisions a second, so a round takes about 23 minutes: about 62
+      rounds and 8,000 games a day;
+    - the run is `C:\Users\momom2\wesnoth_runs\simple_loop`; a STOP file
+      there ends it, and the same command resumes it;
+    - its first verdict is due at round 160, about 2.7 days in.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6
