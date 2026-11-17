@@ -15,12 +15,36 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     cleaning and merging new information with the old based on how much
     emotional valence". They asked how feasible it is here and whether it
     would plausibly improve the memory; no design is chosen yet.
-  - **Sizes that bear on it** (the simple loop's first 2,176 games,
-    2026-11-17): a game lasts 19 turns at the median, 30 at the 90th
-    percentile and 62 at most; a side takes 247 decisions a game on
-    average (1,306 at most), about 12 a turn. So 64 entries hold one entry
-    for every turn of every game read, and one a decision overflows them
-    in most games.
+  - **What it is not** (the user, the same day, to a first reading that
+    took it for a list of entries, one a turn): "we should use the
+    attention of the network to figure out how much it considers some
+    information valuable, and give it the structure to learn that what it
+    pays attention to will be stored in memory (not as a list of entries,
+    still unstructured - let it pick its compression). Or perhaps there
+    could be a separate memory-wise attention? But I was hoping to reuse
+    calculations to make this lightweight."
+  - **Facts that bear on it** (read 2026-11-17):
+    - Today's memory is already the separate-attention form. Each of the
+      64 slots is a token of the trunk, pays its own attention in all 8
+      layers (12 heads), and its output is what the gate writes
+      (`wesnoth_ai/model.py`, `slot_memory.write(x[:, o - K_max:o], ...)`).
+    - Those 64 tokens are 15% of a position's tokens on the bench
+      positions (20,693 tokens for 48 positions, 431 each), and about a
+      sixth of a layer's time there (the GEMMs 6.95 ms, the attention
+      1.65, the norms 1.04, the ReLU 0.66;
+      `training/metrics/local_gpu_20261028/README.md`).
+    - A token's output is the weighted sum its attention gathered, so a
+      write from a token the network already computes (the global token)
+      reuses the attention with no new kernel. A write that reads the
+      weights themselves does not: the desktop's attention kernel never
+      forms them (an online softmax; the training variant keeps each row's
+      log-sum-exp, `wesnoth_ai/hip_kernels.py` and
+      `hip_attention_grad.py`), so it would need new forward and backward
+      kernels.
+  - **Sizes of a game** (the simple loop's first 2,176 games, 2026-11-17):
+    19 turns at the median, 30 at the 90th percentile and 62 at most; a
+    side takes 247 decisions a game on average (1,306 at most), about 12 a
+    turn.
   - **The rework is not needed to train the trunk** (2026-11-11,
     `docs/trunk_step_match_prereg_20261111.md`). On today's memory a
     full-network step 8 times its KL-sized length gains +52.5 ± 6.2 Elo
