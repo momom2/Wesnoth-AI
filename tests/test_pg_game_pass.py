@@ -192,7 +192,8 @@ def test_another_networks_game_side_is_left_out_and_a_misplayed_own_one_is_refus
 @needs_core
 def test_a_log_the_pass_does_not_reproduce_is_refused_and_its_sums_kept_aside(tmp_path):
     """Logged log probabilities 0.05 above the network's on one game: the
-    replay's KL estimate is 0.05 times that game's share of the decisions,
+    replay's mean difference is 0.05 times that game's share of the
+    decisions and its second-order KL half of 0.05 squared times the share,
     above the limit. The command line keeps the sums aside, exits 3 and
     writes no grad.pt; on the games as played it writes grad.pt and its
     scalars."""
@@ -220,10 +221,12 @@ def test_a_log_the_pass_does_not_reproduce_is_refused_and_its_sums_kept_aside(tm
     total = sum(len(decisions_of(read_record(p))) for p in records.values())
     with pytest.raises(GamePassRefused) as caught:
         _run(games, records, streams=4)
-    assert caught.value.result["replay"]["kl"] == pytest.approx(0.05 * len(rec["decisions"]) / total, rel=1e-3)
+    share = len(rec["decisions"]) / total
+    assert caught.value.result["replay"]["kl"] == pytest.approx(0.05 * share, rel=1e-3)
+    assert caught.value.result["replay"]["half_mean_square"] == pytest.approx(0.5 * 0.05 ** 2 * share, rel=1e-2)
     assert main(argv) == EXIT_REFUSED and not out.exists()
     aside = torch.load(tmp_path / "grad.refused.pt", weights_only=True)
-    assert aside["replay"]["kl"] > aside["replay"]["limit"]
+    assert aside["replay"]["half_mean_square"] > aside["replay"]["limit"]
 
 
 def test_groups_are_dealt_longest_first_within_both_caps():
