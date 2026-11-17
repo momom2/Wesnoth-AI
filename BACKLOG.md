@@ -41,6 +41,27 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
       log-sum-exp, `wesnoth_ai/hip_kernels.py` and
       `hip_attention_grad.py`), so it would need new forward and backward
       kernels.
+  - **Why today's memory is not useful in play: no training asked it to
+    be** (the records read together, 2026-11-17):
+    - Imitation taught it to continue a player's habits. It predicts
+      humans better (holdout policy loss 2.688 at 64 slots against 2.791
+      at 0) and cost 105 Elo in its own play
+      (`docs/memory_in_play_parity3_prereg_20261009.md`).
+    - It adds little to the network's guess of where hidden enemies
+      stand: holdout belief loss 0.01582 at 0 slots and 0.01555 at 64,
+      against the last-seen baseline's 0.0490
+      (`docs/belief_worlds_prereg_20261012.md`). The sighting tokens give
+      the last enemy turn to both.
+    - `own1` and `own2` were trained, on their own games, toward the same
+      network's choices at 0 slots: "the best this round can do is make
+      the memory harmless [...], not useful"
+      (`docs/memory_own_trajectories_prereg_20261011.md`).
+    - Rounds 1 to 22 trained the policy heads alone. The simple loop
+      (2026-11-17) is the first training in which a game's result reaches
+      the memory.
+    - So a new write rule does not address what the records show. The
+      reading that would is the memory's worth in play (64 slots against
+      0) on a network the simple loop has trained.
   - **Sizes of a game** (the simple loop's first 2,176 games, 2026-11-17):
     19 turns at the median, 30 at the 90th percentile and 62 at most; a
     side takes 247 decisions a game on average (1,306 at most), about 12 a
