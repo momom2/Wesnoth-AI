@@ -210,7 +210,7 @@ numbering. Nothing is built from them yet.
 | 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
 | 7 | 5,000 games a round (E) | Reduce to 128 games a step, a number to revise later (below). |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
-| 9 | The memory's gradient window (B2) | To discuss. |
+| 9 | The memory's gradient window (B2) | Read (below); the user's answer is pending. |
 | 10 | Self-play against the current self alone (G12) | To discuss. |
 
 ### Item 1: are the corrections needed, and should they not be learned?
@@ -417,3 +417,69 @@ the future."). What a revision would read, from the above: the critical
 batch under `z − v_t` and as training goes on, the round's fixed cost
 once built, play's rate at this many games in flight, and the pass's rate
 on the code of the day. Not built yet.
+
+### Item 9: the memory's gradient
+
+**What the pass does** (`tools/pg_pass.py`). It runs 32 game-sides side
+by side and cuts the gradient through the memory every 16 time steps of
+that schedule (`_run_split` detaches the memories after each window). A
+game-side starts from the learned initial memory, so no gradient crosses
+from one game-side to the next either. In a full pass each step's forward
+is recomputed in the backward (`recompute`), so a window holds its steps'
+inputs and memory states and one step's activations.
+
+**What the cut means in a game** (600 games of round 22's play, 1,200
+game-sides, `round_22\play\games_s00`):
+
+- A side makes 247 decisions a game on average (median 228, 99th
+  percentile 681, longest 995), over 19.9 of its turns: 12.2 a turn.
+- So a write is credited with the 0 to 15 decisions after it, 7.5 on
+  average: about 0.6 of a turn and 3% of the side's game.
+- The memory's one known pattern is held for 7 to 14 turns
+  (`docs/status.md`, "The mechanism").
+- How to act on the memory is trained at every decision with no cut. The
+  cut touches only what is written.
+
+**The literature.**
+
+- A short cut is how the large recurrent self-play systems were trained.
+  OpenAI Five applied Adam with truncated backpropagation through time
+  over 16 timesteps, 2.1 s of hour-long games (arXiv 1912.06680 and
+  1912.06721, read from search summaries). R2D2 uses sequences of 80
+  steps.
+- The uncut gradient through a long recurrence is known to explode or
+  vanish, and clipping its norm is the usual remedy (Pascanu et al. 2013,
+  from memory, not re-read). The explosion is measured here: on about 1%
+  of game-sides the memory amplifies a gap of 1% to as much as 60%
+  (`docs/status.md`).
+
+**The options.**
+
+1. **Keep 16.** No work. It is the practice above, and the only one read
+   in games here: the match test's steps were computed under it. Its
+   bias: a write is taught by the half turn after it.
+2. **The whole game-side.** The true gradient. The pass would run its 32
+   game-sides from their starts in place of a clock's windows. Since each
+   step is recomputed, it must hold the inputs and memory states of up to
+   about 1,000 steps, not their activations. Not measured: whether that
+   fits the card (a whole split, 270,000 decisions, did not: departure
+   33a), the rate, and fp16's range over chains of hundreds of steps (21
+   of 4,926 windows overflowed at 16 steps in round 22's pass, which was
+   heads only). It would probably need the clipping above: one more
+   number.
+3. **No gradient through the memory.** The simplest: the window's number
+   goes. The network is trained to act on its memory and never on what to
+   write, which then drifts with the trunk.
+
+This corrects section B's verdict on B2 ("the weakest point left",
+"neither"): that verdict did not compare the cut with practice. Under the
+optimiser's own update the window also stops entering the direction's
+statistics (C1's per-window second moment goes), so all it decides is how
+far back a write's gradient reaches.
+
+Recommended: **keep 16, as a number to revise,** like the round's size.
+It is standard and read in games, and it costs nothing to build. Option 2
+is the revision if the memory is to learn anything long, and it changes
+the pass alone. The match against the reference is the alarm either way.
+
+The user's answer: pending.
