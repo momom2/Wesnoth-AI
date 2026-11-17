@@ -233,6 +233,9 @@ These were settled while building, before the launch.
   The same command again resumes the run from its markers. Its console
   goes to `wesnoth_runs\simple_loop.console.log`.
 - **To stop it:** a file named STOP in `wesnoth_runs\simple_loop`.
+- **Started 2026-11-17 16:33:49** (the launching `cmd.exe` is pid
+  27620). The match at step 0 was playing two minutes later, 43 games
+  in.
 
 ## Results
 
