@@ -211,7 +211,7 @@ numbering. Nothing is built from them yet.
 | 7 | 5,000 games a round (E) | Reduce to 128 games a step, a number to revise later (below). |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
 | 9 | The memory's gradient window (B2) | The whole game-side, in place of the cut at 16 (below). |
-| 10 | Self-play against the current self alone (G12) | Read (below); the user's answer is pending. |
+| 10 | Self-play against the current self alone (G12) | 80% of the games against the current self and 20% against past selves (below). |
 
 ### Item 1: are the corrections needed, and should they not be learned?
 
@@ -565,4 +565,9 @@ theory names the failure it prevents, and the cost is about 2% of the
 time. Option 1 is the simplest, and nothing in this project's record
 speaks against it yet.
 
-The user's answer: pending.
+**The user's answer (2026-11-17): the 80/20 mix** ("Let's for a 80/20 mix
+of present/past play."). Not built yet. The pool's rule and whether a
+round plays 128 or 142 games are the build's to state for approval. The
+policy's own spread (the second risk above) was not ruled on.
+
+All ten items are now ruled on. Nothing is built from them.

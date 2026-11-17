@@ -424,7 +424,11 @@ both sides, 3,200 decisive games on the same seeds:
     16 decisions (2026-11-17). It is not clipped: the pass logs a warning
     on a blow-up, and the choice is revisited then. Whether it fits the
     card, and its rate, are not measured;
-  - in discussion: self-play against the current self alone.
+  - 80% of a round's games are against the current self and 20% against
+    past selves (2026-11-17);
+  - all ten are ruled on. Next: the build details stated for approval,
+    the whole-game pass's fit and rate measured, then the
+    pre-registration.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6
