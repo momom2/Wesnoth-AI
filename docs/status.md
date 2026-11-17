@@ -416,13 +416,12 @@ both sides, 3,200 decisive games on the same seeds:
     map baseline and both dice-luck terms), with the value head to be
     trained on each round's results. The estimate enters as it is, with
     no fitted coefficient (2026-11-17): the weight is `z − v_t`;
-  - smaller: the 5,000-game round. Its size was read on 2026-11-17 (the
-    desktop gives about 525 games an hour with a whole-network pass, and
-    the recommendation is 128 games a step); the user's answer is
-    pending;
+  - smaller: a round is 128 games and one step (2026-11-17), a number
+    the user wants revised later. The desktop gives about 525 games an
+    hour with a whole-network pass;
   - no statistical check runs in a round; the exact checks stay;
-  - in discussion: the round's size, the memory's gradient window, and
-    self-play against the current self alone.
+  - in discussion: the memory's gradient window, and self-play against
+    the current self alone.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6

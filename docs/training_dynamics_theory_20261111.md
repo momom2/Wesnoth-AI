@@ -208,7 +208,7 @@ numbering. Nothing is built from them yet.
 | 4 | The statistical checks (F1-F4, A6's gate) | Remove from the rounds (below). |
 | 5 | The entry switch (A6) | Remove, and the fitted coefficient with it: the weight is `z − v_t` (below). |
 | 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
-| 7 | 5,000 games a round (E) | Reduce. The number was read (below); the user's answer is pending. |
+| 7 | 5,000 games a round (E) | Reduce to 128 games a step, a number to revise later (below). |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
 | 9 | The memory's gradient window (B2) | To discuss. |
 | 10 | Self-play against the current self alone (G12) | To discuss. |
@@ -411,4 +411,9 @@ Recommended: **128 games a step, one step a round, each game used once.**
 - At 128 a step takes about 17 min: about 87 steps and 11,100 games a
   day.
 
-The user's answer: pending.
+**The user's answer (2026-11-17): 128 games a step, to be revised later**
+("Let's go for batches of 128 games, with a note to revise this number in
+the future."). What a revision would read, from the above: the critical
+batch under `z − v_t` and as training goes on, the round's fixed cost
+once built, play's rate at this many games in flight, and the pass's rate
+on the code of the day. Not built yet.
