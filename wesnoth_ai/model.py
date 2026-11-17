@@ -1144,6 +1144,14 @@ class WesnothModel(nn.Module):
         """This network's heads on arguments `keeping_head_inputs` kept."""
         return self._heads(**inputs)
 
+    def value_logits_detached(self, inputs: dict) -> torch.Tensor:
+        """The value head's logits [B, K] on arguments `keeping_head_inputs`
+        kept, the trunk's global row detached: a loss on them trains the
+        value head (and the material projection) and nothing below it
+        (tools/pg_game_pass.py)."""
+        g = inputs["global_ctx"].detach().squeeze(1)
+        return self.value_head(self._value_input(g, inputs["material"]))
+
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx, material: Optional[torch.Tensor] = None,
                memory_padded: Optional[torch.Tensor] = None,
