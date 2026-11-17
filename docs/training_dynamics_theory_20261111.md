@@ -206,9 +206,9 @@ numbering. Nothing is built from them yet.
 | 2 | The 8-round average (C4) | Remove ("Indeed, remove"). This document proposed ordinary momentum in its place. |
 | 3 | The games held out (A1) | Agreed: train on every game. |
 | 4 | The statistical checks (F1-F4, A6's gate) | Remove from the rounds (below). |
-| 5 | The entry switch (A6) | Remove. The fitted coefficients were read (below); whether one is kept is pending. |
+| 5 | The entry switch (A6) | Remove, and the fitted coefficient with it: the weight is `z − v_t` (below). |
 | 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
-| 7 | 5,000 games a round (E) | Reduce. The number is to discuss. |
+| 7 | 5,000 games a round (E) | Reduce. The number was read (below); the user's answer is pending. |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
 | 9 | The memory's gradient window (B2) | To discuss. |
 | 10 | Self-play against the current self alone (G12) | To discuss. |
@@ -320,5 +320,95 @@ Recommended: no fitted coefficient, `z − v_t`. An estimate that equals
 the expected result has α = 1, since then E[z·v] = E[v²], and training
 the value head on results aims at that. With the optimum at α*, α = 1
 keeps (2α* − 1)/α*² of the cut: 82% at 0.70 and 92% at 0.78.
+
+**The user's answer (2026-11-17): no fitted coefficient** ("Approved.
+Drop it."). The weight is `z − v_t`. Not built yet.
+
+### Item 7: the round's size
+
+The user asked for the literature, the desktop's budget in games an hour
+and the size that trains best.
+
+**The budget.** One GPU plays and trains in turn, and the gradient pass
+is the slow part.
+
+- Play: 5,000 games in 89.5 min in round 22 (`round_22.log`), so 3,350
+  games an hour, 1.07 s a game at 490 decisions a game.
+- A whole-network pass: 85 decisions a second (stage C, 89,633 s for 7.6
+  million decisions), so 5.8 s a game at 490 decisions. Round 22's pass,
+  the final maps alone, ran at 271.
+- Together about 6.8 s a game: about 525 games an hour and 12,600 a day,
+  whatever the round's size. At `own2`'s 380 decisions a game it is 5.3 s
+  a game (departure 25's prices), about 680 an hour.
+- Fixed costs a round today: the pass's dtype floor (462 s in round 22)
+  and the processes' starts. The step's search, 14 min, goes with the
+  fixed lengths. The model below takes 2 min, which needs the floor read
+  once a run and not once a round.
+- Not read: the 85 on current code, the rate under a longer memory window
+  (item 9), and play's rate with about a hundred games in flight (the
+  3,350 is with 768).
+
+**The literature.**
+
+- McCandlish et al. 2018 (arXiv 1812.06162) define the critical batch B
+  as the size at which a step is half as efficient per example as a small
+  one. With the learning rate at its best for each size, a step on N
+  gains N/(N + B) of the most a step can gain, so a game gives B/(N + B)
+  of the most a game can give. They find that B grows as training goes on
+  and that its estimate is good to an order of magnitude.
+- AlphaGo's self-play policy-gradient stage (Silver et al. 2016) is the
+  nearest precedent: the game's result as the signal, the value network
+  subtracted, 128 games a step and 10,000 steps (read from summaries of
+  the paper).
+- OpenAI Five (arXiv 1912.06680) used each game about once and found
+  stale games costly. Its larger batches bought speed on more hardware,
+  less than in proportion (a summary gives 2.5 times for 8 times the
+  batch; not read in the paper).
+
+**This project's readings.**
+
+- At `own2`, under the labels then in force, B read 44.3 ± 6.4 games for
+  the whole network in the per-weight-normalised direction, and 280.9 ±
+  29.9 for the final maps alone (stage C).
+- A direction from 5,000 of the pass's 20,000 games read 1.062 ± 0.039 of
+  the whole pass's first-order gain (departure 25 of
+  `docs/stage_c_rounds_local_prereg_20261030.md`, with its amendment).
+- The final maps' signal then fell by a factor of 3 over ten rounds with
+  the noise flat (`training/metrics/denoise_20261105.json`): B rises here
+  too.
+- B under `z − v_t` is not read.
+
+**The model.** Departure 25's own formula, N* = √(c_f·B/c_g), gave 1,111
+to 2,198 games at a fixed cost of 6.5 to 11 h a round, and the rule
+clamped it up to 5,000. With the fixed cost at 2 min and a game at 6.8 s
+it gives 28 games at B 44, 73 at B 300 and 132 at B 1,000. The share of
+the best possible
+rate that each size keeps (a game's worth, B/(N + B), times the share of
+the hour not spent on fixed costs):
+
+| N | at B 44 | at B 300 | at B 1,000 |
+|---|---|---|---|
+| 32 | 0.37 | 0.58 | 0.63 |
+| 64 | 0.32 | 0.65 | 0.74 |
+| 128 | 0.22 | 0.62 | 0.78 |
+| 250 | 0.14 | 0.51 | 0.75 |
+| 500 | 0.08 | 0.36 | 0.64 |
+| 1,000 | 0.04 | 0.23 | 0.49 |
+| 5,000 | 0.01 | 0.06 | 0.17 |
+
+Recommended: **128 games a step, one step a round, each game used once.**
+
+- It keeps at least 0.60 of the best size's rate at every B from 44 to
+  1,000 (0.60, 0.95, 1.00). Against 128, a round of 64 reads 1.42, 1.05
+  and 0.95 at the three B, and one of 250 reads 0.62, 0.83 and 0.96.
+- A round of 1,000 keeps 0.18 to 0.63 of 128's rate, and one of 5,000
+  keeps 0.04 to 0.21.
+- With the fixed cost at 1, 4 or 8 min instead of 2, 128 keeps 0.50, 0.72
+  and 0.85 of the best at B 44, and 0.90 or more at B 300 and 1,000.
+- Under the critical batch, the round's size and the learning rate trade
+  one for one (a judgement from the model, not a reading), so the size
+  can stay fixed and the learning rate is the one number to tune.
+- At 128 a step takes about 17 min: about 87 steps and 11,100 games a
+  day.
 
 The user's answer: pending.

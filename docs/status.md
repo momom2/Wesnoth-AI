@@ -414,12 +414,15 @@ both sides, 3,200 decisive games on the same seeds:
     whole network, not a rate for each of two groups;
   - out too: every correction to the signal but the value estimate (the
     map baseline and both dice-luck terms), with the value head to be
-    trained on each round's results;
-  - smaller: the 5,000-game round, its new size to discuss;
+    trained on each round's results. The estimate enters as it is, with
+    no fitted coefficient (2026-11-17): the weight is `z − v_t`;
+  - smaller: the 5,000-game round. Its size was read on 2026-11-17 (the
+    desktop gives about 525 games an hour with a whole-network pass, and
+    the recommendation is 128 games a step); the user's answer is
+    pending;
   - no statistical check runs in a round; the exact checks stay;
-  - in discussion: whether the value estimate keeps a fitted
-    coefficient, the memory's gradient window, and self-play against the
-    current self alone.
+  - in discussion: the round's size, the memory's gradient window, and
+    self-play against the current self alone.
 - **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
   credentials are stored on the desktop.
 - Unmerged branches from before the window: `feature/int8-linear` (6
