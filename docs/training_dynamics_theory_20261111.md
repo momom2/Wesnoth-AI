@@ -210,8 +210,8 @@ numbering. Nothing is built from them yet.
 | 6 | The fixed step lengths (C5) and the two groups' sizes (C3) | Remove both. In their place: the optimiser's own update, with one learning rate for the whole network ("Just use a single learning rate. Decomplicate things."). In the match test one rate read +27.8 and +52.5 (`full3`, `full8`) and two rates +88.2 (`mix8`). |
 | 7 | 5,000 games a round (E) | Reduce to 128 games a step, a number to revise later (below). |
 | 8 | The end-of-turn offset (G2, G3) | Remove. |
-| 9 | The memory's gradient window (B2) | Read (below); the user's answer is pending. |
-| 10 | Self-play against the current self alone (G12) | To discuss. |
+| 9 | The memory's gradient window (B2) | The whole game-side, in place of the cut at 16 (below). |
+| 10 | Self-play against the current self alone (G12) | Read (below); the user's answer is pending. |
 
 ### Item 1: are the corrections needed, and should they not be learned?
 
@@ -481,5 +481,88 @@ Recommended: **keep 16, as a number to revise,** like the round's size.
 It is standard and read in games, and it costs nothing to build. Option 2
 is the revision if the memory is to learn anything long, and it changes
 the pass alone. The match against the reference is the alarm either way.
+
+**The user's answer (2026-11-17): the whole game-side** ("Let's do a
+whole-game version."), against the recommendation. So the gradient
+through the memory runs from each decision back to its side's first. Not
+built yet. What the build has to settle, from option 2 above:
+
+- whether a group of whole game-sides fits the card, and the pass's rate,
+  both to measure before the loop is registered (the round's 128 games
+  and the 525 games an hour rest on the rate at 16);
+- fp16's range over chains of hundreds of steps;
+- what counts as a blow-up. The user, the same day: "With a warning
+  logged if we detect blowup, in which case, we'll revisit it." So the
+  gradient is not clipped; the pass logs a warning when it blows up, and
+  the choice is revisited then. The warning stops nothing.
+
+### Item 10: self-play against the current self alone
+
+Two risks go under this name, with different remedies.
+
+**The opponent is always the current self.**
+
+- Theory: each step improves the network against its current self, and
+  nothing says that carries to other opponents. In two-player zero-sum
+  games, learning against the latest self can cycle (rock-paper-scissors
+  is the textbook case), while learning against the average of past
+  selves converges (fictitious play: Brown 1951, Robinson 1951, from
+  memory, not re-read). Czarnecki et al. 2020 (arXiv 2004.09468) describe
+  real games as a skill axis with cycles at each level of skill: where
+  the game is transitive, naive self-play converges, and where it cycles
+  it need not.
+- Practice, in the systems that learn by policy gradient from self-play:
+  - AlphaGo's policy-gradient stage drew each step's opponent at random
+    from a pool of earlier iterations, the current one joining every 500
+    steps, to prevent overfitting to the current policy (from summaries
+    of Silver et al. 2016).
+  - OpenAI Five played 80% of its games against the latest parameters
+    and 20% against past versions, without which the agent "forgets how
+    to play against a wide variety of opponents" (arXiv 1912.06680, from
+    a search summary).
+  - Bansal et al. 2017 (arXiv 1710.03748): training against the most
+    recent opponent led to imbalance, and random older versions worked
+    much better (from a search summary).
+  - AlphaZero plays its latest self alone, with a search as the step
+    that improves it. This loop has no search.
+- This project: 21 rounds against the current self alone, each read
+  against `own2`, with no cycle seen (`docs/status.md`). Those were small
+  steps of the final maps. Each game draws its map and both factions at
+  random, which varies the positions and not the opponent.
+
+**The policy's own spread shrinks.** The gradient sharpens the sampled
+policy toward its top choices (415 to about 140 Elo between the two, in
+`docs/status.md`), and an action that is no longer sampled is no longer
+learned about. The literature's remedy is an entropy bonus in the loss.
+Here that is a hand-set term in the training signal, which Principle 3
+excludes, so it is the user's to rule on and is not proposed.
+
+**The options for the opponent.**
+
+1. **The current self alone.** Nothing to build. The alarm is the match
+   against `own2`, which reads one opponent: a cycle among stronger
+   strategies would show there as a plateau at best.
+2. **A share of the games against past selves.** 80% against the current
+   self and 20% against one past self a round, drawn uniformly from the
+   pool (OpenAI Five's share, AlphaGo's draw). The pool is the
+   checkpoints the periodic match has read, so no new cadence is added.
+   Only the current network's side of those games is trained on: the
+   other side's decisions are another network's.
+   - Cost: of a round's 128 games, 26 give one game-side in place of
+     two, so 230 game-sides a step against 256. Keeping 256 takes 142
+     games: 11% more play, about 2% of a round's time.
+   - The build: the match tool already plays two networks, and the pass's
+     check that a side was played by its checkpoint is per game-side
+     (`tools/pg_positions.py`, `foreign_sides`). The round's play and its
+     labels are not built for it.
+   - Numbers added: the share, and the pool's rule.
+3. **The reference in the pool:** no. Training against the yardstick
+   would spoil its reading.
+
+Recommended: **option 2 at 80/20,** both numbers to revise. Every
+policy-gradient self-play system read above mixes in past selves, the
+theory names the failure it prevents, and the cost is about 2% of the
+time. Option 1 is the simplest, and nothing in this project's record
+speaks against it yet.
 
 The user's answer: pending.
