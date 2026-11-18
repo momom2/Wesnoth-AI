@@ -62,6 +62,11 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
     - So a new write rule does not address what the records show. The
       reading that would is the memory's worth in play (64 slots against
       0) on a network the simple loop has trained.
+    - At round 76 of the simple loop (2026-11-18) the memory's weights get
+      gradient and have moved as far as the trunk's, 0.2% of their norm.
+      What they learned is not readable from the weights
+      (`docs/simple_loop_prereg_20261117.md`, "Which weights the training
+      moves").
   - **Sizes of a game** (the simple loop's first 2,176 games, 2026-11-17):
     19 turns at the median, 30 at the 90th percentile and 62 at most; a
     side takes 247 decisions a game on average (1,306 at most), about 12 a

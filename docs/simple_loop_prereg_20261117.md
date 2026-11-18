@@ -249,9 +249,17 @@ Filled in as the run goes.
 | 0, the start network | +39.2 ± 12.4 | 445 | 2026-11-17 16:47 |
 | 6 | +49.8 ± 12.4 | 457 | 2026-11-17 18:43 |
 | 16 | +48.0 ± 12.4 | 455 | 2026-11-17 22:07 |
+| 32 | +84.0 ± 12.6 | 495 | 2026-11-18 03:18 |
+| 48 | +78.5 ± 12.6 | 489 | 2026-11-18 08:11 |
+| 64 | +89.5 ± 12.7 | 501 | 2026-11-18 13:15 |
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.
+- **Rounds 32 to 64 read above the start:** +44.8 ± 17.7 at round 32,
+  +39.3 ± 17.6 at round 48 and +50.3 ± 17.7 at round 64. The three
+  together average +84.0 ± 7.3, which is +44.8 ± 14.3 over the start.
+  That average was not registered: the verdict stays the one in "What is
+  measured", read after round 160.
 - **The first reading is above zero,** where "What is measured" expected
   it below. Sampling with no offset costs the start network 75.5 ± 14.0
   Elo (+114.7 ± 6.5 at the reference's decode against +39.2 ± 12.4), not
@@ -274,3 +282,48 @@ Filled in as the run goes.
   start, or the checkpoint a match had just read, which the pool holds),
   so all 256 game-sides trained. The draw is uniform over the pool, as
   registered; such a round is all self-play.
+
+**Rounds 1 to 76** (to 2026-11-18 17:03, `progress.jsonl`):
+
+- **76 rounds took 24 h 29 min,** 19.3 minutes each with the six matches
+  counted in. At that rate round 160 falls about 20:00 on 2026-11-19.
+- **No warning and no kill criterion.** The gradient's norm reads 48 to
+  115 (median 64; the 115 is round 74). The loss scale overflowed 10
+  times in 76 rounds. The peak allocation is 3.2 GB. The replay's mean
+  difference stays within 3.3e-5.
+- **The update's norm has held at 0.0088 to 0.0102** since round 18.
+- **The value head's cross-entropy shows no trend:** 0.397 over rounds 1
+  to 16 and 0.400 over rounds 61 to 76, with 0.031 between rounds. It is
+  read on each round's new games before the step.
+- **Games have not changed in length:** 247 decisions a trained side over
+  rounds 1 to 16, 249 over rounds 61 to 76.
+- **Round 65 also drew the current network as its past self,** after
+  rounds 1, 7 and 17.
+
+**Which weights the training moves** (read 2026-11-18 from the pooled
+checkpoints and round 76's Adam state; a proxy, not a reading of
+strength):
+
+- **The memory's weights receive gradient, a small share of it.**
+  `slot_memory` holds 492,288 weights, 3.2% of the network, and 0.07% of
+  the squared gradient Adam has averaged. Per weight the gradient is
+  2.5e-3, against 0.98e-2 to 1.43e-2 in the trunk's layers. The value
+  head takes 48% of the squared gradient on 1.1% of the weights.
+- **Adam moves them as far as the trunk's all the same.** After 76 rounds
+  the movement per weight is 1.04e-4 in the memory, 0.82e-4 to 0.98e-4 in
+  the trunk's layers and 5.2e-4 in the value head. Against the weights'
+  own norm that is 0.21% for the memory's gate, 0.19% for its candidate,
+  0.19% to 0.21% for a trunk layer, 0.46% for the value head and 0.084%
+  for the whole network.
+- **Outside the value head, that movement is the size noise alone
+  gives.** 76 Adam steps at 1e-5 that cancel at random move a weight by
+  about 1e-5 x sqrt(76) = 0.87e-4. Adam's step in units of the learning
+  rate, |m|/sqrt(v), averages 0.157 in the memory and 0.145 to 0.189 in
+  the trunk's layers, where pure noise gives 0.18 (sqrt((1 - 0.9)/(1 +
+  0.9)) x sqrt(2/pi)); the value head reads 0.588. So the weights do not
+  say what the memory or the trunk is learning. The matches do, for the
+  network as a whole.
+- **The gate's bias has not moved:** it averages -2.011 at every
+  checkpoint. The gate's weights moved the 0.21% above.
+- **The belief head gets no gradient,** as designed: the loop has no
+  belief loss.
