@@ -192,11 +192,28 @@ def our_statuses(unit) -> List[str]:
     is the engine's STATE_GUARDIAN (src/units/unit.cpp:659); we keep it as
     the unit's `_ai_guardian` flag, which the neutral AI reads. Resting is
     the engine's `resting` attribute, not a status (unit.hpp `resting_`),
-    so it is its own field."""
-    found = {str(t) for t in unit.statuses} - {"resting"}
+    so it is its own field. The variation is one too
+    (`our_type_and_variation`)."""
+    found = {s for s in map(str, unit.statuses) if s != "resting" and not s.startswith(VARIATION_STATUS)}
     if getattr(unit, "_ai_guardian", False):
         found.add("guardian")
     return sorted(found)
+
+
+VARIATION_STATUS = "variation:"
+
+
+def our_type_and_variation(unit) -> Tuple[str, str]:
+    """A unit's type and variation apart, as the engine holds them
+    (`unit::type_` and `unit::variation_`). The engine sets a variation
+    only where the type has it (src/units/unit.cpp:2409-2419; plague asks
+    for the victim's, src/actions/attack.cpp:1299-1304), and the
+    simulator names such a unit `Type:variation`. Its `variation:<name>`
+    status is its own note of what plague asked for
+    (rust/wesnoth_core/src/units.rs, `build_plague_corpse`), not a status
+    of the engine's, so `our_statuses` leaves it out."""
+    base, _, variation = str(unit.name).partition(":")
+    return base, variation
 
 
 @functools.lru_cache(maxsize=1)
@@ -228,13 +245,17 @@ def our_record(gs) -> dict:
                       "faction": s.faction})
     # STATE_UNCOVERED is a status in the engine, a set of unit ids here.
     uncovered = set(getattr(gi, "_uncovered_units", None) or ())
-    units = [{"type": u.name, "side": u.side, "x": u.position.x + 1, "y": u.position.y + 1,
-              "canrecruit": u.is_leader, "hitpoints": u.current_hp, "max_hitpoints": u.max_hp,
-              "moves": u.current_moves, "max_moves": u.max_moves, "experience": u.current_exp,
-              "max_experience": u.max_exp, "traits": sorted(str(t) for t in u.traits),
-              "status": sorted(set(our_statuses(u)) | ({"uncovered"} if u.id in uncovered else set())),
-              "resting": "resting" in {str(t) for t in u.statuses}}
-             for u in gs.map.units]
+    units = []
+    for u in gs.map.units:
+        unit_type, variation = our_type_and_variation(u)
+        units.append(
+            {"type": unit_type, "variation": variation,
+             "side": u.side, "x": u.position.x + 1, "y": u.position.y + 1,
+             "canrecruit": u.is_leader, "hitpoints": u.current_hp, "max_hitpoints": u.max_hp,
+             "moves": u.current_moves, "max_moves": u.max_moves, "experience": u.current_exp,
+             "max_experience": u.max_exp, "traits": sorted(str(t) for t in u.traits),
+             "status": sorted(set(our_statuses(u)) | ({"uncovered"} if u.id in uncovered else set())),
+             "resting": "resting" in {str(t) for t in u.statuses}})
     owners = [{"x": x + 1, "y": y + 1, "side": side}
               for (x, y), side in (getattr(gi, "_village_owner", None) or {}).items() if side]
     codes = getattr(gi, "_terrain_codes", {})
@@ -320,6 +341,8 @@ def compare(engine: dict, ours: dict) -> Dict[str, dict]:
         if e is None or o is None:
             continue
         f("unit.type").check(key, e["type"], o["type"])
+        # A record older than the report's `variation` reads as none.
+        f("unit.variation").check(key, e.get("variation") or "", o["variation"])
         f("unit.leader").check(key, bool(e["canrecruit"]), bool(o["canrecruit"]))
         traits = engine_named_traits(e["traits"])
         f("unit.traits").check(key, traits, o["traits"])

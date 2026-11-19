@@ -254,3 +254,55 @@ def test_the_live_tool_names_the_network_that_plays(tmp_path):
     assert player_source(checkpoint, "s0128", ref) == (checkpoint, "s0128")
     with pytest.raises(FileNotFoundError):
         player_source(tmp_path / "missing.pt", None, ref)
+
+
+def test_an_unwatched_game_is_silent_and_leaves_the_preferences_as_they_were(tmp_path, monkeypatch):
+    """A game nobody watches starts with --nosound, which turns the sound
+    preferences off in its process, and Wesnoth writes its preferences
+    back as it exits. The launcher puts the user's file back once the
+    game has ended, and removes one written where there was none."""
+    from types import SimpleNamespace
+    from wesnoth_ai import wesnoth_interface
+    from wesnoth_ai.wesnoth_interface import WesnothGame
+    started = []
+    monkeypatch.setattr(wesnoth_interface.subprocess, "Popen",
+                        lambda cmd, **kw: started.append(cmd) or SimpleNamespace(pid=0, poll=lambda: 0))
+    monkeypatch.setattr(wesnoth_interface, "_pin_to_background", lambda pid, log: None)
+    preferences = tmp_path / "preferences"
+
+    def play(watched: bool, before, written: bytes) -> list:
+        if before is None:
+            preferences.unlink(missing_ok=True)
+        else:
+            preferences.write_bytes(before)
+        game = WesnothGame("test", launch_args=["--multiplayer"], watched=watched)
+        game._preferences_path = preferences
+        game.start_wesnoth()
+        preferences.write_bytes(written)             # Wesnoth's own write as it exits
+        game.terminate()
+        game.terminate()                             # as __del__ calls it again
+        return started[-1]
+
+    cmd = play(False, b"sound_volume=26\n", b"sound=no\n")
+    assert "--nosound" in cmd and "--nodelay" in cmd
+    assert preferences.read_bytes() == b"sound_volume=26\n"
+    cmd = play(True, b"sound_volume=26\n", b"turbo=yes\n")
+    assert "--nosound" not in cmd and "--nodelay" not in cmd
+    assert preferences.read_bytes() == b"sound_volume=26\n"
+    play(False, None, b"sound=no\n")
+    assert not preferences.exists()
+
+
+def test_an_unwatched_game_skips_the_scenarios_messages():
+    """Nobody is there to click a scenario's message away: the driver asks
+    the stage to skip them, under the name the stage reads. --scenario
+    names one Ladder map, for a check of it."""
+    from tools.live_vs_rca import ROOT, named_scenario, stage_settings
+    assert "skip_messages = true" in stage_settings(4.0, False, "s0128")
+    assert "skip_messages = false" in stage_settings(4.0, True, "s0128")
+    stage = (ROOT / "add-ons" / "wesnoth_ai" / "lua" / "live_stage.lua").read_text(encoding="utf-8")
+    assert "settings.skip_messages" in stage and "wesnoth.interface.skip_messages(true)" in stage
+    assert named_scenario("aethermaw") == "multiplayer_Aethermaw"
+    for part in ("multiplayer", "no such map"):
+        with pytest.raises(ValueError):
+            named_scenario(part)

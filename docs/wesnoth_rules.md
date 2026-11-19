@@ -3816,3 +3816,107 @@ tools/live_vs_rca.py exempts exactly those from its board check.
   message as the flag (`src/scripting/game_lua_kernel.cpp:4809-4822`:
   `bool in_chat = luaW_toboolean(L, -1);`), so a two-argument call is
   shown on screen.
+
+## A unit's variation is held beside its type (added 2026-11-19)
+
+- The engine keeps the variation in `unit::variation_`, and Lua reads it
+  as `unit.variation` (`src/scripting/lua_unit.cpp:402`:
+  `return_string_attrib("variation", u.variation());`). `unit.type` is the
+  type's id alone: a corpse that plague raises from a saurian reads type
+  `Walking Corpse`, variation `saurian`.
+- Plague asks for the victim's undead variation
+  (`src/actions/attack.cpp:1298-1306`):
+  ```cpp
+  // Apply variation
+  if(undead_variation != "null") {
+      config mod;
+      config& variation = mod.add_child("effect");
+      variation["apply_to"] = "variation";
+      variation["name"] = undead_variation;
+      newunit->add_modification("variation", mod);
+      newunit->heal_fully();
+  }
+  ```
+- The variation is set only where the type has it
+  (`src/units/unit.cpp:2409-2419`):
+  ```cpp
+  if(variation_id.empty() || base_type->get_gender_unit_type(gender_).has_variation(variation_id)) {
+      variation_ = variation_id;
+      advance_to(*base_type);
+  ```
+  Otherwise the effect is ignored with a warning, and the unit stays the
+  plain type.
+
+**Why non-obvious**: the simulator names such a unit `Type:variation`, one
+string. A board report that sends `unit.type` alone shows a plain Walking
+Corpse where the simulator has `Walking Corpse:saurian`, although the two
+units are the same: in the two games this stopped (2026-11-19), every
+other field agreed, the saurian's 16 hit points among them (a plain
+corpse has 18). `lua/board_report.lua` sends the variation, and
+`tools/scenario_init_oracle.py::compare` has a `unit.variation` field.
+
+## A `[message]` waits for a click unless its event skips messages (added 2026-11-19)
+
+- A message with no `[option]` and no `[text_input]` is shown in a dialog
+  that waits (`data/lua/wml/message.lua:428-431`):
+  ```lua
+  if not has_input then
+      -- Always show the dialog if it has no input, whether we are replaying or not
+      msg_dlg()
+  ```
+- It is passed over when the event is skipping messages
+  (`message.lua:373-377`):
+  ```lua
+  if not has_input and wesnoth.interface.is_skipping_messages() then
+      -- No input to get and the user is not interested either
+      log("Skipping [message] because user not interested", "debug")
+      return
+  end
+  ```
+  Escape on a message's dialog sets that flag (`message.lua:302-304`).
+- The flag belongs to the event being run, not to the game.
+  `wesnoth.interface.skip_messages` writes it on the top event context
+  (`src/scripting/game_lua_kernel.cpp:3412-3420`), and each event gets a
+  new context that inherits it only from an enclosing event
+  (`src/game_events/pump.cpp:327-335`):
+  ```cpp
+  bool skip_messages = (contexts_.size() > 1) && contexts_.top().skip_messages;
+  contexts_.emplace(skip_messages, m);
+  ```
+- Besides `[message]`, the flag is read by two displays of floating text
+  (`data/lua/stun.lua:29`, `data/lua/wml-tags.lua:841`). Nothing that
+  changes the game's state reads it.
+
+**Why non-obvious**: a call of `wesnoth.interface.skip_messages(true)` made
+once, at the game's start, does nothing for later events. In a game with
+no person, such as a command-line game between two AIs, the dialog waits
+for good: Aethermaw's "The Aethermaw growls." at turn 4
+(`wesnoth_src/data/multiplayer/scenarios/2p_Aethermaw.cfg:329`) held two
+games of a series until the driver's 600 s limit (2026-11-19).
+`lua/live_stage.lua` wraps `wesnoth.wml_actions.message` so that each
+message sets the flag as it starts, in an unwatched game.
+
+## `--nosound` reaches the saved preferences (added 2026-11-19)
+
+- `--nosound` "runs the game without sounds and music"
+  (`src/commandline_options.cpp:202`). It works by turning four
+  preferences off in the process (`src/game_launcher.cpp:272-279`):
+  ```cpp
+  if(no_sound || ((preferences::sound_on() || preferences::music_on() ||
+                    preferences::turn_bell() || preferences::UI_sound_on()) &&
+                   !sound::init_sound())) {
+      preferences::set_sound(false);
+      preferences::set_music(false);
+      preferences::set_turn_bell(false);
+      preferences::set_UI_sound(false);
+  ```
+- A Wesnoth that exits by itself writes its preferences to the file
+  (`src/preferences/general.cpp:98-110`, `write_preferences()` in the
+  manager's destructor). Only `--nogui`, a unit test, a screenshot and a
+  command-line login turn that write off
+  (`src/game_launcher.cpp:199-202, 221-225, 238-245`).
+
+**Why non-obvious**: a windowed game started with `--nosound` that runs to
+its end leaves the user's own Wesnoth silent from then on.
+`WesnothGame` (`wesnoth_ai/wesnoth_interface.py`) keeps the preferences
+file's bytes at the launch and puts them back when the game has ended.
