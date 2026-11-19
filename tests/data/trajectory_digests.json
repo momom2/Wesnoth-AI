@@ -1,5 +1,5 @@
 {
-"_comment": "tests/helpers/trajectory_digest.py: per decision [encoding, view, action, state key after the step] of a random legal player game, as the code of 2026-10-14 (main 0.21.1, core phase 32) played it. The encoding column was re-recorded on 2026-10-21 (core phase 37) when the masks lost their bias fields; the arrays it hashes were checked equal to the 2026-10-14 ones first, and the other three columns are unchanged.",
+"_comment": "tests/helpers/trajectory_digest.py: per decision [encoding, view, action, state key after the step] of a random legal player game, as the code of 2026-10-14 (main 0.21.1, core phase 32) played it. The encoding column was re-recorded on 2026-10-21 (core phase 37) when the masks lost their bias fields; the arrays it hashes were checked equal to the 2026-10-14 ones first, and the other three columns are unchanged. The state key column was re-recorded on 2026-11-19 (core phase 39) from decision 67 of game 3 and decision 63 of game 11 to their ends, when a unit that leaves the board began to leave the uncovered list, which the key covers; the other three columns, played on that core, were checked equal at every decision first.",
 "decisions": 120,
 "games": {
 "3": [
@@ -409,265 +409,265 @@
 "1897940b761910c5",
 "95237483ae20add7",
 "[('attack_index', '0'), ('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=17, y=18)'), ('type', \"'attack'\")]",
-"-350928468920488832"
+"-4896746481159129760"
 ],
 [
 "510ce5e58770d074",
 "ee6286f39887b6d5",
 "[('start_hex', 'Position(x=6, y=22)'), ('target_hex', 'Position(x=10, y=20)'), ('type', \"'move'\")]",
-"5655089011271954529"
+"-7763590717389338476"
 ],
 [
 "142dc70ef52bd01b",
 "d727040047302cca",
 "[('attack_index', '1'), ('start_hex', 'Position(x=14, y=11)'), ('target_hex', 'Position(x=15, y=10)'), ('type', \"'attack'\")]",
-"-2851963834038194388"
+"6248004861764357778"
 ],
 [
 "7bdd64be47ea1902",
 "da623bc8578850af",
 "[('type', \"'end_turn'\")]",
-"3340832138060840879"
+"3045642191698756166"
 ],
 [
 "d045159359f513f8",
 "e3208dc6772453ac",
 "[('start_hex', 'Position(x=13, y=13)'), ('target_hex', 'Position(x=14, y=17)'), ('type', \"'move'\")]",
-"-8376600869041557969"
+"6995348303888997643"
 ],
 [
 "68e9a2de34c6c8c1",
 "279ac1250fe14841",
 "[('attack_index', '1'), ('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'attack'\")]",
-"-6624388601471193707"
+"-2369903616679023409"
 ],
 [
 "808cf270bd53765f",
 "e732016dfbf45ec6",
 "[('type', \"'end_turn'\")]",
-"-2513565000603998811"
+"-3948140495028262916"
 ],
 [
 "c73c21e067c3acd9",
 "eecf488584fa0d3f",
 "[('target_hex', 'Position(x=13, y=23)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
-"7431270741514716224"
+"-7209228250152090513"
 ],
 [
 "91dcf87cb95ca087",
 "7d451d42f21707d1",
 "[('attack_index', '1'), ('start_hex', 'Position(x=14, y=11)'), ('target_hex', 'Position(x=11, y=11)'), ('type', \"'attack'\")]",
-"-7362585476662735074"
+"4586399007677664288"
 ],
 [
 "14245e61a40098e9",
 "d2901ecaa18f7628",
 "[('start_hex', 'Position(x=17, y=10)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'move'\")]",
-"-143357515999435042"
+"-6899854365972365808"
 ],
 [
 "83fc13ee73025406",
 "5651cfd352bb21c2",
 "[('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=17, y=14)'), ('type', \"'move'\")]",
-"-3195763065322998500"
+"-3416093122475140815"
 ],
 [
 "c98e36a7064f3f01",
 "8acb106d7be7c11a",
 "[('start_hex', 'Position(x=10, y=20)'), ('target_hex', 'Position(x=10, y=16)'), ('type', \"'move'\")]",
-"-7234702449129621662"
+"-3135739222101851419"
 ],
 [
 "0863922604f855da",
 "3071964a9d2c48d8",
 "[('attack_index', '1'), ('start_hex', 'Position(x=16, y=11)'), ('target_hex', 'Position(x=16, y=10)'), ('type', \"'attack'\")]",
-"-6958388104185080093"
+"2244781688220856468"
 ],
 [
 "6950894c9d215365",
 "d9dc64415e20550f",
 "[('type', \"'end_turn'\")]",
-"-5959292664338324722"
+"-8223041102108863468"
 ],
 [
 "770b8115a73eadb4",
 "acd72ce83750e90d",
 "[('start_hex', 'Position(x=14, y=17)'), ('target_hex', 'Position(x=14, y=20)'), ('type', \"'move'\")]",
-"-8763872018482824057"
+"-6783385337899127082"
 ],
 [
 "4558ad28f7029517",
 "40dac2547af781d3",
 "[('type', \"'end_turn'\")]",
-"-802527677183477357"
+"-7774337713500674127"
 ],
 [
 "cc0289032e5c4853",
 "900a737abd30a113",
 "[('type', \"'end_turn'\")]",
-"-6774478593782123627"
+"3342034971957625922"
 ],
 [
 "03921eabbb664c27",
 "1b9cd187db3cddbd",
 "[('attack_index', '1'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
-"-8938602306311940083"
+"5953375267202049364"
 ],
 [
 "1457a9f5081a71d0",
 "cc96a9bebc3a0056",
 "[('start_hex', 'Position(x=14, y=20)'), ('target_hex', 'Position(x=15, y=23)'), ('type', \"'move'\")]",
-"5299425291550985643"
+"-3787192807214006617"
 ],
 [
 "ac28762d981e8640",
 "d8de12134044446b",
 "[('attack_index', '0'), ('start_hex', 'Position(x=15, y=10)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
-"2467084399911605863"
+"5327399234719689452"
 ],
 [
 "4c7009eab0505e1c",
 "72d57baa63d1f262",
 "[('attack_index', '1'), ('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=17, y=14)'), ('type', \"'attack'\")]",
-"1565683077206684882"
+"-8092710467230255505"
 ],
 [
 "7db3d4b8f0c368e5",
 "591aaa1aa2123ed8",
 "[('attack_index', '0'), ('start_hex', 'Position(x=11, y=11)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
-"3128057438623926641"
+"7016209363503583788"
 ],
 [
 "8abe6a435ada2057",
 "e2b2d2ae288a8170",
 "[('start_hex', 'Position(x=17, y=3)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'move'\")]",
-"-254275886355021169"
+"-8648856078291704220"
 ],
 [
 "e08db6ab7674b0b8",
 "559cbf310f91d224",
 "[('type', \"'end_turn'\")]",
-"7205247317774135600"
+"-4995568791388674159"
 ],
 [
 "284e1cc24413ec74",
 "ce70178a0b8273cc",
 "[('attack_index', '0'), ('start_hex', 'Position(x=13, y=24)'), ('target_hex', 'Position(x=15, y=23)'), ('type', \"'attack'\")]",
-"-8052519090862185057"
+"542380076569733920"
 ],
 [
 "641991f9a6b172f4",
 "9d8cb547516519d8",
 "[('start_hex', 'Position(x=12, y=12)'), ('target_hex', 'Position(x=13, y=12)'), ('type', \"'move'\")]",
-"-2254061651342548480"
+"1294325101113537466"
 ],
 [
 "a3a1183733ec6434",
 "ce48c8e3882f8c31",
 "[('start_hex', 'Position(x=10, y=16)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'move'\")]",
-"-2112687202357108497"
+"4513316209076877743"
 ],
 [
 "4819fbbcd30074fd",
 "2a50c27fa003cd56",
 "[('attack_index', '1'), ('start_hex', 'Position(x=17, y=14)'), ('target_hex', 'Position(x=17, y=13)'), ('type', \"'attack'\")]",
-"5849409065431349917"
+"5562515262566711656"
 ],
 [
 "b2ac61415fa0ea7c",
 "6d0ebe396a356079",
 "[('type', \"'end_turn'\")]",
-"-679500340863701765"
+"-9054762300648119394"
 ],
 [
 "8696e3667144b8c9",
 "d9124ba08b1665a0",
 "[('attack_index', '1'), ('start_hex', 'Position(x=13, y=11)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'attack'\")]",
-"-3020764671808936272"
+"-3897827133954017715"
 ],
 [
 "613e6b0b3c9efedd",
 "e4f9c382d02b47b0",
 "[('start_hex', 'Position(x=15, y=23)'), ('target_hex', 'Position(x=14, y=23)'), ('type', \"'move'\")]",
-"22406996577544115"
+"-1541162366381167840"
 ],
 [
 "7502e0775bab4050",
 "92378b4250918dd2",
 "[('start_hex', 'Position(x=17, y=13)'), ('target_hex', 'Position(x=14, y=16)'), ('type', \"'move'\")]",
-"-1932952413311319320"
+"1305463887185680401"
 ],
 [
 "e13e3900636bfa63",
 "d5f17c142192599e",
 "[('attack_index', '0'), ('start_hex', 'Position(x=12, y=11)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'attack'\")]",
-"-2170773776752171072"
+"-4757769912641405979"
 ],
 [
 "3ef893a4e1c1fce9",
 "6d48dd9b01aae0b6",
 "[('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'move'\")]",
-"1438205429306770730"
+"-6799878840807643746"
 ],
 [
 "14caaf014483b90f",
 "bf8c023a105f213b",
 "[('attack_index', '0'), ('start_hex', 'Position(x=14, y=23)'), ('target_hex', 'Position(x=13, y=23)'), ('type', \"'attack'\")]",
-"5216253835219968451"
+"3934670658067752464"
 ],
 [
 "950456f80aac318e",
 "baa530fc5d8e75cd",
 "[('start_hex', 'Position(x=11, y=11)'), ('target_hex', 'Position(x=9, y=13)'), ('type', \"'move'\")]",
-"-6569940042133323874"
+"1439383819348345255"
 ],
 [
 "1985d2a7c749486f",
 "3f2ebee23eaca74d",
 "[('type', \"'end_turn'\")]",
-"983043392876097303"
+"-951940187250865600"
 ],
 [
 "9a93df373ff1b2e9",
 "ddbfd941df30c671",
 "[('attack_index', '1'), ('start_hex', 'Position(x=13, y=12)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
-"9212253717558361534"
+"-2874256786136098295"
 ],
 [
 "d77ee423c617b1dc",
 "d514b397909b1640",
 "[('start_hex', 'Position(x=12, y=13)'), ('target_hex', 'Position(x=11, y=13)'), ('type', \"'move'\")]",
-"-9214718987127409355"
+"-8129995851920941656"
 ],
 [
 "86f7854a5b0ddf08",
 "754a7a2b23ec6fb7",
 "[('start_hex', 'Position(x=17, y=14)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'move'\")]",
-"-9052022774664935616"
+"6578672279485573219"
 ],
 [
 "d3045d501357e68a",
 "c3c4567e06a62d58",
 "[('attack_index', '2'), ('start_hex', 'Position(x=14, y=24)'), ('target_hex', 'Position(x=14, y=23)'), ('type', \"'attack'\")]",
-"659364556285005930"
+"6803453928569294293"
 ],
 [
 "141f8161a64aec59",
 "37782864e67fccf0",
 "[('start_hex', 'Position(x=13, y=23)'), ('target_hex', 'Position(x=12, y=18)'), ('type', \"'move'\")]",
-"-4913971683085846156"
+"-308296641241752066"
 ],
 [
 "cb6284b59e2c8548",
 "c2c2ae4cf39ab756",
 "[('attack_index', '0'), ('start_hex', 'Position(x=12, y=13)'), ('target_hex', 'Position(x=11, y=12)'), ('type', \"'attack'\")]",
-"-2298830644497692097"
+"-1673495411485380927"
 ],
 [
 "7d02365f4ffd3835",
 "7a222226ae6a69c0",
 "[('attack_index', '0'), ('start_hex', 'Position(x=11, y=13)'), ('target_hex', 'Position(x=11, y=12)'), ('type', \"'attack'\")]",
-"-3900036024678802003"
+"-8433916065663884649"
 ]
 ],
 "11": [
@@ -1053,343 +1053,343 @@
 "e75c4490b7840d62",
 "a0d9b0bf86702b74",
 "[('attack_index', '0'), ('start_hex', 'Position(x=21, y=2)'), ('target_hex', 'Position(x=20, y=4)'), ('type', \"'attack'\")]",
-"-8260294767134622313"
+"-5768034841895126507"
 ],
 [
 "da33ae65a8701045",
 "24312111b3be3e94",
 "[('attack_index', '2'), ('start_hex', 'Position(x=18, y=11)'), ('target_hex', 'Position(x=14, y=12)'), ('type', \"'attack'\")]",
-"1320294277887207768"
+"-1927831657729642740"
 ],
 [
 "1018d6829b9bcfa2",
 "9034150eada6d5c7",
 "[('attack_index', '0'), ('start_hex', 'Position(x=19, y=17)'), ('target_hex', 'Position(x=19, y=18)'), ('type', \"'attack'\")]",
-"2029017322241823590"
+"-5884220900596607106"
 ],
 [
 "b81524bed016b55c",
 "05b1bde1dd34613e",
 "[('attack_index', '0'), ('start_hex', 'Position(x=21, y=15)'), ('target_hex', 'Position(x=20, y=15)'), ('type', \"'attack'\")]",
-"4080044645033419708"
+"-6460121000525615649"
 ],
 [
 "ee515d7349f37a23",
 "52ad45b81462e61a",
 "[('start_hex', 'Position(x=19, y=5)'), ('target_hex', 'Position(x=19, y=9)'), ('type', \"'move'\")]",
-"-6639560207764848358"
+"-6228373085615916849"
 ],
 [
 "9edfdb4b3b70b072",
 "21e7ca611342203c",
 "[('start_hex', 'Position(x=18, y=4)'), ('target_hex', 'Position(x=19, y=8)'), ('type', \"'move'\")]",
-"-6000083212852350076"
+"2513647406959930801"
 ],
 [
 "69b808bc48c627af",
 "8598cb591abc7656",
 "[('start_hex', 'Position(x=18, y=3)'), ('target_hex', 'Position(x=17, y=8)'), ('type', \"'move'\")]",
-"4856368884186035701"
+"6222340646926645750"
 ],
 [
 "3cd72f0568d9dd75",
 "03f68f7083589388",
 "[('start_hex', 'Position(x=19, y=3)'), ('target_hex', 'Position(x=18, y=8)'), ('type', \"'move'\")]",
-"3775508586979340131"
+"-3430042450484835116"
 ],
 [
 "0ee73ba216f5456f",
 "ef74f4e016ef09d8",
 "[('type', \"'end_turn'\")]",
-"542658289823043098"
+"4825227484727008950"
 ],
 [
 "28adba1e6c28ef5a",
 "ea7fd2247cabf93f",
 "[('attack_index', '0'), ('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=19, y=17)'), ('type', \"'attack'\")]",
-"-4405759454303874667"
+"-6875364922198844120"
 ],
 [
 "6f4a10530d3a6b3a",
 "4df8b0d728f8c662",
 "[('attack_index', '1'), ('start_hex', 'Position(x=20, y=15)'), ('target_hex', 'Position(x=15, y=11)'), ('type', \"'attack'\")]",
-"-7343178479125606898"
+"4328782044899106238"
 ],
 [
 "0dedcbe1e6a8927e",
 "1e09320f59281c82",
 "[('start_hex', 'Position(x=19, y=18)'), ('target_hex', 'Position(x=17, y=23)'), ('type', \"'move'\")]",
-"-6710560902204131109"
+"-8065227722147181321"
 ],
 [
 "d5b8d60e48488467",
 "f8f563de813eeb28",
 "[('attack_index', '0'), ('start_hex', 'Position(x=13, y=10)'), ('target_hex', 'Position(x=17, y=8)'), ('type', \"'attack'\")]",
-"360616921755499388"
+"6382981758464309712"
 ],
 [
 "771e34be5f4c900c",
 "6df60b1ab55efad3",
 "[('start_hex', 'Position(x=14, y=12)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'move'\")]",
-"4461344210438136199"
+"7673870124677408760"
 ],
 [
 "7633ac99b5d8ee6d",
 "fa58aa40d6746e04",
 "[('type', \"'end_turn'\")]",
-"1284726523847188950"
+"-6193494327939195958"
 ],
 [
 "0f3eb2638b1a26d9",
 "45ebaeb8c2ca43d1",
 "[('attack_index', '1'), ('start_hex', 'Position(x=17, y=8)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'attack'\")]",
-"-906802308053388670"
+"-7856872005652266619"
 ],
 [
 "89f33571c12af621",
 "ef4af04ed577c46d",
 "[('start_hex', 'Position(x=19, y=17)'), ('target_hex', 'Position(x=19, y=23)'), ('type', \"'move'\")]",
-"56513670045246686"
+"8631347409966874537"
 ],
 [
 "2a5a520b665b7cba",
 "69e6221996f99fe2",
 "[('start_hex', 'Position(x=19, y=9)'), ('target_hex', 'Position(x=18, y=12)'), ('type', \"'move'\")]",
-"-7964949097966267454"
+"8420331102967341114"
 ],
 [
 "7a4a6d5fead68d51",
 "b95c100e91133986",
 "[('attack_index', '1'), ('start_hex', 'Position(x=18, y=5)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'attack'\")]",
-"598375665233109880"
+"6804708638223620944"
 ],
 [
 "ec4e35a5244c977c",
 "cf610e756f69d037",
 "[('attack_index', '0'), ('start_hex', 'Position(x=19, y=8)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'attack'\")]",
-"-2639472236317863979"
+"-4839805096968621319"
 ],
 [
 "59e4db9a76738dbb",
 "3cf670fb54743f87",
 "[('start_hex', 'Position(x=18, y=12)'), ('target_hex', 'Position(x=17, y=12)'), ('type', \"'move'\")]",
-"-5129896965542465397"
+"-8607409541494168263"
 ],
 [
 "f793e2025cc34762",
 "1af925baccb7171f",
 "[('attack_index', '0'), ('start_hex', 'Position(x=15, y=11)'), ('target_hex', 'Position(x=16, y=12)'), ('type', \"'attack'\")]",
-"-5175545267545358468"
+"1896109252090851758"
 ],
 [
 "64dac04d3405d249",
 "63f0426e1670ad07",
 "[('start_hex', 'Position(x=18, y=8)'), ('target_hex', 'Position(x=18, y=12)'), ('type', \"'move'\")]",
-"358171515732715818"
+"-9101513341965504554"
 ],
 [
 "a57ceff86709cbc3",
 "12fbd60446013987",
 "[('attack_index', '0'), ('start_hex', 'Position(x=17, y=12)'), ('target_hex', 'Position(x=16, y=12)'), ('type', \"'attack'\")]",
-"-2014175898585860388"
+"30654116979154788"
 ],
 [
 "c0db186fe37b7f52",
 "cce1216e1144109b",
 "[('type', \"'end_turn'\")]",
-"5732166076057737746"
+"-4916559934414102746"
 ],
 [
 "70cd99026f139179",
 "b2727537e6e86909",
 "[('start_hex', 'Position(x=15, y=9)'), ('target_hex', 'Position(x=14, y=9)'), ('type', \"'move'\")]",
-"-2517191976894785468"
+"-7356207167871771655"
 ],
 [
 "22d5ff344340cf99",
 "8a3cb2b45afeea1a",
 "[('attack_index', '0'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=17, y=9)'), ('type', \"'attack'\")]",
-"7051142103272233414"
+"2334336831919210797"
 ],
 [
 "dd0eb1249216805b",
 "19cb6702a5a1e5d1",
 "[('start_hex', 'Position(x=16, y=12)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'move'\")]",
-"-7178333188269092908"
+"-3445158673906003027"
 ],
 [
 "3d2f4f4c0016c50f",
 "657faefc5f439d5e",
 "[('start_hex', 'Position(x=18, y=18)'), ('target_hex', 'Position(x=15, y=15)'), ('type', \"'move'\")]",
-"3586687878796171941"
+"-1992527083365883227"
 ],
 [
 "a450e7fb94e8d804",
 "96721178558b0ddf",
 "[('type', \"'end_turn'\")]",
-"562225467729125747"
+"1819435828542602587"
 ],
 [
 "bbe03b192c953884",
 "bdf5f99bc1095c8c",
 "[('start_hex', 'Position(x=19, y=23)'), ('target_hex', 'Position(x=19, y=26)'), ('type', \"'move'\")]",
-"-2181475789318446674"
+"-2205196826417059698"
 ],
 [
 "ffc33f30fb3d1873",
 "1f70e0391e7b2baf",
 "[('start_hex', 'Position(x=18, y=12)'), ('target_hex', 'Position(x=20, y=15)'), ('type', \"'move'\")]",
-"7279464712812137477"
+"-4825287122275724446"
 ],
 [
 "9e98d49eeb87e612",
 "e9a243148ff58427",
 "[('start_hex', 'Position(x=20, y=15)'), ('target_hex', 'Position(x=21, y=15)'), ('type', \"'move'\")]",
-"3898234917671018888"
+"1121424115833528036"
 ],
 [
 "0aaeeb7ca0457388",
 "36387b462d907943",
 "[('attack_index', '0'), ('start_hex', 'Position(x=15, y=8)'), ('target_hex', 'Position(x=14, y=9)'), ('type', \"'attack'\")]",
-"-2722658085711218144"
+"8708525097871838261"
 ],
 [
 "89f3c2be4674291d",
 "282826367fbdb6cb",
 "[('start_hex', 'Position(x=15, y=11)'), ('target_hex', 'Position(x=13, y=14)'), ('type', \"'move'\")]",
-"-6264724914891035438"
+"-8772619687508994448"
 ],
 [
 "a8c4d58c53c7b6a8",
 "32409e62e4c08272",
 "[('attack_index', '0'), ('start_hex', 'Position(x=17, y=9)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'attack'\")]",
-"-8574313939830951988"
+"-1119920002383324473"
 ],
 [
 "0f14c45f61dd1889",
 "5d942aa248cd619a",
 "[('start_hex', 'Position(x=13, y=14)'), ('target_hex', 'Position(x=13, y=15)'), ('type', \"'move'\")]",
-"3852883909538294036"
+"-1857520424997467305"
 ],
 [
 "400c518ed451fec5",
 "3e2c806299f3e7de",
 "[('attack_index', '0'), ('start_hex', 'Position(x=19, y=26)'), ('target_hex', 'Position(x=18, y=27)'), ('type', \"'attack'\")]",
-"4236357902995274287"
+"2804029553238940783"
 ],
 [
 "7ccd7e2fc6705f7f",
 "25e82d14b05703a4",
 "[('type', \"'end_turn'\")]",
-"-3026879107398705541"
+"-4688241084666509836"
 ],
 [
 "7a4f02c63a0e68e0",
 "1dee2dea0f29b94b",
 "[('target_hex', 'Position(x=17, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
-"6876890034436628782"
+"7388659913741732554"
 ],
 [
 "a1ca2afe2ab76bf0",
 "66c2eef6e3603b74",
 "[('attack_index', '0'), ('start_hex', 'Position(x=16, y=11)'), ('target_hex', 'Position(x=16, y=10)'), ('type', \"'attack'\")]",
-"-2440888721436833509"
+"-6019431750268076953"
 ],
 [
 "c540275093792e9a",
 "3c830c905e79f7c3",
 "[('attack_index', '1'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=15, y=8)'), ('type', \"'attack'\")]",
-"5981926338831948692"
+"8636171857824130420"
 ],
 [
 "2b6ffd480a236075",
 "c8c75776865552c6",
 "[('start_hex', 'Position(x=15, y=15)'), ('target_hex', 'Position(x=15, y=13)'), ('type', \"'move'\")]",
-"8567123504572851255"
+"-9216382529948150083"
 ],
 [
 "e5b5ef8a0e0effcd",
 "f49dff0c94335ce9",
 "[('attack_index', '0'), ('start_hex', 'Position(x=18, y=27)'), ('target_hex', 'Position(x=19, y=26)'), ('type', \"'attack'\")]",
-"-3366989157557996893"
+"1447829067203873366"
 ],
 [
 "cf934442b5e6cc65",
 "e6988849836b1185",
 "[('start_hex', 'Position(x=17, y=23)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
-"-964686802751036520"
+"-9207366885260622861"
 ],
 [
 "28a58069862b48bf",
 "f8989264ecbe96d4",
 "[('type', \"'end_turn'\")]",
-"-6227821357417011945"
+"-5177913068752320220"
 ],
 [
 "ff811cdbe8bb6256",
 "9d8e028d50ead96a",
 "[('start_hex', 'Position(x=21, y=15)'), ('target_hex', 'Position(x=20, y=20)'), ('type', \"'move'\")]",
-"2577931955765104589"
+"2613978026161885135"
 ],
 [
 "45ca159495922af6",
 "20cd6814dc930d18",
 "[('attack_index', '0'), ('start_hex', 'Position(x=13, y=15)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'attack'\")]",
-"7136361428697931244"
+"1448684504073707995"
 ],
 [
 "dfe7e2cc8e0a3b12",
 "33e66b58e32a076f",
 "[('start_hex', 'Position(x=17, y=10)'), ('target_hex', 'Position(x=20, y=14)'), ('type', \"'move'\")]",
-"-7907377100013557306"
+"-5655305550683541838"
 ],
 [
 "ba1426315f734c62",
 "10194a39e186d1cf",
 "[('start_hex', 'Position(x=19, y=2)'), ('target_hex', 'Position(x=22, y=2)'), ('type', \"'move'\")]",
-"1127176622663777655"
+"-3512099956748184960"
 ],
 [
 "e84115a3a6a80c96",
 "2d7b89cd447616c6",
 "[('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=17, y=13)'), ('type', \"'move'\")]",
-"4067711950155132216"
+"5140546598228346451"
 ],
 [
 "49e07fed72ca2fca",
 "0bbb838b45b927b7",
 "[('start_hex', 'Position(x=17, y=13)'), ('target_hex', 'Position(x=17, y=12)'), ('type', \"'move'\")]",
-"-2857004235653004146"
+"2452051869125546936"
 ],
 [
 "79faad9188424e3f",
 "b3671ef3495c554c",
 "[('start_hex', 'Position(x=21, y=3)'), ('target_hex', 'Position(x=18, y=7)'), ('type', \"'move'\")]",
-"-2979770141548138828"
+"-2013011596162353983"
 ],
 [
 "13bac1dc6bdad9aa",
 "1a88a44d4ceda1ff",
 "[('type', \"'end_turn'\")]",
-"4187964552652222511"
+"8825020081639128741"
 ],
 [
 "854384b0e506db0e",
 "b2f900812441f6c5",
 "[('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=18, y=17)'), ('type', \"'move'\")]",
-"-6239981679663044725"
+"6537488765185139116"
 ],
 [
 "625330ff8e5ff84e",
 "b4927fd3ab7c6d06",
 "[('start_hex', 'Position(x=15, y=13)'), ('target_hex', 'Position(x=15, y=10)'), ('type', \"'move'\")]",
-"1086175695305941380"
+"-3575364127604196057"
 ],
 [
 "a94441d8ff5a91f2",
 "99e481d329f79bb3",
 "[('start_hex', 'Position(x=17, y=27)'), ('target_hex', 'Position(x=15, y=26)'), ('type', \"'move'\")]",
-"770765700606257502"
+"5379587142174972932"
 ]
 ]
 }

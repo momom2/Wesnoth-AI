@@ -31,7 +31,8 @@ _PLAYER_FORWARD = RawPolicyPlayer._forward
 def test_the_workers_decisions_are_the_recorded_ones():
     """Per decision of two random legal player games: the encoding and
     masks the worker ships, the view the player reads, the action and
-    the core's state after the step, as recorded from main at 0.21.1."""
+    the core's state after the step, as recorded from main at 0.21.1
+    (the fixture's note lists what was re-recorded since, and why)."""
     from helpers.trajectory_digest import play_digests
     ref = json.loads(FIXTURE.read_text(encoding="utf-8"))
     for seed, want in ref["games"].items():

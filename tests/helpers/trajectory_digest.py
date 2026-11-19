@@ -3,7 +3,9 @@ decision, the action a seeded random legal player picks from those masks,
 and the core's state after the step. A change that alters any of them (the
 encoding, the masks, the view the player reads, the simulator's step)
 changes the digests; tests/data/trajectory_digests.json holds them as the
-code of 2026-10-14 (main at 0.21.1, core phase 32) played them."""
+code of 2026-10-14 (main at 0.21.1, core phase 32) played them, apart
+from the columns its note lists as re-recorded since, each for a change
+of what the column hashes and with the other columns checked equal."""
 from __future__ import annotations
 
 import hashlib

@@ -78,7 +78,8 @@ def _played_record(old_rule: bool) -> dict:
 def test_records_rebuild_under_the_rule_they_were_played_with():
     """A game played under the earlier rule and recorded as format 3
     rebuilds; the same record read as format 4 does not, from its first
-    fingerprint. A game played now is format 4 and rebuilds."""
+    fingerprint. A game played now carries the current format and
+    rebuilds."""
     old = _played_record(old_rule=True)
     old["format"] = 3
     game_record.rebuild(old)
@@ -86,7 +87,7 @@ def test_records_rebuild_under_the_rule_they_were_played_with():
     with pytest.raises(game_record.RecordMismatch, match="after command 0"):
         game_record.rebuild(old)
     new = _played_record(old_rule=False)
-    assert new["format"] == game_record.FORMAT == 4
+    assert new["format"] == game_record.FORMAT
     game_record.rebuild(new)
 
 
