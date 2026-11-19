@@ -305,8 +305,8 @@ Filled in as the games go.
     decision of both games, through the terrain changes of turns 4 to 6.
     It is the first time a live game got that far on this map unaided.
   - **The sound:** both games and the Hornshark start were launched with
-    `--nosound`, as their logged command lines show. Whether the machine
-    was silent is the user's to say.
+    `--nosound`, as their logged command lines show. The user, at the
+    machine during them: "I did not hear anything."
   - **The preferences file** is byte for byte the same after the three
     runs as before. In these runs Wesnoth was still open 20 seconds after
     each game's end and the tool closed it, so it never wrote its
@@ -320,7 +320,28 @@ Filled in as the games go.
   observation hashes and the action are the same and only the state's
   key differs, which agrees with "nothing changes in play for a unit that
   cannot hide". The fix has to be tied to a new record format, as the
-  resting rule was to format 4. That work is proposed as its own task.
+  resting rule was to format 4.
+- **The fix is tied to record format 5** (`fix/uncovered-dead-id` at
+  ea545371, pushed, not merged; done here on the user's word).
+  - A record of format 4 or earlier rebuilds with a removed unit's id
+    kept in the uncovered list (the core's `keep_removed_uncovered`); a
+    game played now is format 5. The core is phase 39, so the desktop's
+    wheel must be rebuilt when this lands, which cannot happen while the
+    training run goes.
+  - It was tested on the desktop against a wheel built from the branch
+    and unpacked in a folder of its own, read through `PYTHONPATH`. The
+    venv keeps the phase-38 wheel the training run uses.
+  - The recorded own1 game rebuilds as format 4, and read as format 5 it
+    fails from command 83, where CI had failed.
+  - Two tests pinned the earlier format and were changed on the user's
+    confirmation ("Yes, update both"): `tests/test_first_turn_resting.py`
+    asserts the current format, no longer 4, and the state key column of
+    `tests/data/trajectory_digests.json` is re-recorded for 101
+    decisions (game 3 from decision 67, game 11 from decision 63).
+  - **What the re-recording shows:** played on the fixed core, those two
+    games have the same encoding, view and action at all 231 decisions.
+    The fix changes the state's key there and nothing the player sees or
+    does.
 - **CI is green again on `fix/ci-green`** (d8fa86ac, run 44615100712:
   both jobs, 2261 passed, 119 skipped), pushed, not merged. GitHub's
   `ubuntu-latest` had moved from ubuntu-24.04 to ubuntu-26.04.
