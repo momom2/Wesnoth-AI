@@ -68,4 +68,4 @@ jobs:
         with:
           name: wesnoth-${{ env.WESNOTH_TAG }}-patched-win64
           path: wesnoth-${{ env.WESNOTH_TAG }}-patched
-          retention-days: 30
+          retention-days: 90

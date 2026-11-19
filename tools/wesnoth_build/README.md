@@ -16,6 +16,12 @@ cross-build, the build behind the official Windows installer.
 
        gh run download <run id> -n wesnoth-1.18.8-patched-win64 -D "%USERPROFILE%\Desktop\Perso\games\wesnoth-1.18.8-patched"
 
+   GitHub keeps the artifact 90 days (`retention-days` in the workflow)
+   and deletes it after. A machine set up later than that runs the
+   workflow again: the build takes about 25 minutes. The first build's
+   artifact, kept 30 days, was gone when the desktop needed it on
+   2026-11-19.
+
 3. Check it: `python main.py --check-setup` names the executable in use.
    `BUILD_INFO.txt`, next to `wesnoth.exe`, gives the upstream commit, the
    run that built it, and the checksums of the patches and executables.
