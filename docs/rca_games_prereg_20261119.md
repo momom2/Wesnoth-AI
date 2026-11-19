@@ -1,7 +1,8 @@
 # Pre-registration: the loop's network against Wesnoth's default AI (2026-11-19)
 
-**Status:** registered 2026-11-19. The trial game was won at 18:19 that
-day and the 100 games started at 18:19:53: see "Results".
+**Status:** done 2026-11-19. Of the 100 games, 91 were won, 3 lost and 6
+stopped: 91 of 94 finished games, 96.8% ± 1.8%, which by the registered
+number makes the default AI saturated as a yardstick. See "Results".
 
 ## Why
 
@@ -256,7 +257,64 @@ Filled in as the games go.
     pushed, not merged. Its test fails on the wheel built before the fix,
     as it should. No wheel can be installed beside the training run, so
     the fixed Rust is for CI to certify.
-- **CI is red on every branch pushed on 2026-11-19,** for two failures
+- **The series ended at 22:17:45: 91 wins, 3 losses and 6 stopped.** That
+  is 91 of 94 finished games, 96.8% ± 1.8%.
+  - **By the registered number (Departure 2) the default AI is saturated
+    as a yardstick:** 96.8% is at or above 95% of the finished games. The
+    margin is one standard error, so a second series could read under
+    95%.
+  - By the faction our side drew: Drakes 12 of 12, Knalgan 20 of 21,
+    Loyalists 16 of 16, Northerners 16 of 16, Rebels 17 of 17, Undead 10
+    of 12.
+  - By our side: 47 of 47 as side 1, 44 of 47 as side 2. All three losses
+    are side-2 games.
+  - The wins came on turns 8 to 19, median 14. The finished games cover
+    all 21 maps.
+  - The boards agreed at every decision of the 94 finished games, apart
+    from 11,753 `unit.moves` differences of the kind the check
+    understands.
+- **Game 88 is the third loss:** Elensefar Courtyard, our Knalgan on side
+  2 (leader a Dwarvish Stalwart) against Drakes. Our leader was killed on
+  turn 7, at dawn. The default AI had recruited 12 units and ours 8 (5
+  Gryphon Riders, 3 Thunderers).
+  - In all three losses our leader died by turn 18 with fewer recruits
+    than the default AI. Three games; the records are kept.
+- **The six stopped games:** two Aethermaw messages (6, 50), three corpse
+  variations the check could not see (49, 51, 82), one stale uncovered id
+  in the simulator (75).
+- **Game 98, the third Aethermaw game, finished** (a win on turn 11),
+  because the user clicked its dialogs: "I clicked it, that's how it got
+  past the dialogue." (2026-11-19). Its engine log shows turn 4 beginning
+  at 22:06:31 and nothing until 22:12:31, then play at the usual pace.
+  So the dialog does wait for a click, as read from the engine's Lua.
+- **The simulator fix needs one more thing.** CI built the wheel from
+  `fix/uncovered-dead-id` and its new test passes, but four tests that
+  rebuild recorded games fail (`tests/test_core_label.py`, three, and
+  `tests/test_generation_identity.py`): the uncovered list is part of the
+  state's fingerprint, so a recorded game in which a unit died while
+  uncovered rebuilds to another fingerprint. In the identity test the two
+  observation hashes and the action are the same and only the state's
+  key differs, which agrees with "nothing changes in play for a unit that
+  cannot hide". The fix has to be tied to a new record format, as the
+  resting rule was to format 4. That work is proposed as its own task.
+- **CI is green again on `fix/ci-green`** (d8fa86ac, run 44615100712:
+  both jobs, 2261 passed, 119 skipped), pushed, not merged. GitHub's
+  `ubuntu-latest` had moved from ubuntu-24.04 to ubuntu-26.04.
+  - shellcheck went from 0.9.0 to 0.11.0, which reports the box scripts'
+    hooks under a new code (SC2329). Their existing exceptions now name
+    it.
+  - The runner's `timeout` is the Rust coreutils' (`timeout (uutils
+    coreutils) 0.10.0`, printed by the run). Sent TERM with `-k` set, it
+    exits 124 where GNU's exits with the step's own status, 143. The box
+    library's watcher ends a step that way, and 124 is the code the box
+    scripts read as a cut at the deadline. The library now reports 143
+    for a step its watcher ended. The failing test is unchanged, and a
+    new one reproduces the case on a GNU machine.
+  - A correction to that commit's message: it says the desktop run's 54
+    skips are for CUDA. 32 are; 19 are for the `requests` module, and one
+    each for `vastai`, `flock` and the reference checkpoint, none of
+    which the desktop has.
+- **CI was red on every branch pushed on 2026-11-19,** for two failures
   the branches did not cause: the runner's shellcheck reports SC2329 on
   the box scripts, and `tests/test_boxlib.py::
   test_a_watched_step_ends_when_silent_or_once_its_line_appears` reads an
@@ -265,6 +323,12 @@ Filled in as the games go.
   `fix/live-unattended` the rest of the suite passed (2263 passed, 119
   skipped). The last green run is `main`'s of 2026-10-27.
 - **The training run beside the games:** its passes read 67.0, 66.8,
-  65.1, 67.9, 61.3, 67.0, 67.5, 68.9, 66.0, 72.6 and 70.0 decisions a
-  second (rounds 145 to 155), a mean of 67.3 against the median of 67.2
-  and the limit of 60.5. No display driver reset is logged.
+  65.1, 67.9, 61.3, 67.0, 67.5, 68.9, 66.0, 72.6, 70.0, 51.8, 61.0 and
+  58.4 decisions a second (rounds 145 to 158), a mean of 65.1 against the
+  median of 67.2 and the limit of 60.5. No display driver reset is
+  logged.
+  - The last three are the slow ones. Beside them ran, besides the games,
+    the test runs, a compile check and a game replay of the fixes above,
+    all at Idle priority on 4 threads. That work, not the games, is the
+    likely cause: the eleven passes beside the games alone average 67.3.
+    This is not measured apart.
