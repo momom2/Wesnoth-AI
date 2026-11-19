@@ -231,7 +231,10 @@ These were settled while building, before the launch.
           --keep-awake
 
   The same command again resumes the run from its markers. Its console
-  goes to `wesnoth_runs\simple_loop.console.log`.
+  goes to `wesnoth_runs\simple_loop.console.log`. Since 2026-11-19 the
+  WMI call also hides the console window (`ShowWindow = 0`): the visible
+  one could be closed, which ends the run (Results, "The likely cause of
+  both").
 - **To stop it:** a file named STOP in `wesnoth_runs\simple_loop`.
 - **Started 2026-11-17 16:33:49** (the launching `cmd.exe` is pid
   27620). The match at step 0 was playing two minutes later, 43 games
@@ -256,6 +259,7 @@ Filled in as the run goes.
 | 96 | +97.0 ± 12.8 | 509 | 2026-11-18 23:25 |
 | 112 | +93.3 ± 12.7 | 505 | 2026-11-19 04:31 |
 | 128 | +107.4 ± 12.9 | 520 | 2026-11-19 09:30 |
+| 144 | +134.8 ± 13.2 | 548 | 2026-11-19 17:52 |
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.
@@ -268,6 +272,8 @@ Filled in as the run goes.
   start. A straight line through the ten matches rises 0.48 ± 0.09 Elo a
   round; through the seven from round 32 on it rises 0.24 ± 0.15. Neither
   fit was registered.
+- **Round 144 is +95.6 ± 18.1 over the start,** and +27.4 ± 18.5 over
+  round 128.
 - **Rounds 77 to 138** (to 2026-11-19 12:22) changed nothing in the run's
   ranges below: no warning, 19 loss-scale overflows in all, the replay's
   mean difference within 3.5e-5, 19.1 minutes a round over the 138.
@@ -283,6 +289,27 @@ Filled in as the run goes.
   It was found at 15:58 and relaunched with the launch's command; it
   resumed at round 139's pass, on the games already played. The verdict
   after round 160 moves to about 23:30.
+- **It went down again at about 18:04 that day,** in round 145's pass
+  (last line 18:04:06, group 4 of 9), the same way: every process gone, no
+  error line. It was found at 18:05:47 and relaunched at 18:06:36, and
+  round 145's pass was redone. The verdict moves to about 23:40.
+- **The likely cause of both: the run's console window was closed.** A
+  process started through WMI gets a visible console window on the
+  desktop: a blank black window titled `C:\WINDOWS\SYSTEM32\cmd.exe`,
+  since the run's output goes to a file. Closing that window ends every
+  process attached to it, with no message, which is what the logs show.
+  - Both times the user had just come back to the machine: their message
+    of 12:40:40 follows the run's last line by three minutes, and a
+    Command Prompt was opened from the Start menu at 18:04:17, 11 s after
+    the run's last line.
+  - Whether the window was closed by hand is not confirmed by the user.
+  - Ruled out for 18:04: a tool call of a Claude Code session (the
+    transcripts under `.claude\projects` hold none between 18:02 and
+    18:05:42), a restart, and the System, Application and Defender logs,
+    which hold nothing between 17:58 and 18:07.
+  - The window is hidden since 18:12:40 (`ShowWindow`, on the live run).
+    A relaunch passes `ProcessStartupInformation` with `ShowWindow = 0`
+    to `Win32_Process.Create`: checked, such a process has no window.
 - **A reading of the run's state at 12:40 that day was wrong:** "round 139
   is in its pass" was read from the log's last line, with no check that
   the process lived. A run's health is read from its processes and the

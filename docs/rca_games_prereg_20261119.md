@@ -1,8 +1,7 @@
 # Pre-registration: the loop's network against Wesnoth's default AI (2026-11-19)
 
-**Status:** registered 2026-11-19, not launched. The games need the
-project's patched Wesnoth 1.18.8 (`tools/wesnoth_build/`), which is not on
-the desktop: see "What blocks the launch".
+**Status:** registered 2026-11-19. The trial game was won at 18:19 that
+day and the 100 games started at 18:19:53: see "Results".
 
 ## Why
 
@@ -80,23 +79,60 @@ Whether the default AI can serve as an outside yardstick from here on:
   5 minutes a game, 3 to 8 hours for the 100. Past 1.5 times the trial
   game's rate, the series is inspected.
 
-## What blocks the launch
+## What blocked the launch, and how it was lifted
 
-- **The patched build is not on the desktop.**
-  `Desktop\Perso\games\wesnoth-1.18.8-patched\wesnoth.exe` does not exist,
+- **The patched build was not on the desktop.**
+  `Desktop\Perso\games\wesnoth-1.18.8-patched\wesnoth.exe` did not exist,
   and no copy was found under the user's folder or on `D:`. With the Steam
   build the tool refuses to play, by design: a command-line game there
   plays 100% experience where a hosted game plays 70%.
-- **GitHub no longer holds it.** The workflow last built it on 2026-10-07
+- **GitHub no longer held it.** The workflow last built it on 2026-10-07
   (run 37600290795, on `main`), and its artifact was kept 30 days.
-- **A rebuild needs the user's GitHub sign-in** (`gh auth login`, in their
-  own terminal: `docs/new_machine.md`, step 2). Then
-  `gh workflow run patched-wesnoth.yml --ref main` builds it and
-  `gh run download` fetches it (`tools/wesnoth_build/README.md`).
-- **The add-on link is missing too:**
-  `Documents\My Games\Wesnoth1.18\data\add-ons\wesnoth_ai` does not exist.
-  It is made at launch, pointing at the checkout the games run from.
+- **It was rebuilt on 2026-11-19** by run 44551964120, from
+  `fix/patched-wesnoth-retention` at c3541c94 (the same patch; the
+  artifact is now kept 90 days). The user signed in to GitHub's CLI, and
+  the artifact (458 MB) was downloaded at 18:14: 20,827 files, 582 MB.
+  `wesnoth.exe`'s SHA-256 is the one in the build's `BUILD_INFO.txt`
+  (`429028a6…8859e`).
+- **The add-on link** was made by `python main.py --check-setup`, run from
+  `..\wesnoth_ai-rca`: `Documents\My Games\Wesnoth1.18\data\add-ons\wesnoth_ai`
+  points at that worktree's `add-ons\wesnoth_ai`.
+
+## The launch
+
+- **The launcher** is `wesnoth_runs\rca_games\play_s0128.cmd <games>
+  <records directory>`. It sets `OMP_NUM_THREADS` and `MKL_NUM_THREADS` to
+  4 and starts the tool with `start /LOW`, so the tool and the Wesnoth it
+  starts both run at Idle priority.
+- **The records** go to `wesnoth_runs\rca_games\<records directory>`, and
+  the console to the file of that name with `.console.log`.
+
+## Departures
+
+1. **Kill criterion 4 is read over three passes or more** (written
+   2026-11-19 18:25, before any such reading). One pass's rate varies on
+   its own: over rounds 97 to 144 it has a median of 67.2 decisions a
+   second and a standard deviation of 4.1 (51.4 to 73.5). The games end
+   if the mean over the passes beside them, three at least, falls under
+   60.5.
 
 ## Results
 
-None yet.
+Filled in as the games go.
+
+- **The trial game** (2026-11-19 18:15 to 18:19,
+  `wesnoth_runs\rca_games\trial_s0128`): a win on turn 31, on Swamp of
+  Dread as Undead on side 1 against Rebels, in 361 decisions and 4 min
+  1 s.
+  - The engine's board and the simulator's agreed at every decision. The
+    check let through 247 `unit.moves` differences of the kind it
+    understands: units the default AI stopped, whose movement the engine
+    zeroes outside the replay.
+  - The engine reported twice that it could not open the action file: a
+    read caught during the file's replacement, which is tried again at
+    the next poll (`lua/live_stage.lua`).
+  - The training pass it ran beside (round 145's, groups 4 to 7) read
+    67.0 decisions a second, against the median of 67.2.
+- **The 100 games** started at 18:19:53
+  (`wesnoth_runs\rca_games\games_s0128`), with a hidden console. At the
+  trial game's rate they take about 7 hours.
