@@ -316,5 +316,13 @@ def test_a_unit_that_leaves_the_board_takes_its_uncovered_state_with_it():
         cs = gc.CoreState.from_state(copy.deepcopy(gs))
         cs.core.remove_unit(gone)
         assert cs.to_state().global_info._uncovered_units == {kept}
+        # Records of format 4 and earlier were played with the id left in
+        # the list, which their fingerprints cover: the core keeps that
+        # rule under `keep_removed_uncovered`, across a round trip too.
+        old = gc.CoreState.from_state(copy.deepcopy(gs))
+        old.core.set_global_int("keep_removed_uncovered", 1)
+        old = gc.CoreState.from_state(old.to_state())
+        old.core.remove_unit(gone)
+        assert old.to_state().global_info._uncovered_units == {gone, kept}
         checked += 1
     assert checked >= 1

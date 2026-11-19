@@ -138,6 +138,10 @@ pub struct GlobalRec {
     /// earlier: only the units it heals, so not on the game's first side
     /// turn nor for petrified units (`apply_init_side`).
     pub skip_first_turn_resting: bool,
+    /// The uncovered list of game records of format 4 and earlier: a unit
+    /// that left the board stays in it (`remove_unit`), so a later unit
+    /// numbered alike reads as uncovered.
+    pub keep_removed_uncovered: bool,
 }
 
 /// Per (unit type, slowed, defense table) and per map: the pathfinder's
@@ -646,8 +650,12 @@ impl GameCore {
         // STATE_UNCOVERED is a state of the unit (attack.cpp:1378,
         // move.cpp:870) and goes with it. Left here, the id would mark
         // the next unit numbered alike: next_uid is the largest id plus
-        // one, a dead unit's own once it held the largest.
-        self.uncovered.retain(|u| u != id);
+        // one, a dead unit's own once it held the largest. Records of
+        // format 4 and earlier were played with it left here, and the
+        // list is in their fingerprints.
+        if !self.global.keep_removed_uncovered {
+            self.uncovered.retain(|u| u != id);
+        }
         if idx < self.units.len() {
             let moved = self.units[idx].id.clone();
             self.unit_index.insert(moved, idx);
@@ -744,6 +752,7 @@ impl GameCore {
             advance_salt: get_or(g, "advance_salt", String::new())?,
             advance_counter: get_or(g, "advance_counter", 0)?,
             skip_first_turn_resting: get_or(g, "skip_first_turn_resting", false)?,
+            keep_removed_uncovered: get_or(g, "keep_removed_uncovered", false)?,
         };
         self.game_over = get_or(g, "game_over", false)?;
         self.winner = get_or(g, "winner", -1)?;
@@ -752,7 +761,8 @@ impl GameCore {
 
     /// One integer global by name: next_uid_counter, advance_counter,
     /// rng_request_counter (what the Python builders advance),
-    /// advance_uniform (0/1), current_side.
+    /// advance_uniform (0/1), current_side, and the two rules of older
+    /// game records (0/1).
     fn set_global_int(&mut self, name: &str, value: i64) -> PyResult<()> {
         match name {
             "next_uid_counter" => self.global.next_uid_counter = value,
@@ -761,6 +771,7 @@ impl GameCore {
             "advance_uniform" => self.global.advance_uniform = value != 0,
             "current_side" => self.global.current_side = value,
             "skip_first_turn_resting" => self.global.skip_first_turn_resting = value != 0,
+            "keep_removed_uncovered" => self.global.keep_removed_uncovered = value != 0,
             _ => return Err(pyo3::exceptions::PyKeyError::new_err(name.to_string())),
         }
         Ok(())
@@ -785,6 +796,7 @@ impl GameCore {
         d.set_item("advance_salt", &g.advance_salt)?;
         d.set_item("advance_counter", g.advance_counter)?;
         d.set_item("skip_first_turn_resting", g.skip_first_turn_resting)?;
+        d.set_item("keep_removed_uncovered", g.keep_removed_uncovered)?;
         d.set_item("game_over", self.game_over)?;
         d.set_item("winner", self.winner)?;
         Ok(d)

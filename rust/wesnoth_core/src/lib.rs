@@ -676,7 +676,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // masks no actor bias field (ServeRequests.fill_masks).
     // 38: the inference server's replies carry four head outputs (value,
     // value_logits, cliffness, moves_left; ServeRequests.replies).
-    m.add("__phase__", 38)?;
+    // 39: a unit that leaves the board leaves the uncovered list
+    // (`keep_removed_uncovered` keeps the earlier list for game records of
+    // format 4 and earlier).
+    m.add("__phase__", 39)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;
