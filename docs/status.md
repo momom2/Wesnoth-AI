@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-17.
+Last updated 2026-11-19.
 
 ## In one paragraph
 
@@ -39,7 +39,22 @@ Adam step on the whole network: the weight is the result less the logged
 value estimate, the memory's gradient runs over the whole game, the value
 head trains on the result, and 20% of the games are against a past self.
 It starts from round 22's network at a learning rate of 1e-5. A match
-every 16 rounds reads it. Nothing is read yet.
+every 16 rounds reads it against `own2`, the candidate sampling. **Its
+registered verdict is "the loop trains"** (2026-11-19): the matches at
+rounds 128, 144 and 160 average +120.7 ± 7.5 Elo against +39.2 ± 12.4 at
+the start, a difference of +81.5 ± 14.5, 5.6 standard errors against the
+registered 3. It is not an adoption claim: the candidate samples while
+the reference plays its pinned decode. The run goes on.
+
+**The first reading against an outside opponent** (2026-11-19,
+`docs/rca_games_prereg_20261119.md`). The loop's network after round 128
+played 100 live games against Wesnoth's default AI at the reference's
+decode: 91 wins, 3 losses and 6 stopped, so 91 of 94 finished games
+(96.8% ± 1.8%). By the registered number the default AI is saturated as a
+yardstick; the margin is one standard error. The six stopped games were
+two scenario messages waiting for a click, three differences the board
+check made itself, and one defect of the simulator, all fixed on `main`
+(0.33.1 and 0.33.2).
 
 ## The reference player
 
@@ -444,9 +459,21 @@ both sides, 3,200 decisive games on the same seeds:
       rounds and 8,000 games a day;
     - the run is `C:\Users\momom2\wesnoth_runs\simple_loop`; a STOP file
       there ends it, and the same command resumes it;
-    - its first verdict is due at round 160, about 2.7 days in.
-- **Pushing `main`.** It holds the window's merge (0.32.0). No GitHub
-  credentials are stored on the desktop.
+    - its verdict after round 160 is "the loop trains" (above). What
+      follows is the user's: a PURE match of one of its networks at the
+      reference's decode, the learning rate, the round's size, or leaving
+      it to run.
+- **The desktop's wheel is one phase behind `main`.** `main` is core phase
+  39 since 0.33.2 and the venv holds the phase-38 wheel the training run
+  uses, so nothing on `main` that needs the core runs from the venv until
+  the wheel is rebuilt (`docs/new_machine.md`, step 5), which waits for
+  the run's next stop. Until then a wheel built from `main` can be read
+  from a folder of its own through `PYTHONPATH`. The run's own worktree
+  (`..\wesnoth_ai-run-simple`) is phase 38 and is not affected.
+- **An outside yardstick past the default AI.** At 96.8% the default AI
+  cannot track further progress. A stronger opponent or a handicap is the
+  user's to choose.
+- `main` was pushed on 2026-11-19, on the user's word.
 - Unmerged branches from before the window: `feature/int8-linear` (6
   commits) and `feature/async-replies` (4).
 
@@ -473,16 +500,23 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## The simulator
 
-- The Rust core (`rust/wesnoth_core`, phase 38) is the state of record. It
+- The Rust core (`rust/wesnoth_core`, phase 39) is the state of record. It
   answers every rule: commands, events, combat, reach, vision,
   observation and encoding.
+- Game records are format 5 since 0.33.2: a unit that leaves the board
+  leaves the uncovered list, as in the engine. Records of format 4 and
+  earlier rebuild under the rule they were played with.
 - It was certified against the retired Python applier on 14,376 of 14,376
   replays.
 - The engine checks it:
   - the scenario-init oracle, 28 of 28 scenarios;
   - the hidden-units oracle, 54 of 54 positions;
   - live games against the default AI, mirrored from the engine's log on
-    the patched 1.18.8 (`tools/wesnoth_build/`).
+    the patched 1.18.8 (`tools/wesnoth_build/`). In the 100 games of
+    2026-11-19 the boards agreed at every decision of the 94 finished
+    games, on all 21 Ladder maps, and one stopped game found the
+    simulator's one defect of the series (a dead unit's id left in the
+    uncovered list).
 - `OBSERVATION_EPOCH` is 11 and `CORPUS_VERSION` 5.
 
 ## Compute

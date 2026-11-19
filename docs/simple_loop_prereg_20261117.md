@@ -1,6 +1,8 @@
 # The simple loop: pre-registration (2026-11-17)
 
-**Status: registered before the launch.** The user ruled on ten training
+**Status: the registered verdict is in, and it is "the loop trains"**
+(2026-11-19 22:56, "Results"). The run goes on. Registered before the
+launch: the user ruled on ten training
 mechanisms between 2026-11-12 and 2026-11-17
 (`docs/training_dynamics_theory_20261111.md`, "The user's decisions"),
 was shown the build's defaults, and answered "Launch training."
@@ -260,6 +262,19 @@ Filled in as the run goes.
 | 112 | +93.3 ± 12.7 | 505 | 2026-11-19 04:31 |
 | 128 | +107.4 ± 12.9 | 520 | 2026-11-19 09:30 |
 | 144 | +134.8 ± 13.2 | 548 | 2026-11-19 17:52 |
+| 160 | +119.9 ± 13.0 | 533 | 2026-11-19 22:56 |
+
+**The verdict: the loop trains.** The matches at rounds 128, 144 and 160
+average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
+difference is +81.5 ± 14.5, which is 5.6 standard errors of that
+difference, against the registered 3.
+- The standard errors treat the four matches as independent.
+- Round 160 reads 14.9 ± 18.5 under round 144: no change between the two
+  is read.
+- This is the registered reading and no more: the candidate samples and
+  the reference plays its pinned decode, so it is not an adoption claim.
+- What follows is the user's to decide. The run goes on meanwhile, as
+  registered.
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.

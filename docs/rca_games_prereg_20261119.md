@@ -377,3 +377,13 @@ Filled in as the games go.
     all at Idle priority on 4 threads. That work, not the games, is the
     likely cause: the eleven passes beside the games alone average 67.3.
     This is not measured apart.
+- **Everything above landed on `main` on 2026-11-19,** on the user's word
+  ("Push and merge everything"): the artifact's retention (0.32.45), the
+  CI repair (0.32.46), `--checkpoint` (0.33.0), the bridge's three fixes
+  (0.33.1) and the simulator fix with record format 5 (0.33.2). Where an
+  entry above says "not merged", it was true when written.
+  - The simulator fix's CI found one thing more before the merge: a new
+    core phase must be named in `wesnoth_ai/rules_version.py`. Phase 39
+    starts rules version 39, so pre-encoded records built under version
+    31 must be encoded again before the imitation trainer reads them.
+  - The Wesnoth add-on link points at the main checkout again.
