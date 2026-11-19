@@ -55,6 +55,11 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # The inference server's replies without the auxiliary margin head's
     # output (fix/remove-aux-margin-head): nothing that builds a position.
     38: 31,
+    # A unit that leaves the board leaves the uncovered list, as in the
+    # engine (fix/uncovered-dead-id). Under the earlier rules a unit given
+    # a dead unit's id read as uncovered, so a hider among them was built
+    # as seen through its cover: a rule the core applies changed.
+    39: 39,
 }
 
 
