@@ -273,6 +273,20 @@ Filled in as the run goes.
   mean difference within 3.5e-5, 19.1 minutes a round over the 138.
   Round 97 drew the current network as its past self. The update's norm
   has crept from 0.0091 (rounds 33 to 64) to 0.0102 (rounds 129 to 138).
+- **The run was down from about 12:38 to 16:03:59 on 2026-11-19,** 3 h
+  26 min. Its last line is round 139's pass at 12:37:43 (group 4 of 9);
+  the next group never logged. The runner and its tools ended together
+  with no error line, no traceback in the console log and no STOP file.
+  What ended them is not established: the machine did not restart or
+  sign out (up since 2026-11-12), the System and Application logs hold
+  nothing between 12:30 and 12:50, and no other session was active then.
+  It was found at 15:58 and relaunched with the launch's command; it
+  resumed at round 139's pass, on the games already played. The verdict
+  after round 160 moves to about 23:30.
+- **A reading of the run's state at 12:40 that day was wrong:** "round 139
+  is in its pass" was read from the log's last line, with no check that
+  the process lived. A run's health is read from its processes and the
+  age of its last line.
 - **The first reading is above zero,** where "What is measured" expected
   it below. Sampling with no offset costs the start network 75.5 ± 14.0
   Elo (+114.7 ± 6.5 at the reference's decode against +39.2 ± 12.4), not
