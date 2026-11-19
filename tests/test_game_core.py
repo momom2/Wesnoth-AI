@@ -296,3 +296,33 @@ def test_the_core_sets_up_every_scenario_and_plays_its_turn_events():
         assert view.global_info.turn_number == 3, sid
         assert cs.core.invariant_violation() is None, sid
         assert not cc.state_differences(view, gc.CoreState.from_state(view).to_state()), sid
+
+
+def test_a_unit_that_leaves_the_board_takes_its_uncovered_state_with_it():
+    """The engine's STATE_UNCOVERED is a state of the unit (attack.cpp:1378
+    sets it on an attacker, move.cpp:870 on an ambusher) and goes with it.
+    A new unit is numbered one past the largest id on the board, which is
+    a dead unit's own id once that unit held the largest, so an id left
+    in the uncovered set marks the newcomer. Seen live on 2026-11-19: an
+    Ulfserker died in its own attack and the Gryphon Rider recruited next
+    read `uncovered` (docs/rca_games_prereg_20261119.md, game 75)."""
+    checked = 0
+    for gs in _harvested():
+        ids = sorted(u.id for u in gs.map.units)
+        if len(ids) < 2:
+            continue
+        gone, kept = ids[0], ids[1]
+        gs.global_info._uncovered_units = {gone, kept}
+        cs = gc.CoreState.from_state(copy.deepcopy(gs))
+        cs.core.remove_unit(gone)
+        assert cs.to_state().global_info._uncovered_units == {kept}
+        # Records of format 4 and earlier were played with the id left in
+        # the list, which their fingerprints cover: the core keeps that
+        # rule under `keep_removed_uncovered`, across a round trip too.
+        old = gc.CoreState.from_state(copy.deepcopy(gs))
+        old.core.set_global_int("keep_removed_uncovered", 1)
+        old = gc.CoreState.from_state(old.to_state())
+        old.core.remove_unit(gone)
+        assert old.to_state().global_info._uncovered_units == {gone, kept}
+        checked += 1
+    assert checked >= 1

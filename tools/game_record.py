@@ -49,7 +49,12 @@ which covers each side's sighting record; format 2 records verify under
 version 1). 4 marks the game played under the engine's resting rule,
 every unit of a side resting at each of its turn starts, the first
 included; records of format 3 and earlier rebuild under the rule they
-were played with, the healed units only (`skip_first_turn_resting`).
+were played with, the healed units only (`skip_first_turn_resting`). 5
+marks the game played with a unit's uncovered state leaving the board
+with the unit, as in the engine; in records of format 4 and earlier a
+unit that died while uncovered stays in the uncovered list, which their
+fingerprints cover, and a later unit given its id reads as uncovered
+(`keep_removed_uncovered`).
 """
 from __future__ import annotations
 
@@ -72,7 +77,10 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 4
+FORMAT = 5
+# The core's rules of earlier records: (the global that keeps the rule, the
+# last format played under it). See "Formats" above.
+OLD_RULES = (("skip_first_turn_resting", 3), ("keep_removed_uncovered", 4))
 
 
 class RecordMismatch(Exception):
@@ -382,12 +390,12 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
     from tools.replay_dataset import record_core
     from wesnoth_ai.game_core import CoreState
     setup = rec["setup"]
-    old_resting = int(rec.get("format", 1)) <= 3
+    old_rules = [name for name, last in OLD_RULES if int(rec.get("format", 1)) <= last]
     if "midgame" in setup:
         data = _corpus_game(rec, verify)
         cs = record_core(data)
-        if old_resting:
-            cs.core.set_global_int("skip_first_turn_resting", 1)
+        for name in old_rules:
+            cs.core.set_global_int(name, 1)
         for cmd in data["commands"][:int(setup["midgame"]["boundary_idx"])]:
             cs.apply_command(list(cmd))
         gs = cs.to_state()
@@ -397,8 +405,8 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
     else:
         from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
         cs = CoreState.from_state(build_scenario_gamestate(ScenarioSetup(**setup), **rec.get("build", {})))
-        if old_resting:
-            cs.core.set_global_int("skip_first_turn_resting", 1)
+        for name in old_rules:
+            cs.core.set_global_int(name, 1)
         cs.setup_scenario(rec["scenario_id"])
     if rec.get("uniform_advancement"):
         cs.core.set_global_int("advance_uniform", 1)

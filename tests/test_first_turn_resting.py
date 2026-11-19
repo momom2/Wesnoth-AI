@@ -78,7 +78,8 @@ def _played_record(old_rule: bool) -> dict:
 def test_records_rebuild_under_the_rule_they_were_played_with():
     """A game played under the earlier rule and recorded as format 3
     rebuilds; the same record read as format 4 does not, from its first
-    fingerprint. A game played now is format 4 and rebuilds."""
+    fingerprint. A game played now carries the current format and
+    rebuilds."""
     old = _played_record(old_rule=True)
     old["format"] = 3
     game_record.rebuild(old)
@@ -86,5 +87,20 @@ def test_records_rebuild_under_the_rule_they_were_played_with():
     with pytest.raises(game_record.RecordMismatch, match="after command 0"):
         game_record.rebuild(old)
     new = _played_record(old_rule=False)
-    assert new["format"] == game_record.FORMAT == 4
+    assert new["format"] == game_record.FORMAT
     game_record.rebuild(new)
+
+
+@pytest.mark.skipif(game_core_class() is None, reason="needs the wesnoth_core wheel of this source's phase")
+def test_a_record_of_format_4_rebuilds_with_the_uncovered_list_it_was_played_with():
+    """Until format 5 a unit that died while uncovered stayed in the
+    uncovered list, which a record's fingerprints cover. The recorded
+    own1 game holds such a death: as recorded, format 4, it rebuilds;
+    read as format 5 it does not, from the turn after the death."""
+    own = ROOT / "tests" / "fixtures" / "own1_selfplay_silverhead.game.jsonl.gz"
+    rec = next(iter(game_record.read_records(own)))
+    assert rec["format"] == 4
+    game_record.rebuild(rec)
+    rec["format"] = 5
+    with pytest.raises(game_record.RecordMismatch, match="after command 83"):
+        game_record.rebuild(rec)
