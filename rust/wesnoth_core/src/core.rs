@@ -643,6 +643,11 @@ impl GameCore {
         self.note_departure(idx);
         self.units.swap_remove(idx);
         self.unit_index.remove(id);
+        // STATE_UNCOVERED is a state of the unit (attack.cpp:1378,
+        // move.cpp:870) and goes with it. Left here, the id would mark
+        // the next unit numbered alike: next_uid is the largest id plus
+        // one, a dead unit's own once it held the largest.
+        self.uncovered.retain(|u| u != id);
         if idx < self.units.len() {
             let moved = self.units[idx].id.clone();
             self.unit_index.insert(moved, idx);
