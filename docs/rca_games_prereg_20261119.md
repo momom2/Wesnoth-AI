@@ -163,6 +163,26 @@ Filled in as the games go.
     minutes each.
   - The bridge is not changed during the series: its add-on is the one
     the running games load.
-- **The training run beside the games:** its passes read 67.0 and 66.8
-  decisions a second (rounds 145 and 146) against the median of 67.2, and
-  no display driver reset is logged.
+- **After 40 games** (20:06): 38 wins, 1 loss and 1 stopped. That is 38
+  of 39 finished games, 97.4% ± 2.5%.
+  - The wins came on turns 9 to 19 (median 14), on 16 maps, 20 as side 1
+    and 18 as side 2.
+  - The boards agreed at every decision of the 39. The only differences
+    let through are `unit.moves` ones, 32 to 378 a game.
+  - No game has stopped since game 6. Aethermaw has been drawn once in
+    40.
+  - Forty games took 106 minutes, so the series should still end near
+    23:00.
+- **Game 20 is the loss:** Swamp of Dread, Undead against Undead, our
+  side 2, our leader a Dark Sorcerer, killed on turn 18.
+  - The default AI recruited 29 units and ours 17 (10 Dark Adepts, 5
+    Ghosts, a Walking Corpse and a Vampire Bat).
+  - Our leader fought away from its keep from turn 5 (an attack from five
+    hexes off it), was attacked on six of the turns from 9 on, and fell
+    at second watch to a Ghoul and a Skeleton Archer, off its keep.
+  - This is one game's record, read from its commands with the leader
+    followed by its position. Nothing is concluded from it.
+- **The training run beside the games:** its passes read 67.0, 66.8,
+  65.1, 67.9, 61.3, 67.0 and 67.5 decisions a second (rounds 145 to 151),
+  a mean of 66.1 against the median of 67.2 and the limit of 60.5. No
+  display driver reset is logged.
