@@ -88,7 +88,7 @@ notes() {                        # the matches fitted so far, for the finish rea
     done
     echo "fitted: ${fitted[*]:-none}"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 box_on_round() {                 # progress.txt, before each upload round
     local name

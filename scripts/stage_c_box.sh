@@ -99,7 +99,7 @@ PARTS=(c0 pass stage_c plant)
 RESTORE=()
 STATE=()                         # the parts' words for the finish
 
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 notes() { echo "${STATE[*]:-nothing read}"; }
 box_on_round() {                 # progress.txt, before each upload round

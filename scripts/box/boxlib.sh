@@ -416,6 +416,12 @@ box_bounded() {                  # box_bounded [--stall FILE MIN] [--until FILE 
     if [ -f "$verdict" ]; then
         BOX_WHY=$(cat "$verdict")
         rm -f "$verdict"
+        # The watcher's TERM ended the step, not its deadline, so its code
+        # is not a cut's. GNU timeout then exits with the step's own status
+        # (143). The Rust coreutils' timeout exits 124 when it was given
+        # -k (uutils, src/uu/timeout/src/timeout.rs, wait_or_kill_process),
+        # and 124 is the code the box scripts read as a cut.
+        case $BOX_WHY in until|stalled) [ "$BOX_RC" -ne 124 ] || BOX_RC=143 ;; esac
     elif [ "$BOX_RC" -eq 0 ]; then
         BOX_WHY=ok
     elif [ "$BOX_RC" -eq 124 ] || { [ "$BOX_RC" -eq 137 ] && [ $(( $(box_now) - t0 )) -ge "$cut_s" ]; }; then

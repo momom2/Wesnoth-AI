@@ -94,7 +94,7 @@ notes() {                        # the pass's positions, for the finish reason
     line=$(grep -o "positions [0-9]*/[0-9]* steps [0-9]*" "$OUT/train.log" 2>/dev/null | tail -1)
     echo "pass: ${line:-not started}"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 box_on_round() {                 # progress.txt, before each upload round
     { date -u

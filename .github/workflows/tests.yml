@@ -99,6 +99,14 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: The shell tools the box library's tests run on
+        # The library's tests run real bash and timeout. A new runner
+        # image can bring another implementation of either (ubuntu-26.04's
+        # timeout is not ubuntu-24.04's), so each run names what it had.
+        run: |
+          bash --version | head -1
+          timeout --version | head -1
+
       - name: Full suite, fast and slow tiers
         # pytest.ini adds -rfEs: failures, errors and skips are listed by name.
         run: python -m pytest -m "" -q --durations=30

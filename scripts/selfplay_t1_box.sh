@@ -129,7 +129,7 @@ READOUT="not read"
 MEASURES=()
 RATES="not measured"
 
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 notes() {                        # what is done, for a finish reason
     local done_=0 name

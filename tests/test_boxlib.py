@@ -385,6 +385,38 @@ box_bounded --stall "{grow}" 0.03 stall 1 stall.log bash -c 'echo more >> "{grow
     assert "has not grown" in box.text("watchdog.log")
 
 
+RUST_TIMEOUT = r"""#!/usr/bin/env bash
+# timeout as the Rust coreutils' answers a TERM sent to itself when it was
+# given -k: it passes the TERM on and exits 124, where GNU's exits with the
+# command's own status. The real timeout does the rest.
+real=$(PATH=${PATH#*:} command -v timeout)
+"$real" "$@" &
+child=$!
+trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 124' TERM
+wait "$child"
+"""
+
+
+def test_a_watched_steps_code_does_not_depend_on_the_timeout_program(box):
+    """A step the watcher ended reads 143 whichever timeout ran it. The
+    Rust coreutils' exits 124 there (Ubuntu 26.04, where this failed on
+    2026-11-19), and 124 is the code the box scripts read as a cut at the
+    deadline. A real cut still reads 124."""
+    (box.stubs / "timeout").write_bytes(RUST_TIMEOUT.encode())
+    (box.stubs / "timeout").chmod(0o755)
+    grow = "$BOX_OUT/grow.log"
+    body = REPORT + f"""echo start > "{grow}"
+box_bounded --until "{grow}" 'EVAL[epoch0-end]' until 1 until.log \\
+    bash -c 'sleep 1.5; echo "EVAL[epoch0-end] step=9" >> "{grow}"; sleep 30'; report until
+box_bounded --stall "{grow}" 0.03 stall 1 stall.log bash -c 'echo more >> "{grow}"; sleep 30'; report stall
+box_bounded slow 0.02 slow.log sleep 30; report slow
+"""
+    start = time.monotonic()
+    box.run(body, init=False)
+    assert time.monotonic() - start < 30
+    assert reported(box) == {"until": "143 until", "stall": "143 stalled", "slow": "124 cut"}
+
+
 def test_an_unreachable_hf_at_the_entry_finishes_it(box):
     assert box.run('echo "not reached" > "$BOX_OUT/reached"', STUB_CLEAR_RC=1) == 1
     assert not (box.out / "reached").exists()

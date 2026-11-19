@@ -110,7 +110,7 @@ PLAY_LABEL_A=reffp8
 PLAY_LABEL_B=ref
 # ---- the arm list (end)
 
-# shellcheck disable=SC2317 # called through box_notes, by the library
+# shellcheck disable=SC2317,SC2329 # called through box_notes, by the library
 notes() {                        # what is done, for the finish reason
     local name done_=() play="not read"
     for name in $ARMS; do
@@ -119,7 +119,7 @@ notes() {                        # what is done, for the finish reason
     [ ! -f "$OUT/play.json" ] || play="read"
     echo "done: ${done_[*]:-nothing}; play: $play"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 
 box_init

@@ -89,7 +89,7 @@ notes() {                        # where the training stands, for the finish rea
     done
     echo "training: ${line:-not started}${LEFT_LAW:+; the probes left the law in hold pass $LEFT_LAW}"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 box_on_round() {                 # progress.txt, before each upload round
     { date -u

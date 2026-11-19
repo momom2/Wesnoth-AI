@@ -93,7 +93,7 @@ EOF
 notes() {                        # the match's state, for the finish reason
     echo "games: $(find "$DIR" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l), fit: $([ -f "$OUT/$NAME.fit.json" ] && echo yes || echo no)"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 box_on_round() {                 # progress.txt, before each upload round
     { date -u

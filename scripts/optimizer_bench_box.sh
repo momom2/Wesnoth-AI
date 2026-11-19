@@ -104,7 +104,7 @@ notes() {                        # what is done, for the finish reason
     done
     echo "done: ${done_[*]:-nothing}"
 }
-# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
+# shellcheck disable=SC2317,SC2329 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 
 box_init
