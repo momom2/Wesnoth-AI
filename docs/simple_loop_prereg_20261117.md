@@ -252,6 +252,10 @@ Filled in as the run goes.
 | 32 | +84.0 ± 12.6 | 495 | 2026-11-18 03:18 |
 | 48 | +78.5 ± 12.6 | 489 | 2026-11-18 08:11 |
 | 64 | +89.5 ± 12.7 | 501 | 2026-11-18 13:15 |
+| 80 | +87.7 ± 12.7 | 499 | 2026-11-18 18:36 |
+| 96 | +97.0 ± 12.8 | 509 | 2026-11-18 23:25 |
+| 112 | +93.3 ± 12.7 | 505 | 2026-11-19 04:31 |
+| 128 | +107.4 ± 12.9 | 520 | 2026-11-19 09:30 |
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.
@@ -260,6 +264,15 @@ Filled in as the run goes.
   together average +84.0 ± 7.3, which is +44.8 ± 14.3 over the start.
   That average was not registered: the verdict stays the one in "What is
   measured", read after round 160.
+- **The gain goes on past round 64:** round 128 is +68.2 ± 17.8 over the
+  start. A straight line through the ten matches rises 0.48 ± 0.09 Elo a
+  round; through the seven from round 32 on it rises 0.24 ± 0.15. Neither
+  fit was registered.
+- **Rounds 77 to 138** (to 2026-11-19 12:22) changed nothing in the run's
+  ranges below: no warning, 19 loss-scale overflows in all, the replay's
+  mean difference within 3.5e-5, 19.1 minutes a round over the 138.
+  Round 97 drew the current network as its past self. The update's norm
+  has crept from 0.0091 (rounds 33 to 64) to 0.0102 (rounds 129 to 138).
 - **The first reading is above zero,** where "What is measured" expected
   it below. Sampling with no offset costs the start network 75.5 ± 14.0
   Elo (+114.7 ± 6.5 at the reference's decode against +39.2 ± 12.4), not
