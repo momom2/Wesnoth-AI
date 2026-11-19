@@ -237,3 +237,20 @@ def test_a_live_game_stops_when_its_engine_plays_another_experience_modifier(tmp
     with pytest.raises(RuntimeError, match="plays 100% experience where a hosted game plays 70%"):
         game._build(frame)
     assert game.mirror is None
+
+
+def test_the_live_tool_names_the_network_that_plays(tmp_path):
+    """Without --checkpoint the reference plays under its label; with one,
+    that file plays, named after its run folder unless a label is given;
+    a missing file is refused before any game starts."""
+    from tools import reference_player
+    from tools.live_vs_rca import player_source
+    ref = reference_player.load()
+    assert player_source(None, None, ref) == (reference_player.local_path(ref), ref["label"])
+    checkpoint = tmp_path / "round_0128" / "pi.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"x")
+    assert player_source(checkpoint, None, ref) == (checkpoint, "round_0128_pi")
+    assert player_source(checkpoint, "s0128", ref) == (checkpoint, "s0128")
+    with pytest.raises(FileNotFoundError):
+        player_source(tmp_path / "missing.pt", None, ref)
