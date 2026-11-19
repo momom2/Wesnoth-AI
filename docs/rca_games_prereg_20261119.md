@@ -287,6 +287,30 @@ Filled in as the games go.
   past the dialogue." (2026-11-19). Its engine log shows turn 4 beginning
   at 22:06:31 and nothing until 22:12:31, then play at the usual pace.
   So the dialog does wait for a click, as read from the engine's Lua.
+- **The bridge's fixes were checked in the engine after the series**
+  (22:20 to 22:25), with the add-on link moved to the `wesnoth_ai-bridge`
+  worktree, which holds `fix/live-unattended`.
+  - **The variation field:** one engine start on Hornshark Island with
+    Undead on both sides, 5 seconds (the user agreed to this run). The
+    scenario places corpses with a variation at its start, and the report
+    reads them as the fix intends: type `Walking Corpse` or `Soulless`,
+    variation `saurian` or `dwarf`, eight units in all. All 14 units
+    carry the field.
+  - **Aethermaw's messages:** two unattended games
+    (`wesnoth_runs\rca_games\check_aethermaw`, seed 20261120), both
+    finished: wins on turns 13 and 16, as side 2 and as side 1. Turn 4
+    took 6 and 5 seconds in the engine's log, where the series' games
+    waited for a click.
+  - **The simulator's Aethermaw events:** the boards agreed at every
+    decision of both games, through the terrain changes of turns 4 to 6.
+    It is the first time a live game got that far on this map unaided.
+  - **The sound:** both games and the Hornshark start were launched with
+    `--nosound`, as their logged command lines show. Whether the machine
+    was silent is the user's to say.
+  - **The preferences file** is byte for byte the same after the three
+    runs as before. In these runs Wesnoth was still open 20 seconds after
+    each game's end and the tool closed it, so it never wrote its
+    preferences and the restore had nothing to put back.
 - **The simulator fix needs one more thing.** CI built the wheel from
   `fix/uncovered-dead-id` and its new test passes, but four tests that
   rebuild recorded games fail (`tests/test_core_label.py`, three, and
