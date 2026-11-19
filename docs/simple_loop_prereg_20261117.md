@@ -302,7 +302,9 @@ Filled in as the run goes.
     of 12:40:40 follows the run's last line by three minutes, and a
     Command Prompt was opened from the Start menu at 18:04:17, 11 s after
     the run's last line.
-  - Whether the window was closed by hand is not confirmed by the user.
+  - The user, 2026-11-19 at about 21:03: "I did close a blank console."
+    They did not say which of the two times, so that it explains both
+    stays a reading.
   - Ruled out for 18:04: a tool call of a Claude Code session (the
     transcripts under `.claude\projects` hold none between 18:02 and
     18:05:42), a restart, and the System, Application and Defender logs,
