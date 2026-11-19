@@ -110,11 +110,16 @@ Whether the default AI can serve as an outside yardstick from here on:
 ## Departures
 
 1. **Kill criterion 4 is read over three passes or more** (written
-   2026-11-19 18:25, before any such reading). One pass's rate varies on
+   2026-11-19 18:21, before any such reading). One pass's rate varies on
    its own: over rounds 97 to 144 it has a median of 67.2 decisions a
    second and a standard deviation of 4.1 (51.4 to 73.5). The games end
    if the mean over the passes beside them, three at least, falls under
    60.5.
+2. **The number that decides is read as a rate: 95% or more of the
+   finished games** (written 2026-11-19 18:55, at 9 wins of 9 finished
+   games). "95 wins of 100 finished games" assumed all 100 would finish.
+   They will not: an Aethermaw game cannot get past turn 4 on this bridge
+   (Results, "Game 6"), and Aethermaw is one map in 21.
 
 ## Results
 
@@ -136,3 +141,28 @@ Filled in as the games go.
 - **The 100 games** started at 18:19:53
   (`wesnoth_runs\rca_games\games_s0128`), with a hidden console. At the
   trial game's rate they take about 7 hours.
+- **After 10 games** (18:52): 9 wins and 1 stopped, no loss.
+  - The nine wins came on turns 12 to 18, on eight maps, five as side 1
+    and four as side 2. A finished game takes about 2.5 minutes, so the
+    series should end near 23:00.
+  - The boards agreed at every decision of the nine. The check let
+    through 32 to 269 `unit.moves` differences a game, all of the kind it
+    understands.
+- **Game 6 stopped on a dialog, not on a board difference.** It is
+  Aethermaw (Knalgan against Knalgan, our side 2), and it ended with "no
+  frame in 600 s" after 22 decisions.
+  - The engine's log ends at "changing current turn number from 3 to 4".
+    Aethermaw's `side 1 turn 4` event opens with a narrator `[message]`,
+    "The Aethermaw growls."
+    (`wesnoth_src/data/multiplayer/scenarios/2p_Aethermaw.cfg:329`), and
+    nobody is there to click it.
+  - That the dialog is what held the game is read from where the log
+    ends; the engine's code for it has not been checked.
+  - Aethermaw is the only map of the 21 whose scenario has a `[message]`.
+    Each of its games will stop this way, about 5 of the 100, at 10
+    minutes each.
+  - The bridge is not changed during the series: its add-on is the one
+    the running games load.
+- **The training run beside the games:** its passes read 67.0 and 66.8
+  decisions a second (rounds 145 and 146) against the median of 67.2, and
+  no display driver reset is logged.
