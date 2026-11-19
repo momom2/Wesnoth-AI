@@ -211,8 +211,9 @@ Filled in as the games go.
     field, and it stopped two games it should have let through.
 - **Game 50 is the second Aethermaw game,** stopped at turn 4 like game
   6.
-- **Of the four stopped games none is a rules mismatch:** two are the
-  dialog, two the comparison's missing field.
+- **Of the first four stopped games none is a rules mismatch:** two are
+  the dialog, two the comparison's missing field. (Game 75, below, is
+  the first that is the simulator's.)
 - **The sound.** The user, 2026-11-19: "It's minimized, but sound is at
   full power." The games were started with no sound switch. The running
   series is left as it is, on the user's word.
@@ -229,6 +230,40 @@ Filled in as the games go.
   The rules are in that branch's `docs/wesnoth_rules.md`. Its tests pass
   on the desktop (17). The Lua has not run in an engine yet: that check
   waits for the series to end, because the running games load the add-on.
+- **After 84 games** (21:42): 76 wins, 2 losses and 6 stopped, 76 of 78
+  finished games.
+- **Game 82 stopped like games 49 and 51:** our Walking Corpse killed a
+  Saurian Augur and the corpse's variation was the only difference.
+- **Game 75 stopped on a defect of the simulator.** It is Hellhole, our
+  Knalgan on side 1 against Loyalists. At decision 54 of turn 7 the
+  Gryphon Rider we had just recruited read `uncovered` on the
+  simulator's board and not on the engine's.
+  - The simulator keeps the engine's uncovered state as a list of unit
+    ids, cleared at a side's turn start for its living units. A unit that
+    dies while uncovered stays in the list.
+  - A new unit is numbered one past the largest id on the board. When the
+    dead unit held the largest id, the next recruit takes it and reads
+    as uncovered.
+  - The game's record replayed in the simulator shows it: our Dwarvish
+    Ulfserker `u18` attacked on turn 7 (an attack uncovers its attacker),
+    died in that fight, and the recruit that followed was numbered `u18`.
+  - What it changes in play: nothing for a unit with no hiding ability,
+    since the state is only read for hiders. A hider recruited onto such
+    an id would be seen through its cover until its side's next turn.
+    This is read from the code, not measured.
+  - The fix is one line (the id leaves the list when the unit leaves the
+    board), on `fix/uncovered-dead-id` at 84aeebff, cut from `main`,
+    pushed, not merged. Its test fails on the wheel built before the fix,
+    as it should. No wheel can be installed beside the training run, so
+    the fixed Rust is for CI to certify.
+- **CI is red on every branch pushed on 2026-11-19,** for two failures
+  the branches did not cause: the runner's shellcheck reports SC2329 on
+  the box scripts, and `tests/test_boxlib.py::
+  test_a_watched_step_ends_when_silent_or_once_its_line_appears` reads an
+  exit status of 124 where it expects 143. Both also failed on
+  `fix/patched-wesnoth-retention`, which changed one workflow file. On
+  `fix/live-unattended` the rest of the suite passed (2263 passed, 119
+  skipped). The last green run is `main`'s of 2026-10-27.
 - **The training run beside the games:** its passes read 67.0, 66.8,
   65.1, 67.9, 61.3, 67.0, 67.5, 68.9, 66.0, 72.6 and 70.0 decisions a
   second (rounds 145 to 155), a mean of 67.3 against the median of 67.2
