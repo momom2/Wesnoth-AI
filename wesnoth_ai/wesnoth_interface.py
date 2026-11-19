@@ -37,6 +37,7 @@ from wesnoth_ai.constants import (
     STATE_TIMEOUT_SECONDS,
     WESNOTH_LOGS_PATH,
     WESNOTH_PATH,
+    WESNOTH_USERDATA_PATH,
 )
 
 # ---------------------------------------------------------------------
@@ -166,7 +167,8 @@ class WesnothGame:
         # Eval harness passes per-game ids like
         # `eval_2p_caves_drakes_vs_loyalists_s1`.
         self.scenario_id = scenario_id
-        # What Wesnoth runs, after `--nodelay`: `--test <scenario_id>`
+        # What Wesnoth runs, after the unwatched game's `--nodelay
+        # --nosound`: `--test <scenario_id>`
         # unless the caller names another start (the scenario-init
         # oracle launches a real `--multiplayer` game).
         self.launch_args = (list(launch_args) if launch_args is not None
@@ -193,6 +195,12 @@ class WesnothGame:
         # Set by terminate() so read_state can distinguish a real crash
         # from our own shutdown when it observes process exit.
         self._terminated_by_us = False
+
+        # The user's preferences file as it was at the launch
+        # (`_keep_preferences`), put back by terminate().
+        self._preferences_path = WESNOTH_USERDATA_PATH / "preferences"
+        self._preferences_kept = False
+        self._saved_preferences: Optional[bytes] = None
 
     def adopt_game_id(self, game_id: str) -> None:
         """Called once, after the first state frame, to lock in the
@@ -235,7 +243,12 @@ class WesnothGame:
         # (verified in 1.18 src/units/animation.cpp); combined with the
         # turbo/animate_map prefs set in lua/turn_stage.lua this takes
         # most of the animation time out of the per-action wait.
-        cmd = [str(WESNOTH_PATH), *([] if self.watched else ["--nodelay"]), *self.launch_args]
+        # --nosound: a game nobody watches plays no sound or music
+        # (src/commandline_options.cpp:202, "runs the game without sounds
+        # and music"). Without it each game plays its sounds at the
+        # preferences' volume, minimized or not.
+        cmd = [str(WESNOTH_PATH), *([] if self.watched else ["--nodelay", "--nosound"]), *self.launch_args]
+        self._keep_preferences()
 
         # Snapshot the set of existing .out.log files. When the Wesnoth
         # subprocess starts writing its own log, it'll appear as a NEW
@@ -521,6 +534,36 @@ class WesnothGame:
             except OSError as e:
                 self.logger.error(f"Termination error: {e}")
         self.is_running = False
+        self._restore_preferences()
+
+    def _keep_preferences(self) -> None:
+        """Remember the user's preferences file. The game changes its
+        process's preferences: --nosound turns the four sound ones off
+        (src/game_launcher.cpp:272-279) and a stage sets the display's
+        speed. A Wesnoth that exits by itself writes them all back to the
+        file (src/preferences/general.cpp:98-110), which would leave the
+        user's own game silent."""
+        self._saved_preferences = (self._preferences_path.read_bytes()
+                                   if self._preferences_path.exists() else None)
+        self._preferences_kept = True
+
+    def _restore_preferences(self) -> None:
+        """Put the preferences file back as the launch found it: its
+        bytes, or no file when there was none. Once per launch."""
+        if not self._preferences_kept:
+            return
+        self._preferences_kept = False
+        path, saved = self._preferences_path, self._saved_preferences
+        try:
+            if saved is None:
+                if path.exists():
+                    path.unlink()
+                    self.logger.info("removed the Wesnoth preferences the game had written")
+            elif not path.exists() or path.read_bytes() != saved:
+                path.write_bytes(saved)
+                self.logger.info("restored the Wesnoth preferences the game had rewritten")
+        except OSError as e:
+            self.logger.error(f"the Wesnoth preferences were not restored: {e}")
 
     def __del__(self):
         self.terminate()

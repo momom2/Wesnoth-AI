@@ -40,6 +40,20 @@ def test_not_living_is_dropped_only_where_it_names_its_three_parts():
     assert engine_statuses(["not_living", "undrainable"]) == ["not_living", "undrainable"]
 
 
+def test_a_plague_corpse_compares_as_the_engine_reports_it():
+    """The engine reports a corpse raised from a saurian as type Walking
+    Corpse, variation saurian, with no status for it (lua/board_report.lua);
+    the simulator names it `Walking Corpse:saurian` and tags it."""
+    from types import SimpleNamespace
+    from tools.scenario_init_oracle import our_statuses, our_type_and_variation
+    corpse = SimpleNamespace(name="Walking Corpse:saurian",
+                             statuses={"undrainable", "unplagueable", "unpoisonable", "variation:saurian"})
+    assert our_type_and_variation(corpse) == ("Walking Corpse", "saurian")
+    assert our_statuses(corpse) == ["undrainable", "unplagueable", "unpoisonable"]
+    plain = SimpleNamespace(name="Walking Corpse", statuses={"unplagueable"})
+    assert our_type_and_variation(plain) == ("Walking Corpse", "")
+
+
 def _engine_shaped(ours: dict) -> dict:
     """Our record in the shape lua/init_oracle.lua reports."""
     width = max(x for x, _ in ours["terrain"])
@@ -93,6 +107,9 @@ def test_compare_agrees_with_itself_and_reports_each_perturbed_field(basilisk):
         == {"side.turn"}
     assert perturbed(lambda e: next(u for u in e["units"] if u == leader).update(type="Sky Drake")) \
         == {"unit.type"}
+    assert perturbed(lambda e: next(u for u in e["units"] if u == leader).update(variation="saurian")) \
+        == {"unit.variation"}
+    assert perturbed(lambda e: [u.pop("variation") for u in e["units"]]) == set()    # an older record
     assert perturbed(lambda e: next(u for u in e["units"] if u == statue).update(
         max_hitpoints=statue["max_hitpoints"] + 1)) == {"unit.max_hitpoints"}
     assert perturbed(lambda e: next(u for u in e["units"] if u == statue).update(traits=["quick"])) \

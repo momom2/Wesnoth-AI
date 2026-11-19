@@ -29,11 +29,15 @@ local function status_ids(unit)
     return ids
 end
 
+-- The engine holds a unit's variation beside its type (unit::variation_,
+-- read through src/scripting/lua_unit.cpp:402): a corpse that plague
+-- raises from a saurian is type "Walking Corpse", variation "saurian".
 local function collect_units()
     local units = {}
     for _, u in ipairs(wesnoth.units.find_on_map({})) do
         table.insert(units, {
-            id = u.id, type = u.type, side = u.side, x = u.x, y = u.y,
+            id = u.id, type = u.type, variation = u.variation or "",
+            side = u.side, x = u.x, y = u.y,
             canrecruit = u.canrecruit,
             hitpoints = u.hitpoints, max_hitpoints = u.max_hitpoints,
             moves = u.moves, max_moves = u.max_moves,

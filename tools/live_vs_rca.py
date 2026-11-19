@@ -15,6 +15,12 @@ move and the attack the simulator would play) and the engine plays those
 commands.
 
     python tools/live_vs_rca.py [--games 10] [--speed 4] [--seed S]
+                                [--unwatched] [--scenario PART]
+
+`--unwatched` is a series nobody attends: the window minimized, no sound,
+no animations, and a scenario's messages skipped, since nobody is there to
+click them away (lua/live_stage.lua). `--scenario` plays one Ladder map
+every game, for a check of that map.
 
 `--checkpoint` plays another network in the reference's place, at the
 reference's decode and memory size; `run.json` in the records' directory
@@ -30,6 +36,7 @@ Live Wesnoth runs on this machine, in a window, one game at a time.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import random
@@ -48,7 +55,7 @@ from tools.live_mirror import (ENGINE_DEBUG_DOMAINS, ENGINE_LOG_DOMAINS, AiCandi
                                MirrorDivergence, SyncMarker, engine_commands)
 from tools.scenario_init_oracle import (applied_experience_modifier, compare, engine_declarations,  # noqa: E402
                                         lobby_experience_modifier, lobby_parms, our_record, our_setup)
-from wesnoth_ai.constants import GAMES_PATH, WESNOTH_USERDATA_PATH  # noqa: E402
+from wesnoth_ai.constants import GAMES_PATH  # noqa: E402
 
 log = logging.getLogger("live_vs_rca")
 
@@ -68,6 +75,23 @@ def launch_args(scenario_id: str, factions, our_side: int, decl) -> list:
     for side, attr, value in lobby_parms(decl):
         args += ["--parm", f"{side}:{attr}:{value}"]
     return args
+
+
+def stage_settings(speed: float, watched: bool, player_label: str) -> str:
+    """The stage's settings file (lua/live_stage.lua): the display's speed,
+    animations for a watched game, the scenario's messages skipped in an
+    unwatched one, and the player's name for the watcher."""
+    return (f"return {{ turbo_speed = {speed}, animate = {str(watched).lower()}, "
+            f"skip_messages = {str(not watched).lower()}, player = {json.dumps(player_label)} }}\n")
+
+
+def named_scenario(part: str) -> str:
+    """The Ladder scenario whose id contains `part`, which must name one."""
+    from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
+    found = [sid for sid in LADDER_SCENARIO_IDS if part.lower() in sid.lower()]
+    if len(found) != 1:
+        raise ValueError(f"--scenario {part!r} names {len(found)} Ladder scenarios ({', '.join(found) or 'none'})")
+    return found[0]
 
 
 def board_differences(frame: dict, sim, stopped: set) -> tuple:
@@ -124,8 +148,6 @@ class LiveGame:
         self.known_differences: dict = {}    # field -> differences `known_difference` let through
         self.messages: dict = {}         # the engine's warnings and errors: text -> count
         self.stopped: set = set()        # (side, x, y) the default AI stopped this turn
-        self.preferences: Optional[Path] = None
-        self.saved_preferences: Optional[bytes] = None
 
     def _note(self, **entry) -> None:
         with self.record_path.open("a", encoding="utf-8") as f:
@@ -137,13 +159,10 @@ class LiveGame:
         self.game = WesnothGame(label=self.label, watched=self.watched,
                                 launch_args=launch_args(self.scenario_id, self.factions, self.our_side, self.decl))
         self.game.adopt_game_id(IPC_GAME_ID)
-        # The stage sets this process's display preferences; Wesnoth may
-        # write them back on exit, so the user's file is restored after.
-        self.preferences = WESNOTH_USERDATA_PATH / "preferences"
-        self.saved_preferences = self.preferences.read_bytes() if self.preferences.exists() else None
-        (ipc / "settings.lua").write_text(
-            f"return {{ turbo_speed = {self.speed}, animate = {str(self.watched).lower()}, "
-            f"player = {json.dumps(self.player_label)} }}\n", encoding="utf-8")
+        # The stage sets this process's display preferences; the game puts
+        # the user's file back when it ends (WesnothGame.terminate).
+        (ipc / "settings.lua").write_text(stage_settings(self.speed, self.watched, self.player_label),
+                                          encoding="utf-8")
         self._note(event="start", scenario=self.scenario_id, factions=self.factions, our_side=self.our_side)
         self.game.start_wesnoth()
         try:
@@ -336,9 +355,6 @@ class LiveGame:
         while time.time() < deadline and self.game.process and self.game.process.poll() is None:
             time.sleep(0.5)
         self.game.terminate()
-        if self.saved_preferences is not None and self.preferences.read_bytes() != self.saved_preferences:
-            self.preferences.write_bytes(self.saved_preferences)
-            log.info("restored the Wesnoth preferences the game had rewritten")
 
 
 def player_source(checkpoint: Optional[Path], label: Optional[str], ref: dict) -> tuple:
@@ -360,7 +376,10 @@ def main(argv=None) -> int:
     ap.add_argument("--games", type=int, default=10)
     ap.add_argument("--speed", type=float, default=4.0, help="Wesnoth's accelerated speed for the game")
     ap.add_argument("--unwatched", action="store_true",
-                    help="a check run: the window minimized, no animations, no delays")
+                    help="a series nobody attends: the window minimized, no sound, no animations, "
+                         "no delays, the scenario's messages skipped")
+    ap.add_argument("--scenario", default=None,
+                    help="play this Ladder map every game (a part of its id that names one)")
     ap.add_argument("--seed", type=int, default=None, help="the draw of scenarios, factions and sides")
     ap.add_argument("--max-turns", type=int, default=200, help="the matches' turn limit")
     ap.add_argument("--out", type=Path, default=None, help="directory of the game records")
@@ -371,11 +390,12 @@ def main(argv=None) -> int:
 
     import torch
     from tools.sim_demo_game import load_player
-    from wesnoth_ai.rules.scenario_pool import random_setup
+    from wesnoth_ai.rules.scenario_pool import random_setup, sample_tod_start
     from tools.eval_provenance import file_sha256
     ref = reference_player.load()
     decode = ref["decode"]
     checkpoint, label = player_source(args.checkpoint, args.label, ref)
+    only = named_scenario(args.scenario) if args.scenario else None
     player = load_player(checkpoint, torch.device("cpu"), mcts_sims=0,
                          temperature=float(decode["raw_temperature"]),
                          end_turn_offset=float(decode.get("raw_end_turn_offset", 0.0)),
@@ -387,11 +407,14 @@ def main(argv=None) -> int:
     (out / "run.json").write_text(json.dumps(
         {"label": label, "checkpoint": str(checkpoint), "checkpoint_sha256": file_sha256(checkpoint),
          "decode": decode, "memory_slots": ref.get("memory_slots"), "seed": seed, "games": args.games,
-         "max_turns": args.max_turns, "watched": not args.unwatched}, indent=1), encoding="utf-8")
+         "max_turns": args.max_turns, "watched": not args.unwatched, "scenario": only},
+        indent=1), encoding="utf-8")
     log.info(f"{label} against the default AI, {args.games} games, seed {seed}, records in {out}")
     results = []
     for index in range(1, args.games + 1):
         setup = random_setup(rng, category="ladder")
+        if only is not None:
+            setup = dataclasses.replace(setup, scenario_id=only, tod_start=sample_tod_start(only, rng))
         our_side = 1 + (index + seed) % 2
         decl = engine_declarations([setup.scenario_id])[setup.scenario_id]
         game = LiveGame(index, setup.scenario_id, (setup.faction1, setup.faction2), our_side, decl, player,

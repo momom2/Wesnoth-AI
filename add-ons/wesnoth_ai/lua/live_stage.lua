@@ -49,6 +49,27 @@ local function set_prefs()
 end
 set_prefs()
 
+-- A scenario's [message] that asks for nothing is shown until somebody
+-- clicks it (data/lua/wml/message.lua:428-431), and in a game nobody
+-- attends nobody does: Aethermaw's "The Aethermaw growls." at turn 4
+-- (2p_Aethermaw.cfg:329) held such a game until the driver gave up. The
+-- engine passes over a message when its event is skipping them
+-- (message.lua:373-377), the flag Escape sets on a message's dialog
+-- (message.lua:302-304). The flag lasts one event
+-- (src/game_events/pump.cpp:327-335), so each message sets it as it
+-- starts. A message that asks for input is still shown, and a message of
+-- an event that fires before this file is loaded is not reached.
+local function skip_scenario_messages()
+    local settings = load_table(IPC_DIR .. "settings.lua") or {}
+    if not settings.skip_messages then return end
+    local show_message = wesnoth.wml_actions.message
+    wesnoth.wml_actions.message = function(cfg)
+        wesnoth.interface.skip_messages(true)
+        return show_message(cfg)
+    end
+end
+skip_scenario_messages()
+
 local M = {}
 
 -- Decisions are numbered for the whole process (one game per process).
