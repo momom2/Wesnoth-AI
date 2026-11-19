@@ -16,6 +16,10 @@ commands.
 
     python tools/live_vs_rca.py [--games 10] [--speed 4] [--seed S]
 
+`--checkpoint` plays another network in the reference's place, at the
+reference's decode and memory size; `run.json` in the records' directory
+names the network that played, by its SHA-256.
+
 The engine must play a hosted game's experience modifier, which a stock
 command-line start does not (it plays 100% where a lobby plays 70%,
 scenario_init_oracle's docstring): the project's patched build does
@@ -337,8 +341,22 @@ class LiveGame:
             log.info("restored the Wesnoth preferences the game had rewritten")
 
 
+def player_source(checkpoint: Optional[Path], label: Optional[str], ref: dict) -> tuple:
+    """The checkpoint that plays and its name in the records: the
+    reference player's, or `checkpoint` under `label` (its file's parent
+    and stem when none is given, since a run's networks are all `pi.pt`)."""
+    if checkpoint is None:
+        return reference_player.local_path(ref), label or ref["label"]
+    if not checkpoint.is_file():
+        raise FileNotFoundError(f"no checkpoint at {checkpoint}")
+    return checkpoint, label or f"{checkpoint.parent.name}_{checkpoint.stem}"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--checkpoint", type=Path, default=None,
+                    help="the network that plays, at the reference's decode (default: the reference player)")
+    ap.add_argument("--label", default=None, help="its name in the records")
     ap.add_argument("--games", type=int, default=10)
     ap.add_argument("--speed", type=float, default=4.0, help="Wesnoth's accelerated speed for the game")
     ap.add_argument("--unwatched", action="store_true",
@@ -354,9 +372,11 @@ def main(argv=None) -> int:
     import torch
     from tools.sim_demo_game import load_player
     from wesnoth_ai.rules.scenario_pool import random_setup
+    from tools.eval_provenance import file_sha256
     ref = reference_player.load()
     decode = ref["decode"]
-    player = load_player(reference_player.local_path(), torch.device("cpu"), mcts_sims=0,
+    checkpoint, label = player_source(args.checkpoint, args.label, ref)
+    player = load_player(checkpoint, torch.device("cpu"), mcts_sims=0,
                          temperature=float(decode["raw_temperature"]),
                          end_turn_offset=float(decode.get("raw_end_turn_offset", 0.0)),
                          memory=ref.get("memory_slots"))
@@ -364,14 +384,18 @@ def main(argv=None) -> int:
     rng = random.Random(seed)
     out = args.out or ROOT / "logs" / "live_vs_rca" / time.strftime("%Y%m%d_%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
-    log.info(f"{ref['label']} against the default AI, {args.games} games, seed {seed}, records in {out}")
+    (out / "run.json").write_text(json.dumps(
+        {"label": label, "checkpoint": str(checkpoint), "checkpoint_sha256": file_sha256(checkpoint),
+         "decode": decode, "memory_slots": ref.get("memory_slots"), "seed": seed, "games": args.games,
+         "max_turns": args.max_turns, "watched": not args.unwatched}, indent=1), encoding="utf-8")
+    log.info(f"{label} against the default AI, {args.games} games, seed {seed}, records in {out}")
     results = []
     for index in range(1, args.games + 1):
         setup = random_setup(rng, category="ladder")
         our_side = 1 + (index + seed) % 2
         decl = engine_declarations([setup.scenario_id])[setup.scenario_id]
         game = LiveGame(index, setup.scenario_id, (setup.faction1, setup.faction2), our_side, decl, player,
-                        out, args.speed, args.max_turns, watched=not args.unwatched, player_label=ref["label"])
+                        out, args.speed, args.max_turns, watched=not args.unwatched, player_label=label)
         try:
             result = game.play()
         except (MirrorDivergence, TimeoutError, RuntimeError) as e:
