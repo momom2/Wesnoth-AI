@@ -182,7 +182,54 @@ Filled in as the games go.
     at second watch to a Ghoul and a Skeleton Archer, off its keep.
   - This is one game's record, read from its commands with the leader
     followed by its position. Nothing is concluded from it.
+- **After 73 games** (21:20): 67 wins, 2 losses and 4 stopped. That is 67
+  of 69 finished games, 97.1% ± 2.0%.
+  - By the faction our side drew: Undead 7 wins of 9, the five others 60
+    of 60.
+  - The finished games cover 20 of the 21 maps.
+- **Game 48 is the second loss:** Thousand Stings Garrison, our Undead on
+  side 2 (leader a Deathblade) against Loyalists. Our leader was killed
+  on turn 8, in the morning, by a Mage and a Heavy Infantryman, on a hex
+  it had not recruited from.
+  - Both losses are Undead games in which our leader died away from its
+    keep. Two games are not a pattern; the records are there to read if
+    more come.
+- **Games 49 and 51 stopped on a difference the comparison made
+  itself.** In both, a Walking Corpse of ours killed a unit by plague (a
+  Saurian Skirmisher, a Merman Hunter), and the corpse it raised read
+  `Walking Corpse` on the engine's board and `Walking Corpse:saurian`
+  (`:swimmer`) on the simulator's.
+  - The engine holds a unit's variation beside its type, and the board
+    report sent the type alone. The simulator puts the variation in the
+    type's name.
+  - The two units were the same. Every other field agreed, and in game 49
+    that includes the corpse's 16 hit points, the saurian variation's (a
+    plain corpse has 18). The engine's plague code asks for the victim's
+    variation (`src/actions/attack.cpp:1298-1306`), as the simulator
+    does.
+  - So the simulator is not at fault here. The check was blind to one
+    field, and it stopped two games it should have let through.
+- **Game 50 is the second Aethermaw game,** stopped at turn 4 like game
+  6.
+- **Of the four stopped games none is a rules mismatch:** two are the
+  dialog, two the comparison's missing field.
+- **The sound.** The user, 2026-11-19: "It's minimized, but sound is at
+  full power." The games were started with no sound switch. The running
+  series is left as it is, on the user's word.
+- **The fixes** are on `fix/live-unattended` at 1b740064, cut from
+  `feature/live-rca-checkpoint`, pushed, not merged:
+  - the board report sends the variation and the comparison has a
+    `unit.variation` field;
+  - an unwatched game starts with `--nosound`, and the launcher puts the
+    user's preferences file back afterwards, since that switch turns the
+    sound preferences off and Wesnoth saves them as it exits;
+  - in an unwatched game each scenario message sets its event's
+    skip flag first, the one Escape sets, so the dialog is passed over;
+  - `--scenario` plays one map every game, to check a map.
+  The rules are in that branch's `docs/wesnoth_rules.md`. Its tests pass
+  on the desktop (17). The Lua has not run in an engine yet: that check
+  waits for the series to end, because the running games load the add-on.
 - **The training run beside the games:** its passes read 67.0, 66.8,
-  65.1, 67.9, 61.3, 67.0 and 67.5 decisions a second (rounds 145 to 151),
-  a mean of 66.1 against the median of 67.2 and the limit of 60.5. No
-  display driver reset is logged.
+  65.1, 67.9, 61.3, 67.0, 67.5, 68.9, 66.0, 72.6 and 70.0 decisions a
+  second (rounds 145 to 155), a mean of 67.3 against the median of 67.2
+  and the limit of 60.5. No display driver reset is logged.
