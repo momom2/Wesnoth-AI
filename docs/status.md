@@ -468,13 +468,12 @@ both sides, 3,200 decisive games on the same seeds:
       follows is the user's: a PURE match of one of its networks at the
       reference's decode, the learning rate, the round's size, or leaving
       it to run.
-- **The desktop's wheel is one phase behind `main`.** `main` is core phase
-  39 since 0.33.2 and the venv holds the phase-38 wheel the training run
-  uses, so nothing on `main` that needs the core runs from the venv until
-  the wheel is rebuilt (`docs/new_machine.md`, step 5), which waits for
-  the run's next stop. Until then a wheel built from `main` can be read
-  from a folder of its own through `PYTHONPATH`. The run's own worktree
-  (`..\wesnoth_ai-run-simple`) is phase 38 and is not affected.
+- **The desktop's wheel is `main`'s again** (2026-11-20): both venvs hold
+  the phase-39 wheel, installed when the simple loop moved to the main
+  checkout (its departure 8). The run now plays from
+  `...\projects\wesnoth_ai` on `main`'s code, so a change to the working
+  tree's files there reaches the run at its next tool. Work on a branch
+  goes in a worktree of its own.
 - **An outside yardstick past the default AI.** At 96.8% the default AI
   cannot track further progress. A stronger opponent or a handicap is the
   user's to choose.
@@ -489,6 +488,7 @@ both sides, 3,200 decisive games on the same seeds:
   `feature/async-replies`) are local refs with no folder of their own;
   `git worktree add` brings one back. The log files those folders held
   untracked are in `C:\Users\momom2\wesnoth_runs\worktree_leftovers`.
+  The run's own worktree went last, after the run had moved.
 
 ## Standing measured facts (from before the rounds)
 

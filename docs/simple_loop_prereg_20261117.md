@@ -257,6 +257,11 @@ These were settled while building, before the launch.
   WMI call also hides the console window (`ShowWindow = 0`): the visible
   one could be closed, which ends the run (Results, "The likely cause of
   both").
+- **Since 2026-11-20 13:54 the run starts from the main checkout**
+  (`...\projects\wesnoth_ai`, departure 8), with the same command and the
+  hidden window. The worktree `..\wesnoth_ai-run-simple` is deleted. Both
+  venvs (`.venv` and `venvs\wesnoth_rocm`) hold the wheel built from
+  `main`, phase 39.
 - **To stop it:** a file named STOP in `wesnoth_runs\simple_loop`.
 - **Started 2026-11-17 16:33:49** (the launching `cmd.exe` is pid
   27620). The match at step 0 was playing two minutes later, 43 games
@@ -315,6 +320,26 @@ difference, against the registered 3.
   rounds 129 to 160, 77.7 over rounds 161 to 192 and 81.7 over rounds 193
   to 209. The update's norm went from 0.01016 to 0.01058. No warning is
   logged.
+
+**The move to `main`** (departure 8, 2026-11-20).
+- A STOP file was written at 13:53:11. The run ended at 13:54:12, after
+  round 212's pass and before its step.
+- The wheel built from `main` (phase 39, its source hash `main`'s) was
+  installed in both venvs. The phase-38 packages are kept in
+  `%USERPROFILE%\.cargo-target\backup-phase38`.
+- The launch's command was started from the main checkout at 13:54:41,
+  at 8f7b5f4c. It took up round 212's step from the markers.
+- **The check passed.** Round 213 is the first played and passed on
+  `main`: 230 game-sides, 56,868 decisions, the replay within 4.8e-6
+  against the check's 1e-4, a gradient norm of 80.3, an update norm of
+  0.01027, 2.84 GB at the pass's peak, no warning. Its pass took 1,134 s
+  because its first group ran twice after a loss-scale overflow; the
+  other groups ran at the usual rate.
+- The stop fell between round 212's pass and its step, so no game played
+  on one core was passed on the other.
+- The pause was 29 seconds, with round 212's row in `progress.jsonl`
+  reading 0 s for its play and its pass, which the restart did not rerun.
+- The run's worktree was deleted at 14:17, once the check had passed.
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.
