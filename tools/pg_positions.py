@@ -331,13 +331,16 @@ def serving_precision(result: Optional[dict]) -> Optional[str]:
 def _record_facts(path: str) -> Dict[int, dict]:
     """Per side of one record: its logged decisions, the procedure and
     memory its player recorded (tools/elo_eval_game.py), and the checkpoint,
-    memory reset and serving precision its match result names (None without
-    a result)."""
+    memory reset, serving precision and result its match result names (None
+    without a result). `z` is the side's result as the match result gives
+    it (+1 a win, -1 a loss, 0 a game without a winner) and `winner` the
+    record's own winning side, for a reader to hold against it."""
     record = Path(path)
     rec = read_record(record)
     counts = side_counts(decisions_of(rec))
     players = {int(p.get("side", 0)): p for p in rec.get("players", {}).values()}
     res = json.loads(result_path(record).read_text(encoding="utf-8")) if result_path(record).is_file() else None
+    z_a = None if res is None else {"win": 1.0, "loss": -1.0}.get(res.get("outcome_a") or "", 0.0)
     facts = {}
     for side in (1, 2):
         player = players.get(side, {})
@@ -346,7 +349,9 @@ def _record_facts(path: str) -> Dict[int, dict]:
                        "memory": player.get("memory"),
                        "checkpoint_sha256": None if x is None else res.get(f"checkpoint_sha256_{x}"),
                        "memory_reset": None if x is None else bool(res.get(f"memory_reset_{x}")),
-                       "serving": serving_precision(res)}
+                       "serving": serving_precision(res),
+                       "z": None if x is None else (z_a if x == "a" else -z_a),
+                       "winner": rec.get("winner")}
     return facts
 
 

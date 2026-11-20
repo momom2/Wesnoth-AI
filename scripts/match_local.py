@@ -22,6 +22,11 @@ scripts/parity3_baselines_box.sh, scripts/unit_vocab_retrain_box.sh):
   the decode the rounds train at (scripts/selfplay_t1_local.py's
   player_flags): the procedure raw:t1, the reference relabelled <label>t1
   with its memory kept (docs/tail_local_prereg_20261102.md).
+- With --sampled-candidate, the candidate samples at temperature 1 with no
+  end_turn offset, as it is trained, and the reference keeps its own
+  decode: the procedures raw:t1 against raw:t0+eo-1.5, the simple loop's
+  reading (docs/simple_loop_prereg_20261117.md). It measures the weights
+  and the decode together, like --allow-decode-change.
 - N decisive games (800) from --seed-base. A capped game of slot i is
   replaced at seed + i + k * 1,000,000, up to --max-extra-games (1,500, the
   box's 800-game matches; they capped at most 7 of 807 games). A match short
@@ -95,7 +100,18 @@ PURE = "PURE (decisive only, primary)"
 DECODE = ["--mcts-sims", "0", "--raw-temperature-a", "0", "--raw-temperature-b", "0"]
 # --t1: both sides sample, as the rounds' self-play does (raw:t1).
 DECODE_T1 = ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1"]
-POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--infer-fp16",
+# --sampled-candidate: the candidate samples, the reference plays its own decode.
+DECODE_SAMPLED = ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "0"]
+
+
+def decode_of(args) -> List[str]:
+    """The decode flags a match's arguments ask for."""
+    if getattr(args, "t1", False):
+        return DECODE_T1
+    return DECODE_SAMPLED if getattr(args, "sampled_candidate", False) else DECODE
+
+
+POOL =["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--infer-fp16",
         "--inference-pipelined", "--min-free-mb", str(MIN_FREE_MB), "--inference-timeline-s", "30"]
 
 
@@ -304,7 +320,7 @@ class Match:
         self.a, self.cand, self.ref = args, cand, ref
         self.out: Path = args.out
         self.games_dir = self.out / "games"
-        self.decode = DECODE_T1 if getattr(args, "t1", False) else DECODE
+        self.decode = decode_of(args)
         self.gpu_yield = (GpuYield(threshold=args.yield_gpu, quiet_minutes=args.yield_quiet_min)
                           if getattr(args, "yield_gpu", 0) > 0 else None)
 
@@ -410,6 +426,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--t1", action="store_true",
                     help="both sides sample at temperature 1 with no end_turn offset (raw:t1), the "
                          "reference relabelled <label>t1")
+    ap.add_argument("--sampled-candidate", action="store_true",
+                    help="the candidate samples at temperature 1 with no end_turn offset (raw:t1) and the "
+                         "reference keeps its own decode")
     ap.add_argument("--jobs", type=int, default=JOBS, help="games in flight (the pilots: 96 kept the GPU busy)")
     ap.add_argument("--worker-games", type=int, default=WORKER_GAMES)
     ap.add_argument("--games-per-h", type=float, default=GAMES_PER_H,
@@ -430,6 +449,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     args = ap.parse_args(argv)
     if args.games < 1 or args.max_extra_games < 0 or args.jobs < 1 or args.worker_games < 1:
         ap.error("--games, --jobs and --worker-games must be positive, --max-extra-games not negative")
+    if args.sampled_candidate and (args.t1 or args.end_turn_offset is not None):
+        ap.error("--sampled-candidate sets the candidate's decode: it goes with neither --t1 nor "
+                 "--end-turn-offset")
     if args.seed_base < 0 or args.seed_base + args.games > REPL_SEED_OFFSET:
         ap.error(f"the seeds {args.seed_base}-{args.seed_base + args.games - 1} must lie in 0-"
                  f"{REPL_SEED_OFFSET - 1}: a replacement adds multiples of {REPL_SEED_OFFSET}")
@@ -457,14 +479,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.label == ref.label:
         raise SystemExit(f"--label {args.label} is the reference's label; give the candidate its own")
     spec = args.checkpoint.resolve()
-    memory, plays, eo, diffs = candidate_decode(ref, memory_slots_of(spec, args.tools_python), args.memory,
-                                                args.end_turn_offset, args.allow_decode_change)
+    memory, plays, eo, diffs = candidate_decode(
+        ref, memory_slots_of(spec, args.tools_python), args.memory,
+        0.0 if args.sampled_candidate else args.end_turn_offset,
+        args.allow_decode_change or args.sampled_candidate)
+    if args.sampled_candidate:
+        diffs = diffs + ["it samples at temperature 1, the reference plays its own decode"]
     cand = Candidate(args.label, str(spec), file_sha256(spec), memory, plays, eo, diffs)
     check_config(args.out, {"label_a": cand.label, "checkpoint_sha256_a": cand.sha256,
                             "memory_a": memory, "end_turn_offset_a": eo, "reference": ref.flags,
                             "games": args.games, "seed_base": args.seed_base,
                             "max_extra_games": args.max_extra_games,
-                            "decode": DECODE_T1 if args.t1 else DECODE})
+                            "decode": decode_of(args)})
     log(args.out, f"match local: {cand.label} ({spec}) against {ref.label}, {args.games} decisive games from "
                   f"seed {args.seed_base}, jobs {args.jobs}x{args.worker_games}, python {args.python}, "
                   f"tools {args.tools_python}" + (f"; decode differs: {diffs}" if diffs else ""))

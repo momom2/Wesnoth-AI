@@ -170,13 +170,14 @@ def test_the_checkpoints_memory_slots_are_read_in_a_child(tmp_path):
 # ---- the run: run_elo_batch faked, elo_collect real
 
 def _write_games(games_dir: Path, n: int, start: int, seed_base: int, wins_every: int = 2,
-                 label_b: str = REF_LABEL, procedure: str = f"raw:t0+eo{REF_EO:g}") -> None:
+                 label_b: str = REF_LABEL, procedure: str = f"raw:t0+eo{REF_EO:g}",
+                 procedure_b: str = None) -> None:
     games_dir.mkdir(parents=True, exist_ok=True)
     for i in range(start, start + n):
         side = 1 if i % 2 == 0 else 2
         rec = {"label_a": "cand", "label_b": label_b, "side_a": side, "seed": seed_base + i,
                "outcome_a": "win" if i % wins_every == 0 else "loss",
-               "procedure_a": procedure, "procedure_b": procedure, "infer_fp16": True}
+               "procedure_a": procedure, "procedure_b": procedure_b or procedure, "infer_fp16": True}
         (games_dir / f"game_cand_{label_b}_s{side}_{seed_base + i}.json").write_text(json.dumps(rec))
 
 
@@ -196,10 +197,10 @@ class FakeTools:
             games_dir = Path(cmd[cmd.index("--outdir") + 1])
             n, rc = self.plan.pop(0)
             have = len(list(games_dir.glob("game_*.json"))) if games_dir.is_dir() else 0
-            t1 = cmd[cmd.index("--raw-temperature-a") + 1] == "1"
+            a, b = (("raw:t1" if cmd[cmd.index(f"--raw-temperature-{side}") + 1] == "1"
+                     else f"raw:t0+eo{REF_EO:g}") for side in ("a", "b"))
             _write_games(games_dir, n, have, int(cmd[cmd.index("--seed-base") + 1]),
-                         label_b=cmd[cmd.index("--label-b") + 1],
-                         procedure="raw:t1" if t1 else f"raw:t0+eo{REF_EO:g}")
+                         label_b=cmd[cmd.index("--label-b") + 1], procedure=a, procedure_b=b)
             return rc
         if cmd[0] == "tools/reference_player.py":
             return 0
@@ -303,6 +304,30 @@ def test_a_t1_match_samples_both_sides_and_fits_against_the_relabelled_reference
     assert json.loads((out / "match.json").read_text(encoding="utf-8"))["config"]["decode"] == ml.DECODE_T1
     with pytest.raises(SystemExit, match="MATCH_CHANGED"):
         run([(8, 0)])                       # the same directory at argmax is another match
+
+
+def test_a_sampled_candidate_plays_at_temperature_1_against_the_references_own_decode(match_env):
+    """--sampled-candidate (the simple loop's reading): side A samples with
+    no end_turn offset, the reference keeps its flags, and the two
+    procedures are fitted as one match. It goes with neither --t1 nor an
+    offset of its own."""
+    out, run = match_env
+    rc, fake = run([(8, 0)], "--sampled-candidate")
+    assert rc == 0
+    (argv,) = fake.matches()
+    line = " ".join(argv)
+    assert "--raw-temperature-a 1 --raw-temperature-b 0" in line and "--raw-end-turn-offset-a" not in line
+    assert " ".join(batch_flags("b")) in line
+    result = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert result["complete"] and result["reference"] == REF_LABEL and result["decode"] == ml.DECODE_SAMPLED
+    assert (result["end_turn_offset_a"], result["end_turn_offset_b"]) == (0.0, REF_EO)
+    assert result["procedures"] == [f"raw:t1 against raw:t0+eo{REF_EO:g}"] and isinstance(result["elo"], float)
+    assert any("samples at temperature 1" in d for d in result["decode_differs"])
+    with pytest.raises(SystemExit, match="MATCH_CHANGED"):
+        run([(8, 0)])                       # the same directory at the reference's decode is another match
+    for extra in (["--t1"], ["--end-turn-offset", "-1.0"]):
+        with pytest.raises(SystemExit):
+            ml.parse_args(["--label", "c", "--checkpoint", "c.pt", "--out", str(out), "--sampled-candidate", *extra])
 
 
 def test_games_without_the_scripts_record_are_refused(match_env):
