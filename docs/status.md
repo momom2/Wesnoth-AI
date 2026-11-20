@@ -394,10 +394,11 @@ both sides, 3,200 decisive games on the same seeds:
   checkpoint is `C:\Users\momom2\wesnoth_runs\rounds_local\round_18\pi.pt`
   (SHA-256 c5796941...). Copies of rounds 3, 15, 16 and 18 are in
   `C:\Users\momom2\wesnoth_checkpoints_window\`.
-- **Merging `feature/lean-rounds`** (5 commits, the code the line ran,
-  at 21862a0a) and the log commits on `feature/local-gpu-stage1` into
-  `main`. The suite passed on the desktop at 21862a0a (2,258 passed, 139
-  skipped); CI has not run on it.
+- **The lean line's code and the stage-1 log commits were never merged.**
+  Since 2026-11-20 they are the tags `archive/feature/lean-rounds` (5
+  commits, the code the line ran, at 21862a0a) and
+  `archive/feature/local-gpu-stage1` (ca21aaa1). The suite passed on the
+  desktop at 21862a0a (2,258 passed, 139 skipped); CI has not run on it.
 - **The next training step.** The options, each a single factor:
   - more games per step, against the falling signal-to-noise;
   - training the trunk. The match of 2026-11-11 says a full-network step
@@ -478,17 +479,20 @@ both sides, 3,200 decisive games on the same seeds:
   cannot track further progress. A stronger opponent or a handicap is the
   user's to choose.
 - `main` was pushed on 2026-11-19, on the user's word.
-- Unmerged branches from before the window: `feature/int8-linear` (6
-  commits) and `feature/async-replies` (4).
-- **The checkout stands alone since 2026-11-20.** On the user's word the
-  sibling worktree folders were removed and every branch `main` holds was
-  deleted, here and on GitHub, where only `main` is left. The unmerged
-  branches (`feature/lean-rounds`, `feature/fixed-step-rounds`,
-  `feature/local-gpu-stage1`, `feature/int8-linear`,
-  `feature/async-replies`) are local refs with no folder of their own;
-  `git worktree add` brings one back. The log files those folders held
-  untracked are in `C:\Users\momom2\wesnoth_runs\worktree_leftovers`.
-  The run's own worktree went last, after the run had moved.
+- **The repository is one branch and one folder since 2026-11-20,** on the
+  user's word ("So the repo is clean."). `main` is the only branch, here
+  and on GitHub, and `...\projects\wesnoth_ai` the only worktree.
+  - Every branch `main` holds was deleted.
+  - The five branches `main` does not hold were tagged and the tags
+    pushed before they were deleted: `archive/feature/lean-rounds`,
+    `archive/feature/fixed-step-rounds`,
+    `archive/feature/local-gpu-stage1`, `archive/feature/int8-linear` (6
+    commits) and `archive/feature/async-replies` (4). Where this file
+    names one of those branches, the tag of that name holds it;
+    `git worktree add <folder> archive/<name>` brings its files back.
+  - The log files the removed folders held untracked are in
+    `C:\Users\momom2\wesnoth_runs\worktree_leftovers`.
+  - The run's own worktree went last, after the run had moved.
 
 ## Standing measured facts (from before the rounds)
 
