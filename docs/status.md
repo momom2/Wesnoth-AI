@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-19.
+Last updated 2026-11-20.
 
 ## In one paragraph
 
@@ -44,7 +44,12 @@ registered verdict is "the loop trains"** (2026-11-19): the matches at
 rounds 128, 144 and 160 average +120.7 ± 7.5 Elo against +39.2 ± 12.4 at
 the start, a difference of +81.5 ± 14.5, 5.6 standard errors against the
 registered 3. It is not an adoption claim: the candidate samples while
-the reference plays its pinned decode. The run goes on.
+the reference plays its pinned decode. The run goes on. Since the verdict
+the readings have not risen: rounds 176, 192 and 208 average
++107.2 ± 7.4, each lower than the one before, and round 208 reads
++92.3 ± 12.7 (2026-11-20). No kill criterion is met and nothing is
+concluded; the pre-registration's Results has the numbers. The loop's
+code is in `main` since 0.34.0.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
@@ -452,8 +457,8 @@ both sides, 3,200 decisive games on the same seeds:
     past selves (2026-11-17);
   - all ten are ruled on, and the loop built from them was launched on
     2026-11-17 (`docs/simple_loop_prereg_20261117.md`):
-    - the code is `feature/simple-loop` (23e4dff8), not merged; merging
-      it is the user's call;
+    - the code was `feature/simple-loop` (23e4dff8) and is in `main`
+      since 0.34.0 (2026-11-20, on the user's word);
     - the whole-game pass fits the card (2.8 GB at its peak) and runs at
       60 decisions a second, so a round takes about 23 minutes: about 62
       rounds and 8,000 games a day;
@@ -476,6 +481,14 @@ both sides, 3,200 decisive games on the same seeds:
 - `main` was pushed on 2026-11-19, on the user's word.
 - Unmerged branches from before the window: `feature/int8-linear` (6
   commits) and `feature/async-replies` (4).
+- **The checkout stands alone since 2026-11-20.** On the user's word the
+  sibling worktree folders were removed and every branch `main` holds was
+  deleted, here and on GitHub, where only `main` is left. The unmerged
+  branches (`feature/lean-rounds`, `feature/fixed-step-rounds`,
+  `feature/local-gpu-stage1`, `feature/int8-linear`,
+  `feature/async-replies`) are local refs with no folder of their own;
+  `git worktree add` brings one back. The log files those folders held
+  untracked are in `C:\Users\momom2\wesnoth_runs\worktree_leftovers`.
 
 ## Standing measured facts (from before the rounds)
 

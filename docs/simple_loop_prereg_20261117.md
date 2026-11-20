@@ -10,8 +10,9 @@ was shown the build's defaults, and answered "Launch training."
 numbers that decide and the kill criteria. The result lands here whatever
 it says.
 
-The code is on `feature/simple-loop` (not merged; the commit the run
-launches from is named under "The launch").
+The code was on `feature/simple-loop` and is in `main` since 2026-11-20
+(0.34.0), merged on the user's word. The commit the run launches from is
+named under "The launch".
 
 ## What runs
 
@@ -209,6 +210,25 @@ These were settled while building, before the launch.
    (about four times a day)". At the measured 23 minutes a round, 16
    keeps the four a day, and the kill criterion's two matches are about 6
    hours apart.
+8. **From 2026-11-20 the run plays from `main`, in the main checkout, on
+   the core of phase 39** (written 2026-11-20 13:52, before the stop that
+   precedes it). The user asked for the sibling folders to go and chose to
+   move the run out of its worktree rather than wait for it to stop.
+   - **How:** a STOP file ends the run after its current tool; the wheel
+     built from `main` goes into both venvs; the launch's command starts
+     again from `...\wesnoth_ai`.
+   - **What changes:** the code is `main` at 0.34.1 in place of 23e4dff8,
+     the loop's own files being the same; the simulator takes a removed
+     unit's id out of the uncovered list (0.33.2); games are recorded as
+     format 5.
+   - **What does not:** the configuration (`config.json`), the learning
+     rate, the pool, the markers, the run's directory.
+   - **The games already played** keep their rule: a record of format 4
+     rebuilds with the uncovered list it was played with.
+   - **The check:** the first pass after the restart must replay its
+     games within the exact check's 1e-4. If it does not, the run stops
+     there and goes back to the phase-38 wheel and its own worktree,
+     which are kept until the check has passed.
 
 ## The launch
 
@@ -263,6 +283,9 @@ Filled in as the run goes.
 | 128 | +107.4 ± 12.9 | 520 | 2026-11-19 09:30 |
 | 144 | +134.8 ± 13.2 | 548 | 2026-11-19 17:52 |
 | 160 | +119.9 ± 13.0 | 533 | 2026-11-19 22:56 |
+| 176 | +124.8 ± 13.1 | 538 | 2026-11-20 03:34 |
+| 192 | +104.5 ± 12.8 | 517 | 2026-11-20 08:01 |
+| 208 | +92.3 ± 12.7 | 504 | 2026-11-20 12:41 |
 
 **The verdict: the loop trains.** The matches at rounds 128, 144 and 160
 average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
@@ -275,6 +298,23 @@ difference, against the registered 3.
   the reference plays its pinned decode, so it is not an adoption claim.
 - What follows is the user's to decide. The run goes on meanwhile, as
   registered.
+
+**Since the verdict the readings have not risen** (to round 208,
+2026-11-20 12:41). None of what follows was registered.
+- Rounds 176, 192 and 208 average +107.2 ± 7.4. That is −13.5 ± 10.6
+  against rounds 128 to 160, and +68.0 ± 14.4 over the start.
+- Each of the three reads lower than the one before. Round 208 is
+  42.4 ± 18.3 under round 144, the highest reading; a comparison that
+  starts at the highest reading overstates a fall.
+- A line through the six matches from round 128 falls 0.29 ± 0.19 Elo a
+  round. Through the twelve from round 32 it rises 0.19 ± 0.07.
+- No kill criterion is met. Criterion 1 is two matches in a row more than
+  3 standard errors under the first, and round 208 is 53.1 ± 17.7 over
+  it.
+- The gradient's norm has crept up meanwhile: its median is 70.3 over
+  rounds 129 to 160, 77.7 over rounds 161 to 192 and 81.7 over rounds 193
+  to 209. The update's norm went from 0.01016 to 0.01058. No warning is
+  logged.
 
 - **No change is read after 16 rounds:** round 16 is +8.8 ± 17.5 over the
   start, and round 6 was +10.6 ± 17.5.
