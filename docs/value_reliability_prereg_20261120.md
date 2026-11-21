@@ -189,3 +189,49 @@ network and round 208's:
 - A λ under 1 would also carry the estimate's opening overconfidence and
   its optimism into the weight. By the registered rule that comes first.
 - None of this shows what trains better. Only games can.
+
+## Follow-up: why the estimate is optimistic and overconfident (2026-11-21)
+
+The user, 2026-11-21: "I don't understand how the value estimate can be
+too optimistic. There's probably some mismatch between what the network
+sees and what it thinks it is evaluating [...] The value estimate also
+shouldn't be overconfident [...] Understanding the value estimate and
+fixing any issue there is our top priority."
+
+This is a search for a cause, not a run with a deciding number. The
+candidate causes and what each predicts were written here before the
+logs were read for them (2026-11-21 22:05).
+
+A head trained on the result at every decision, and read on decisions of
+the same kind, cannot stay biased on average: the bias is itself the
+training signal. So a steady bias means one of two things: the head is
+read on something other than what it was fitted on, or it is fitted too
+slowly to follow what it is read on.
+
+- **C1, the side's own turn.** A side decides only during its own turn.
+  As it moves and attacks, the board improves for it, and the enemy's
+  reply is not on the board yet. *Predicts:* the estimate less the result
+  grows from a turn's first decision to its last, and the estimate falls
+  back between a side's last decision of one turn and its first of the
+  next.
+- **C2, hidden enemies.** The estimate reads the visible board as the
+  whole board. *Predicts:* the estimate less the result grows with the
+  enemy strength the deciding side cannot see, and is near zero when it
+  sees everything.
+- **C3, another opponent.** The head was fitted against other play than
+  it now meets (a weaker opponent, another decode). *Predicts:* the same
+  optimism at every point of a turn and whatever is hidden.
+- **C4, the winner decides more often.** The side that wins has more
+  units and so more decisions. *Predicts:* the mean result over decisions
+  is above zero. That would explain a mean estimate above zero, not an
+  estimate above the result within a bin.
+- **C5, a prior on the matchup** (for the overconfidence early). The
+  estimate at a game's first decision spreads more than the map, the
+  factions and the side decide the result. *Predicts:* at the first
+  decision, a slope of the result on the estimate well under 1.
+
+Why it matters beyond the reading itself: a weight with λ under 1 pays a
+decision for raising the estimate soon after. If the estimate is high
+where the enemy is unseen (C2) or late in the side's own turn (C1), such
+a weight would pay the policy for hiding the enemy from itself or for
+acting late, not for winning.
