@@ -291,6 +291,8 @@ Filled in as the run goes.
 | 176 | +124.8 ± 13.1 | 538 | 2026-11-20 03:34 |
 | 192 | +104.5 ± 12.8 | 517 | 2026-11-20 08:01 |
 | 208 | +92.3 ± 12.7 | 504 | 2026-11-20 12:41 |
+| 224 | +123.8 ± 13.1 | 537 | 2026-11-20 17:50 |
+| 240 | +153.2 ± 13.5 | 566 | 2026-11-20 22:51 |
 
 **The verdict: the loop trains.** The matches at rounds 128, 144 and 160
 average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
@@ -320,6 +322,25 @@ difference, against the registered 3.
   rounds 129 to 160, 77.7 over rounds 161 to 192 and 81.7 over rounds 193
   to 209. The update's norm went from 0.01016 to 0.01058. No warning is
   logged.
+
+**The fall did not go on** (to round 240, 2026-11-20 22:51). Not
+registered either.
+- Rounds 224 and 240 read +123.8 ± 13.1 and +153.2 ± 13.5. Round 240 is
+  the highest reading of the run, +114.0 ± 18.3 over the start.
+- Rounds 208, 224 and 240 average +123.1 ± 7.6: +2.4 ± 10.7 against
+  rounds 128 to 160, and +83.9 ± 14.5 over the start.
+- A line through the eight matches from round 128 rises 0.11 ± 0.13 Elo a
+  round; through the fourteen from round 32, 0.24 ± 0.05.
+- So the three falling readings of rounds 176 to 208 were within what
+  matches of 800 do by chance, as the block comparison said at the time.
+  What the matches support is a gain that has slowed since round 128,
+  not a fall and not a stall.
+
+**A pause for a match at the reference's decode** (2026-11-20, the
+user's approval; `docs/loop_pure_match_prereg_20261120.md`). The run was
+stopped from 15:13:20 to 15:26:28, between round 216's pass and its
+step. Round 208's network read +152.2 ± 13.5 Elo over `own2` there,
++37.5 ± 15.0 over the start network's reading at that decode.
 
 **The move to `main`** (departure 8, 2026-11-20).
 - A STOP file was written at 13:53:11. The run ended at 13:54:12, after

@@ -86,4 +86,83 @@ only games can, in a run of its own.
 
 ## Results
 
-Not read yet.
+Read 2026-11-20 15:08 to 15:13 with
+`training/metrics/value_reliability_20261120/read_value.py` (its outputs
+are beside it). The script was first tried on rounds 207 and 208 alone, to
+check that it ran.
+
+**The verdict: by the registered rule the value estimate does not pass,
+narrowly, so no run at λ under 1 is registered.** It fails on calibration
+in the first third of the game. The second number sits on its threshold.
+The third passes by a wide margin.
+
+| The number | Rounds 177 to 208 | The rule | |
+|---|---|---|---|
+| Slope of the result on `v`, first third | 0.771 ± 0.030 | 0.8 to 1.2 | fails, by one standard error |
+| second third | 1.089 ± 0.012 | 0.8 to 1.2 | holds |
+| last third | 1.043 ± 0.004 | 0.8 to 1.2 | holds |
+| Correlation of consecutive changes | −0.100 ± 0.001 | within ±0.1 | on the threshold (−0.0999) |
+| Weight's mean square at λ = 0.95 over today's | 0.096 ± 0.001 | 0.5 or less | holds |
+
+Rounds 177 to 208 are 7,360 game-sides and 1,728,584 decisions (3,693
+wins, 3,667 losses, no game without a winner). The standard errors come
+from resampling whole games 400 times.
+
+1. **Calibration.** Over all decisions the slope is 1.026 and the
+   intercept −0.083.
+   - At the ends the estimate is exact: where it reads −0.96 the result
+     averages −0.98, and where it reads +0.97, +0.97.
+   - In the middle it is optimistic by about 0.1: it reads −0.02 where
+     the result averages −0.12, +0.15 where it averages +0.03, +0.34
+     where +0.22, +0.61 where +0.49. Both sides of a game think
+     themselves a little ahead.
+   - In the first third it is overconfident: the result moves 0.77 for
+     each 1 the estimate moves.
+2. **How much it knows, and when.** It accounts for 45.3% of the result's
+   spread over all decisions (mean squared error 0.547). By tenth of the
+   game-side: 2%, 5%, 13%, 26%, 40%, 53%, 65%, 77%, 85%, 89%. In the
+   first fifth of a game it knows next to nothing, which is the game's
+   nature as much as the estimate's.
+3. **Whether it moves like a value.** A change is followed by a change of
+   the opposite sign a little more often than chance: the correlation of
+   consecutive changes is −0.100. That is what an estimate with some
+   reading-to-reading jitter does. With independent jitter the figure
+   puts it at about a fifth of the change's mean square (0.0103 a
+   decision). The changes are also slightly against the level (−0.049):
+   a high reading tends to come down, the optimism again. The last change
+   of a side, from its last reading to the result, has a mean square of
+   0.123.
+4. **What λ would do to the weight.** Its mean square over today's, and
+   its correlation with today's weight: 0.19 and 0.74 at λ = 0.98; 0.096
+   and 0.53 at 0.95; 0.060 and 0.39 at 0.9; 0.039 and 0.28 at 0.8.
+5. **Where the weight sits.**
+   - Among game-sides it is spread evenly. The top tenth hold 35.5% of
+     it, the top quarter 59.5%, the top half 81.4%, and one game-side in
+     a thousand holds under a tenth of the mean. One plus the squared
+     coefficient of variation of its root is 1.22: choosing which
+     game-sides to pass by their weight could gain about a fifth, no
+     more.
+   - Within a game-side it sits early. From the tenths above, the first
+     three tenths of a side's decisions hold 51% of the weight's mean
+     square and the first half 76%: the decisions where the estimate
+     knows least are weighted most, by a result they did least to
+     decide.
+
+**Rounds 1 to 32 read the same** (7,360 game-sides, 1,815,523
+decisions): slopes 0.757 ± 0.028, 1.068 ± 0.010 and 1.037 ± 0.004; a
+correlation of consecutive changes of −0.081 ± 0.001; 46.3% of the
+result's spread accounted for; 0.096 at λ = 0.95. Two hundred rounds of
+training have not changed the value estimate's quality in either
+direction.
+
+**What this says, and what it does not.**
+- The estimate is evidence-worthy in the second half of a game and weak
+  in the opening, where it is also overconfident. It is not "not much
+  good": it is exact at the ends and within about 0.1 in between.
+- Today's weight spends half its power on the opening third, where the
+  result is nearly unpredictable. That is the noise a λ under 1 would
+  remove, and the size of it (a tenth of the mean square at 0.95) is
+  why the question is worth settling.
+- A λ under 1 would also carry the estimate's opening overconfidence and
+  its optimism into the weight. By the registered rule that comes first.
+- None of this shows what trains better. Only games can.

@@ -1,7 +1,9 @@
 # Pre-registration: a simple-loop network at the reference's decode (2026-11-20)
 
-**Status:** registered 2026-11-20, before the match. Results below when
-it has played.
+**Status:** played 2026-11-20. Round 208's network reads +152.2 ± 13.5
+Elo over `own2` at the reference's decode, +37.5 ± 15.0 over the start
+network: 2.5 standard errors, under the registered 3, so no change is
+read. See "Results".
 
 ## Why
 
@@ -69,4 +71,30 @@ has rested on, but nothing is adopted by it: that is the user's decision.
 
 ## Results
 
-Not played yet.
+**Round 208's network reads +152.2 ± 13.5 Elo over `own2` at the
+reference's decode** (565 wins and 235 losses of 800 decisive games, none
+without a result; `wesnoth_runs\match_s0208_pure\result.json`).
+
+- **D is +37.5 ± 15.0, or 2.5 standard errors.** That is under the
+  registered 3, so by the rule no change is read. The reading leans to a
+  gain and does not establish one: a match of 800 cannot read a change
+  under about 45 Elo.
+- **The same network reads +92.3 ± 12.7 when it samples.** Sampling
+  costs it 59.9 ± 18.5 Elo, against the 75.5 ± 14.0 it cost the start
+  network. The two costs differ by 15.6 ± 23.2: no change in what
+  sampling costs is read either.
+- So the question this match was for stays open at this size. The loop's
+  sampled gain at round 208 was +53.1 ± 17.7 over the start, and its gain
+  at the reference's decode is +37.5 ± 15.0. Both readings are compatible
+  with one gain of about 40 to 50 Elo carried by the weights, and with
+  less.
+- Nothing is adopted. +152.2 ± 13.5 is above every reading at the
+  reference's decode that `docs/status.md` records (round 22's +114.7 ±
+  6.5 was the highest), on one match of 800.
+
+**The run's pause.** The STOP file was written at 15:05:40. The run ended
+at 15:13:20, after round 216's pass and before its step. The match played
+from 15:13:40 to 15:26:11 (12 min 31 s; the 23-minute limit was not
+reached and no display-driver reset is logged), and its fit was read at
+15:26:13. The run was started again at 15:26:28 and took up round 216's
+step from its markers.

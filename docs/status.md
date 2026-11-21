@@ -44,12 +44,29 @@ registered verdict is "the loop trains"** (2026-11-19): the matches at
 rounds 128, 144 and 160 average +120.7 ± 7.5 Elo against +39.2 ± 12.4 at
 the start, a difference of +81.5 ± 14.5, 5.6 standard errors against the
 registered 3. It is not an adoption claim: the candidate samples while
-the reference plays its pinned decode. The run goes on. Since the verdict
-the readings have not risen: rounds 176, 192 and 208 average
-+107.2 ± 7.4, each lower than the one before, and round 208 reads
-+92.3 ± 12.7 (2026-11-20). No kill criterion is met and nothing is
-concluded; the pre-registration's Results has the numbers. The loop's
-code is in `main` since 0.34.0.
+the reference plays its pinned decode. The run goes on, and since
+2026-11-20 it plays from the main checkout (the loop's code is in `main`
+since 0.34.0). Since the verdict the gain has slowed: three readings fell
+in a row to +92.3 ± 12.7 at round 208, then rounds 224 and 240 read
++123.8 ± 13.1 and +153.2 ± 13.5, the run's highest. A line through the
+eight matches from round 128 rises 0.11 ± 0.13 Elo a round.
+
+**The loop's network at the reference's own decode** (2026-11-20,
+`docs/loop_pure_match_prereg_20261120.md`). Round 208's network reads
++152.2 ± 13.5 Elo over `own2` in a PURE match of 800 decisive games:
++37.5 ± 15.0 over the start network's +114.7 at that decode, 2.5
+standard errors against a registered 3, so no change is read. It leans
+to a gain. Nothing is adopted.
+
+**The value estimate was measured** (2026-11-20,
+`docs/value_reliability_prereg_20261120.md`), before any weight that
+leans on it (λ under 1) is tried. It accounts for 45% of the result's
+spread, 2% in a game's first tenth and 89% in its last. It is exact at
+the ends, optimistic by about 0.1 in the middle and overconfident in a
+game's first third (slope 0.77 ± 0.03), where it fails the registered
+rule narrowly. It reads the same in rounds 1 to 32 as in rounds 177 to
+208. Today's weight spends half its power on the first three tenths of a
+game's decisions.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
