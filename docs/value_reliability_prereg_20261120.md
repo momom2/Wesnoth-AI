@@ -155,6 +155,29 @@ result's spread accounted for; 0.096 at λ = 0.95. Two hundred rounds of
 training have not changed the value estimate's quality in either
 direction.
 
+**Why it has not changed: the value head is held by the learning rate**
+(read 2026-11-21 from the checkpoints; not registered). Between the start
+network and round 208's:
+
+| Weights | Count | Change over the weights' norm | Root mean square change of a weight |
+|---|---|---|---|
+| The value head | 167,526 | 1.66% | 1.89e-3 |
+| The encoder (the trunk) | 14,195,712 | 0.33% | 1.55e-4 |
+| Every weight | 15,304,046 | 0.39% | 2.51e-4 |
+
+- Adam at a learning rate of 1e-5 can move a weight by at most 1e-5 a
+  step, so by 2.08e-3 in 208 steps, and it moves it that far only if its
+  gradient has the same sign every round.
+- The value head's weights moved by 91% of that limit. Its gradient has
+  pointed the same way for the whole run, and the learning rate is what
+  stopped it going further.
+- The other weights moved by 7 to 10% of the limit, as a gradient that
+  is mostly noise from round to round does.
+- So the value head is trained in name only: 208 steps have changed it by
+  1.7% and its readings not at all. A learning rate sized for the
+  policy's noisy gradient is far too small for the value head's steady
+  one.
+
 **What this says, and what it does not.**
 - The estimate is evidence-worthy in the second half of a game and weak
   in the opening, where it is also overconfident. It is not "not much
