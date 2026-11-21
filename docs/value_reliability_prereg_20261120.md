@@ -235,3 +235,133 @@ decision for raising the estimate soon after. If the estimate is high
 where the enemy is unseen (C2) or late in the side's own turn (C1), such
 a weight would pay the policy for hiding the enemy from itself or for
 acting late, not for winning.
+
+### What was found (2026-11-21, rounds 177 to 208 unless said)
+
+Scripts and outputs: `training/metrics/value_reliability_20261120/`
+(`where_optimism.py`, `hidden_enemy.py`, `hidden_crosstabs.py`,
+`lambda_clock.py`). The replays' position tables are in
+`wesnoth_runs\value_reliability_20261120\`. Standard errors take games as
+the units.
+
+**Where the estimate comes from.** By the project's own records the value
+head was fitted on the results of human games during imitation
+(`configs/imitation.json`, `value_from_outcome_weight`), and the
+policy-iteration rounds read it frozen
+(`docs/training_design_20261019/current_design.md`: "the frozen value
+head's reading"). The simple loop is the first training to move it on
+this network's own games, and Adam moves a weight by the learning rate a
+step at most. So what is read is still largely an estimate of who wins
+when humans play on, applied to this network's sampled play. That is how
+it can be biased under a regimen that would not make it so.
+
+**C1, the side's own turn: no.** The estimate less the result is +0.075
+at a turn's first decision, +0.086, +0.088, +0.078 and +0.059 through its
+four quarters, and +0.079 at the end-of-turn decision (each ± 0.003). The
+estimate moves +0.0001 ± 0.0001 a decision within a turn and −0.0016 ±
+0.0011 across the enemy's turn.
+
+**C4, the winner decides more often: true, and not the cause.** The
+winner makes 56.2% of the decisions, so the mean result over decisions
+is +0.125. The estimate's mean is +0.203: the excess of +0.078 ± 0.003
+is what needs a cause.
+
+**C3, other play: yes, and it is the larger part.** The error follows the
+enemy's faction. At a turn's first decision (682 replayed games, 22,736
+positions, +0.064 ± 0.007 over all):
+
+| Against | Estimate less result |
+|---|---|
+| Undead | +0.198 ± 0.045 |
+| Northerners | +0.165 ± 0.045 |
+| Loyalists | +0.029 ± 0.043 |
+| Rebels | +0.010 ± 0.046 |
+| Drakes | −0.005 ± 0.044 |
+| Knalgan | −0.008 ± 0.046 |
+
+- Against Undead or Northerners it is too high whatever the side sees:
+  +0.106 ± 0.031 with no enemy unit hidden, +0.192 ± 0.035 with one or
+  two, +0.221 ± 0.035 with three to five. Where it reads between −0.4 and
+  +0.4 against them, the side's result averages −0.21 to −0.35.
+- Playing Undead it is too low (−0.108), playing Drakes too high
+  (+0.189). In the cells of the table of own faction by enemy faction
+  (about 19 games each, so rough) the two sides of a matchup err in
+  opposite directions: Drakes against Undead +0.62, Undead against Drakes
+  −0.43.
+- Under this network's sampled play the factions are far from even. The
+  mean result over a faction's decisions is +0.36 for Northerners, +0.32
+  for Loyalists, +0.17 for Rebels, +0.06 for Undead, −0.10 for Drakes and
+  −0.15 for Knalgan.
+- The estimate's opinions on matchups are not this play's. The human
+  games it was fitted on are the likely source; their results by faction
+  were not read for this.
+
+**C2, hidden enemies: partly, and not as the early bug.** From turn 5 on a
+side cannot see 2.0 of the enemy's 9.4 units on average: 1.1 that it saw
+at an earlier decision of its own, 0.9 that it never saw (819 replayed
+games, 27,672 positions). What a unit is worth, by least squares from
+turn 5 on:
+
+| A unit | To the estimate | To the result | Estimate less result |
+|---|---|---|---|
+| An own unit | +0.088 ± 0.002 | +0.100 ± 0.003 | −0.012 ± 0.002 |
+| An enemy unit in sight | −0.084 ± 0.002 | −0.095 ± 0.003 | +0.011 ± 0.002 |
+| An enemy unit seen before, now out of sight | −0.079 ± 0.004 | −0.104 ± 0.006 | +0.025 ± 0.004 |
+| An enemy unit never seen | −0.128 ± 0.007 | −0.122 ± 0.010 | −0.006 ± 0.008 |
+
+- The estimate does not take the visible board for the whole board. It
+  counts an enemy unit it has lost sight of almost as one in sight (0.079
+  against 0.084), and it allows in full for units it has never seen.
+- Its error is elsewhere: an enemy unit that has gone out of sight turns
+  out worth more than one in sight (0.104 against 0.095), and the
+  estimate does not follow. It carries about three quarters of such a
+  unit's worth. With 1.1 of them on average that is about +0.03 of the
+  optimism.
+- Held at the same reading, the gap is large where several are out of
+  sight: reading between −0.4 and +0.4 with three or more units seen
+  before and now hidden, and none never seen, the estimate is too high by
+  +0.31 ± 0.06. Positions picked by their reading overstate a per-unit
+  error, and the table above is the fairer measure.
+- The estimate also counts every unit, on either side, at about 88% of
+  what it proves worth. With even armies that cancels.
+
+**C5, a prior on the matchup: yes, and it is shrinking.** At a game's
+first decision the result moves 0.66 ± 0.08 for each 1 the estimate
+moves, and the estimate's spread there is 0.147. From the side's second
+turn the slope is 1 within its error (1.08 ± 0.11, 0.94 ± 0.08, 1.02 ±
+0.03 and 1.10 ± 0.02 at the second, third, fifth and eighth turns). The
+overconfidence of the first third is the opening's. Over the run the
+opening slope went from 0.41 (rounds 1 to 32) to 0.61 (rounds 283 to
+314) and the spread from 0.171 to 0.128.
+
+**Over the run.** The estimate less the result over all decisions was
++0.034 in rounds 1 to 32, +0.053, +0.063, +0.078 (rounds 177 to 208),
+then +0.049 and +0.045 (rounds 283 to 314). By own faction it is steady:
+Knalgan +0.10 to +0.16 and Northerners −0.004 to −0.04 in every block.
+
+**A correction to "trained in name only" above.** The value head does
+learn: the opening prior has shrunk by a quarter. It learns at the pace
+Adam allows a steady gradient, the learning rate a step, and the play it
+evaluates moves meanwhile.
+
+**After each kind of decision** the estimate moves, on average, by −0.0087
+± 0.0002 after an attack, +0.0026 ± 0.0001 after a move and +0.0069 ±
+0.0003 after a recruit. By the estimate, the sampled policy's attacks
+cost it and its recruits gain. Whether that is the play or the estimate
+is not separable from the logs.
+
+**For a weight with λ under 1.**
+- The mean square of the weight over today's, fading by the decision:
+  0.19 at 0.98, 0.096 at 0.95, 0.060 at 0.9. Fading once a turn of the
+  side (12.7 decisions): 0.56 at 0.95, 0.38 at 0.9, 0.23 at 0.8, 0.17 at
+  0.7, 0.13 at 0.5.
+- Today's weight has 51% of its mean square in the first three tenths of
+  a side's decisions; fading by the turn at 0.8 leaves 34% there.
+- The enemy's turn moves the estimate by 0.24 (root mean square), one own
+  decision by about 0.08, and a side's last reading is 0.35 from its
+  result.
+- The faction error is fixed for a game, so it leaves the estimate's
+  changes alone and enters only through the last step to the result,
+  which a λ under 1 fades for early decisions. The error on units out of
+  sight changes the estimate little when a unit leaves sight (0.084 to
+  0.079).

@@ -1,0 +1,97 @@
+{
+ "rounds": [
+  177,
+  208
+ ],
+ "decisions": 1728584,
+ "change_after": {
+  "attack": {
+   "n": 413165,
+   "mean": -0.008733139417152811,
+   "se": 0.0001809369653387193,
+   "mean_square": 0.007180072484392766
+  },
+  "move": {
+   "n": 1011728,
+   "mean": 0.0026474123412655636,
+   "se": 0.00013389538476260375,
+   "mean_square": 0.006533486402300967
+  },
+  "recruit": {
+   "n": 167246,
+   "mean": 0.00685065801221225,
+   "se": 0.00031678051063955794,
+   "mean_square": 0.005697304609603285
+  },
+  "end_turn": {
+   "n": 129085,
+   "mean": -0.0015665540728159184,
+   "se": 0.0010516155065458705,
+   "mean_square": 0.05614941640114555
+  },
+  "a side's last decision (to the result)": {
+   "n": 7360,
+   "mean": -0.03496408194870405,
+   "se": 0.001975739514026316,
+   "mean_square": 0.12321305860237622
+  }
+ },
+ "fading_by_the_decision": {
+  "1.0": {
+   "mean_square_over_todays": 1.0,
+   "corr_with_todays": 1.0
+  },
+  "0.98": {
+   "mean_square_over_todays": 0.1904695547895602,
+   "corr_with_todays": 0.7407873159311041
+  },
+  "0.95": {
+   "mean_square_over_todays": 0.09606296392574502,
+   "corr_with_todays": 0.5310069680331622
+  },
+  "0.9": {
+   "mean_square_over_todays": 0.06039841692650494,
+   "corr_with_todays": 0.3879574241689896
+  },
+  "0.8": {
+   "mean_square_over_todays": 0.03917642095424621,
+   "corr_with_todays": 0.2759621819253857
+  }
+ },
+ "fading_by_the_turn": {
+  "0.95": {
+   "mean_square_over_todays": 0.561784481733865,
+   "corr_with_todays": 0.9663498095797197
+  },
+  "0.9": {
+   "mean_square_over_todays": 0.3803810823787112,
+   "corr_with_todays": 0.9042442908056199
+  },
+  "0.8": {
+   "mean_square_over_todays": 0.2320556277188472,
+   "corr_with_todays": 0.7744299494270243
+  },
+  "0.7": {
+   "mean_square_over_todays": 0.17438605295158108,
+   "corr_with_todays": 0.6624945652957223
+  },
+  "0.5": {
+   "mean_square_over_todays": 0.13273815333902877,
+   "corr_with_todays": 0.4966771321047426
+  },
+  "0.3": {
+   "mean_square_over_todays": 0.12217019224928163,
+   "corr_with_todays": 0.3849053201745101
+  },
+  "0.0": {
+   "mean_square_over_todays": 0.12831260193037367,
+   "corr_with_todays": 0.27208901897117593
+  }
+ },
+ "mean_decisions_in_a_turn": 12.66872366154861,
+ "share_of_power_in_first_three_tenths": {
+  "today": 0.5138653096113577,
+  "per_turn_0.8": 0.33713429528875916,
+  "per_turn_0.5": 0.30474807295868545
+ }
+}
