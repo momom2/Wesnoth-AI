@@ -329,6 +329,7 @@ class Loop:
                     "weight_mean_square_at_1": weight.get("mean_square_at_1"),
                     "game_sides": reading["game_sides"], "skipped_sides": reading["skipped_sides"],
                     "decisions": reading["decisions"], "grad_norm": reading["norm"],
+                    "grad_norm_by_group": reading.get("norm_by_group"),
                     "update_norm": step["update_norm"], "replay_kl": reading["replay"]["kl"],
                     "value_cross_entropy": reading["value"]["cross_entropy"],
                     "value_squared_error": reading["value"]["squared_error"],

@@ -138,6 +138,8 @@ def test_the_pass_is_the_uncut_gradient_however_the_game_sides_are_grouped(tmp_p
     assert one["shadow"] == 2 and one["finite"]
     assert one["replay"]["max_abs"] < 1e-4 and abs(one["replay"]["kl"]) < 1e-6
     assert one["norm"] == pytest.approx(float(total.norm()), rel=1e-5)
+    assert math.sqrt(sum(x * x for x in one["norm_by_group"].values())) == pytest.approx(one["norm"], rel=1e-6)
+    assert {"trunk", "actor_head", "value_head", "memory_write"} <= set(one["norm_by_group"])
     small = _run(games, records, streams=2, group_decisions=40, recompute=True)
     assert len(small["groups"]) > 2
     assert torch.allclose(_flat(small["total"], names), total, rtol=1e-4, atol=1e-6 * float(ref.abs().max()))
@@ -209,6 +211,11 @@ def test_the_value_loss_trains_the_value_head_and_nothing_else(tmp_path):
         else:
             assert torch.equal(with_value["total"][n], without["total"][n]), n
     assert sum(float(with_value["total"][n].abs().sum()) for n in head) > 0
+    head_norm = math.sqrt(sum(float((with_value["total"][n].double() ** 2).sum()) for n in head))
+    assert with_value["norm_by_group"]["value_head"] == pytest.approx(head_norm, rel=1e-6)
+    assert without["norm_by_group"]["value_head"] == 0.0
+    assert {g: x for g, x in with_value["norm_by_group"].items() if g != "value_head"} == {
+        g: x for g, x in without["norm_by_group"].items() if g != "value_head"}
     assert with_value["value"]["cross_entropy"] > 0 and without["value"]["cross_entropy"] == 0.0
 
 

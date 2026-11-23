@@ -59,6 +59,7 @@ class FakeTools:
                 "game_sides": 2 * GAMES - PAST, "skipped_sides": PAST, "decisions": 4000, "norm": self.norm(k),
                 "replay": {"kl": 1e-6}, "value": {"cross_entropy": 0.4, "squared_error": 0.5},
                 "weight": {"lam": lam, "mean_square": 0.8 * lam, "mean_square_at_1": 0.8},
+                "norm_by_group": {"trunk": 0.6 * self.norm(k), "value_head": 0.8 * self.norm(k)},
                 "rate": {"decisions_per_second": 80.0}, "peak_memory_mb": 2000.0,
                 "loss_scale": {"overflows": 0}, "groups": [{"scale": 1024.0}]}), encoding="utf-8")
             return 0
@@ -133,6 +134,7 @@ def test_a_round_plays_passes_and_steps_and_a_match_reads_every_second(tmp_path)
     assert games == [str(sl.round_dir(out, 3) / "games_self"), str(sl.round_dir(out, 3) / "games_past")]
     assert "--fp16" in the_pass and "--packed-trunk" in the_pass and _flag(the_pass, "--lam") == "1.0"
     assert [(p["lam"], p["weight_mean_square"]) for p in loop.progress()] == [(1.0, 0.8)] * 4
+    assert loop.progress()[0]["grad_norm_by_group"] == {"trunk": 0.6, "value_head": 0.8}
     assert "--state" not in by_name["round 1 step"]
     step = by_name["round 3 step"]
     assert _flag(step, "--state") == str(sl.round_dir(out, 2) / "adam.pt") and _flag(step, "--lr") == "1e-05"

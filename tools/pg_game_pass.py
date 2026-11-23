@@ -65,6 +65,9 @@ grad.pt holds:
     groups           per group: its game-sides, decisions, steps, seconds,
                      loss scale and its own gradient's norm per game-side
     norm             the total's norm
+    norm_by_group    its norm over each group of parameters
+                     (wesnoth_ai/param_groups.py): the value head's is the
+                     cross-entropy's gradient, the others' the policy's
     replay           kl, half_mean_square, mean_abs, max_abs, limit
     value            the mean cross-entropy and the mean squared error of
                      the head's expectation against z, before the step
@@ -100,7 +103,7 @@ from tools.pg_positions import (RECORD_SUFFIX, SELF_PLAY_PROCEDURE, ForeignGameE
                                 foreign_sides, record_facts)
 from tools.pg_schedule import PGMemoryRouter  # noqa: E402
 from wesnoth_ai.model_output import VALUE_V_MAX, VALUE_V_MIN  # noqa: E402
-from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
+from wesnoth_ai.param_groups import GROUP_ORDER, group_of, named_model_parameters  # noqa: E402
 from wesnoth_ai.pg_loss import action_log_probs  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, Step  # noqa: E402
 
@@ -384,11 +387,15 @@ class GamePass:
         self.loader.close()
         n_sides = sum(len(g) for g in self.groups)
         total = {n: (t / n_sides).cpu() for n, t in total.items()}
+        by_group: Dict[str, float] = {}
+        for n, t in total.items():
+            by_group[group_of(n)] = by_group.get(group_of(n), 0.0) + float((t.double() ** 2).sum())
         rows = max(1, decisions)
         spent = sum(g["seconds"] for g in groups)
         result = {
             "names": [n for n, _ in self.named], "total": total,
             "norm": float(torch.sqrt(sum((t.double() ** 2).sum() for t in total.values()))),
+            "norm_by_group": {g: by_group[g] ** 0.5 for g in GROUP_ORDER if g in by_group},
             "finite": all(g["finite"] for g in groups),
             "game_sides": n_sides, "games": len({g.file for group in self.groups for g in group}),
             "decisions": int(decisions), "shadow": int(shadow), "skipped_sides": int(self.skipped),
@@ -416,7 +423,8 @@ class GamePass:
         return result
 
 
-SUMMARY_KEYS = ("game_sides", "games", "decisions", "shadow", "skipped_sides", "norm", "finite", "groups",
+SUMMARY_KEYS = ("game_sides", "games", "decisions", "shadow", "skipped_sides", "norm", "norm_by_group", "finite",
+                "groups",
                 "replay", "value", "weight", "loss_scale", "seconds", "rate", "peak_memory_mb",
                 "checkpoint_sha256", "config")
 
