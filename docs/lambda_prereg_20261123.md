@@ -159,6 +159,28 @@ it. None of it is a verdict.
 | The update's norm | 0.0095 | about 0.6 of it within some twenty rounds, then back toward 0.0095 over about 1,000 | below; the value head's weights are about 6% of the update's square and keep their step |
 | The value head's cross-entropy | 0.41 | unchanged | its loss does not change |
 
+**Corrected before the switch** (2026-11-23 23:47, while the match at
+round 464 played): the whole gradient's norm is expected at about 44, not
+about 55.
+- The table took the value head's share of the squared gradient from
+  Adam's average: 43%. That average weighs every round since the run's
+  first between 0.64 and 1 (0.999^451 = 0.64), so it reads the share over
+  the whole run. The rounds before the switch do not match it.
+- The eleven rounds between the merge and the switch (454 to 464, at
+  λ = 1, the first whose passes record the parts) read:
+
+  | Reading | Rounds 454 to 464: median (range) | Expected at λ = 0.99 |
+  |---|---|---|
+  | The policy's part of the gradient's norm | 57.0 (55.4 to 83.0) | about 31: 0.55 of it |
+  | The value head's part | 30.4 (11.8 to 46.0) | unchanged |
+  | The whole gradient's norm | 68.2 (61.0 to 86.0) | about 44 |
+  | The value head's share of the squared gradient | 23% (4% to 39%) | about half |
+  | The weights' mean square | 0.526 (0.461 to 0.580) | about 0.3 of what the same round reads at λ = 1 |
+
+- The update's norm keeps its expectation. It was worked from the value
+  head's share of the update's square (6%), not of the gradient's.
+- Nothing that decides or kills changes.
+
 **What Adam's memory does to the pace.** Adam divides each weight's step
 by the root of its squared gradient averaged over about the last 1,000
 rounds (β2 = 0.999: an old gradient's share of that average halves in 693
