@@ -46,10 +46,11 @@ the start, a difference of +81.5 ± 14.5, 5.6 standard errors against the
 registered 3. It is not an adoption claim: the candidate samples while
 the reference plays its pinned decode. The run goes on, and since
 2026-11-20 it plays from the main checkout (the loop's code is in `main`
-since 0.34.0). Since the verdict the gain has slowed: three readings fell
-in a row to +92.3 ± 12.7 at round 208, then rounds 224 and 240 read
-+123.8 ± 13.1 and +153.2 ± 13.5, the run's highest. A line through the
-eight matches from round 128 rises 0.11 ± 0.13 Elo a round.
+since 0.34.0). Since the verdict the level has stepped up and held: the
+seven matches of rounds 128 to 224 average +115.4 ± 4.9 and the twelve of
+rounds 240 to 416 average +153.0 ± 3.9 (to 2026-11-23). A line through
+the nineteen from round 128 rises 0.18 ± 0.04 Elo a round; within rounds
+240 to 416 no rise is read (0.05 ± 0.07).
 
 **The loop's network at the reference's own decode** (2026-11-20,
 `docs/loop_pure_match_prereg_20261120.md`). Round 208's network reads
@@ -67,6 +68,24 @@ game's first third (slope 0.77 ± 0.03), where it fails the registered
 rule narrowly. It reads the same in rounds 1 to 32 as in rounds 177 to
 208. Today's weight spends half its power on the first three tenths of a
 game's decisions.
+
+**Why it errs** (2026-11-21 and 2026-11-23, the same document's two
+follow-ups). The value head was fitted on human games' results and read
+frozen until this loop, and Adam moves a weight by the learning rate a
+step at most. No fault was found in the training code. In rounds 177 to
+208 its optimism followed the enemy's faction (+0.20 against Undead,
++0.17 against Northerners), it carried an enemy unit that had gone out
+of sight at three quarters of its worth, and its opening prior was too
+strong (the result moves 0.54 to 0.66 for each 1 of the estimate at a
+game's first decision). It is not blind to hidden enemies. In five of
+seven windows it also rises over a side's own turn and falls back across
+the enemy's, by up to 0.04. Over all decisions the optimism has fallen
+from +0.078 (rounds 177 to 208) to +0.027 (rounds 393 to 424). The user
+keeps one learning rate for the whole network (2026-11-21), declined a
+one-off refit of the head and proposed continuing at λ = 0.99
+(2026-11-23). Read on the logs, that weight has 0.30 to 0.32 of today's
+mean square, the result being a third of what the present estimate is
+compared with. Nothing is registered for it yet.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128

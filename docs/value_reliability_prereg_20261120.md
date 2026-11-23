@@ -255,7 +255,8 @@ step at most. So what is read is still largely an estimate of who wins
 when humans play on, applied to this network's sampled play. That is how
 it can be biased under a regimen that would not make it so.
 
-**C1, the side's own turn: no.** The estimate less the result is +0.075
+**C1, the side's own turn: no in these rounds, yes in most others**
+(corrected 2026-11-23: "A correction to C1" below). The estimate less the result is +0.075
 at a turn's first decision, +0.086, +0.088, +0.078 and +0.059 through its
 four quarters, and +0.079 at the end-of-turn decision (each ± 0.003). The
 estimate moves +0.0001 ± 0.0001 a decision within a turn and −0.0016 ±
@@ -365,3 +366,107 @@ is not separable from the logs.
   which a λ under 1 fades for early decisions. The error on units out of
   sight changes the estimate little when a unit leaves sight (0.084 to
   0.079).
+
+## Follow-up: a weight with λ = 0.99 (2026-11-23)
+
+The user, 2026-11-23, to a one-off refit of the value head on the loop's
+own games: "No. How about we continue with λ = 0.99?" These readings
+were taken for that discussion. They were not registered and decide
+nothing by themselves. No λ under 1 has run.
+
+Scripts and outputs: `lambda_clock.py` (`clock_177_208.json`,
+`clock_393_424.json`) and `where_optimism.py` (`where_*.json`) in
+`training/metrics/value_reliability_20261120/`. Where two figures are
+given they are rounds 177 to 208, then rounds 393 to 424.
+
+**The weight.** For one side's decisions in play order, v the logged
+estimates and z the side's result, standing in for the estimate after
+its last decision:
+
+    a_t = sum over k >= 0 of λ^k (v_{t+k+1} − v_{t+k})
+        = −v_t + (1 − λ) sum over k >= 1 of λ^(k−1) v_{t+k} + λ^(its later decisions) z
+
+At λ = 1 it is today's z − v_t. Under 1 it is a blend of the later
+estimates and the result, less the present estimate. It is generalized
+advantage estimation with no discount and the result as the only reward.
+
+**What it does to the weight.**
+
+| λ, fading by the decision | Mean square over today's | Correlation with today's | The result's share of the blend | Mean square over today's in a game-side's first tenth, last tenth |
+|---|---|---|---|---|
+| 0.995 | 0.49, 0.47 | 0.95, 0.94 | 55%, 53% | 0.35 and 0.90; 0.33 and 0.89 |
+| 0.99 | 0.32, 0.30 | 0.87, 0.86 | 36%, 34% | 0.19 and 0.82; 0.18 and 0.80 |
+| 0.98 | 0.19, 0.18 | 0.74, 0.72 | 21%, 19% | 0.09 and 0.69; 0.09 and 0.67 |
+| 0.95 | 0.096, 0.092 | 0.53, 0.52 | 8.5%, 7.9% | 0.03 and 0.46; 0.03 and 0.45 |
+
+A game-side has 235 and 252 decisions, a turn 12.7 and 13.0. So 0.99 a
+decision is 0.88 a turn, and a change of the estimate counts for half
+after 69 decisions, a little over five turns.
+
+**Where a λ under 1 could mislead.** The λ weight less today's is
+
+    −sum over k >= 1 of (1 − λ^k) (v_{t+k+1} − v_{t+k}):
+
+the later changes of the estimate, which λ leaves out in part. Were the
+estimate exact, those changes would average zero after any decision and
+the two weights would agree on average. Where they can be foreseen from
+what was decided, a λ under 1 pays for the decision and not for the
+result. Read by kind of decision, each decision less the mean of its
+turn, so that when in a game a kind is taken does not count:
+
+| The λ weight less today's, within a turn | Attack | Move | Recruit | End of turn |
+|---|---|---|---|---|
+| 0.995 | +0.00001, −0.00006 | +0.00016, +0.00006 | +0.00009, +0.00011 | −0.00135, −0.00044 |
+| 0.99 | −0.00002, −0.00012 | +0.00023, +0.00009 | +0.00016, +0.00018 | −0.00185, −0.00061 |
+| 0.98 | −0.00011, −0.00020 | +0.00028, +0.00014 | +0.00027, +0.00024 | −0.00210, −0.00076 |
+| 0.95 | −0.00037, −0.00036 | +0.00032, +0.00025 | +0.00041, +0.00018 | −0.00182, −0.00109 |
+
+- The standard errors are 0.00013 at most.
+- Today's weight read the same way: attack −0.0054 and −0.0131, move
+  +0.0002 and +0.0033, recruit +0.0043 and +0.0044, end of turn +0.0104
+  and +0.0082.
+- So at 0.99 the weights of attacks, moves and recruits move against one
+  another by 0.0003 at most, against contrasts of 0.004 to 0.013 between
+  them today.
+- The end-of-turn decision is always its turn's last, so its column
+  carries the place in the turn too. Two neighbouring decisions' columns
+  differ by (1 − λ) times the later one's weight, and the weight's mean
+  is under zero by the optimism.
+- This reads the kind of decision only. An error that depends on which
+  hex or which target is not read by it, and the logs cannot read it.
+
+**A correction to C1.** "C1: no" above was read on rounds 177 to 208
+alone. Over every window read:
+
+| Rounds | The estimate's rise over a side's turn | Its change across the enemy's turn | Estimate less result: all decisions | A turn's first decision | The end-of-turn decision |
+|---|---|---|---|---|---|
+| 1 to 32 | +0.011 | −0.010 | +0.034 | +0.044 | +0.057 |
+| 65 to 96 | +0.002 | −0.002 | +0.053 | +0.064 | +0.069 |
+| 129 to 160 | +0.018 | −0.019 | +0.063 | +0.061 | +0.081 |
+| 177 to 208 | +0.002 | −0.002 | +0.078 | +0.075 | +0.079 |
+| 241 to 272 | +0.034 | −0.035 | +0.049 | +0.026 | +0.062 |
+| 283 to 314 | +0.040 | −0.042 | +0.045 | +0.014 | +0.057 |
+| 393 to 424 | +0.024 | −0.024 | +0.027 | +0.005 | +0.030 |
+
+- The changes are ± 0.001, the differences ± 0.003.
+- So C1 holds in five of the seven windows: the estimate rises over a
+  side's own turn and the enemy's turn takes it back, by up to 0.04. The
+  window the candidates were read on was one of the two without it.
+- In the latest window all of the optimism is of this kind. The estimate
+  is right at a turn's first decision (+0.005 ± 0.003) and +0.030 too high
+  at its last.
+- The optimism over all decisions has fallen to +0.027 ± 0.003, a third
+  of what it was in rounds 177 to 208.
+- After each kind of decision the estimate now moves by −0.0184 ± 0.0002
+  (attack), +0.0090 ± 0.0001 (move) and +0.0065 ± 0.0004 (recruit).
+- The opening slope reads 0.54 ± 0.09 with a spread of 0.131: no change
+  from rounds 283 to 314 (0.61 ± 0.09, 0.128).
+
+**What the rise within a turn means for λ.** A rise that the enemy's turn
+takes back cancels in today's weight. Fading by the decision, a rise k
+decisions before the turn's end keeps 1 − λ^k of itself: from the middle
+of a turn about 6% at 0.99 and 28% at 0.95, so 0.0015 and 0.007 of a rise
+of 0.024. Fading once a turn of the side keeps none of it, since a
+turn's own changes and the enemy's reply all count in full. So at 0.99
+the clock matters little, and a shorter horizon would be the case for
+ticking by the turn.

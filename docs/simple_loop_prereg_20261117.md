@@ -293,6 +293,17 @@ Filled in as the run goes.
 | 208 | +92.3 ± 12.7 | 504 | 2026-11-20 12:41 |
 | 224 | +123.8 ± 13.1 | 537 | 2026-11-20 17:50 |
 | 240 | +153.2 ± 13.5 | 566 | 2026-11-20 22:51 |
+| 256 | +146.0 ± 13.4 | 559 | 2026-11-21 03:47 |
+| 272 | +150.1 ± 13.4 | 563 | 2026-11-21 08:33 |
+| 288 | +150.1 ± 13.4 | 563 | 2026-11-21 13:41 |
+| 304 | +142.9 ± 13.3 | 556 | 2026-11-21 18:43 |
+| 320 | +159.6 ± 13.6 | 572 | 2026-11-21 23:59 |
+| 336 | +167.1 ± 13.7 | 579 | 2026-11-22 04:59 |
+| 352 | +143.9 ± 13.3 | 557 | 2026-11-22 10:17 |
+| 368 | +144.9 ± 13.4 | 558 | 2026-11-22 15:23 |
+| 384 | +159.6 ± 13.6 | 572 | 2026-11-22 20:48 |
+| 400 | +157.4 ± 13.6 | 570 | 2026-11-23 02:17 |
+| 416 | +161.7 ± 13.6 | 574 | 2026-11-23 07:25 |
 
 **The verdict: the loop trains.** The matches at rounds 128, 144 and 160
 average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
@@ -335,6 +346,23 @@ registered either.
   matches of 800 do by chance, as the block comparison said at the time.
   What the matches support is a gain that has slowed since round 128,
   not a fall and not a stall.
+
+**The level has stepped up and held** (to round 416, 2026-11-23 07:25).
+Not registered either.
+- The twelve matches of rounds 240 to 416 average +153.0 ± 3.9. The seven
+  of rounds 128 to 224 average +115.4 ± 4.9. The difference is +37.7 ±
+  6.3, and the later block is +113.8 ± 13.0 over the start.
+- A line through the nineteen matches from round 128 rises 0.18 ± 0.04
+  Elo a round. Through the twelve from round 240 it rises 0.05 ± 0.07:
+  within that block no rise is read.
+- No match since round 240 reads under +142.9. The lowest of the twelve
+  is 103.7 ± 18.2 over the start.
+- The gradient's norm has a median of 70.8 over rounds 385 to 416 and the
+  update's norm 0.0097. The value head's cross-entropy is 0.41, as it was
+  in rounds 1 to 32 (0.40). A round takes 188 s of play and 937 s of pass
+  (medians), against 194 s and 877 s in rounds 1 to 32: a game-side now
+  has 256 decisions against 247.
+- The run was alive in round 425 at 10:13 on 2026-11-23.
 
 **A pause for a match at the reference's decode** (2026-11-20, the
 user's approval; `docs/loop_pure_match_prereg_20261120.md`). The run was

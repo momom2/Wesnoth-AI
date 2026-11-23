@@ -21,8 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from where_optimism import END_TURN, KINDS, load  # noqa: E402
 
-PER_DECISION = (1.0, 0.98, 0.95, 0.9, 0.8)
+PER_DECISION = (1.0, 0.995, 0.99, 0.98, 0.95, 0.9, 0.8)
 PER_TURN = (0.95, 0.9, 0.8, 0.7, 0.5, 0.3, 0.0)
+
+
+def progress_of(d: dict) -> np.ndarray:
+    """Each decision's place in its game-side, from 0 to 1."""
+    return d["index"] / d["n"]
 
 
 def main() -> int:
@@ -72,6 +77,39 @@ def main() -> int:
     res["fading_by_the_decision"] = {str(lam): summary(weight(lam, False)) for lam in PER_DECISION}
     res["fading_by_the_turn"] = {str(lam): summary(weight(lam, True)) for lam in PER_TURN}
     res["mean_decisions_in_a_turn"] = float(d["turn_len"][d["place"] == 0].mean())
+    res["mean_decisions_of_a_game_side"] = float(n / (int(d["gside"].max()) + 1))
+    # What a lambda under 1 changes, decision by decision. The weight is
+    #     a_t = -v_t + (1 - lam) * sum_{k>=1} lam^(k-1) v_{t+k} + lam^(later decisions) * z,
+    # so `result_share_of_target` is the mean of lam^(later decisions), and
+    # a_t - (z - v_t) = -sum_{k>=1} (1 - lam^k) (v_{t+k+1} - v_{t+k}): the later
+    # changes of the estimate that lambda leaves out. Were the estimate
+    # exact, those changes would average zero after any decision; their mean
+    # by kind of decision, taken within the side's turn, is the part of the
+    # lambda weight that differs from today's by what was decided.
+    remaining = d["n"] - 1 - d["index"]
+    turn_key = np.unique(d["gside"].astype(np.int64) * 4096 + d["turn"], return_inverse=True)[1]
+    turn_size = np.bincount(turn_key).astype(float)
+
+    def within_turn(x: np.ndarray) -> np.ndarray:
+        return x - (np.bincount(turn_key, weights=x) / turn_size)[turn_key]
+
+    tenth = np.minimum((10 * d["index"] / d["n"]).astype(int), 9)
+    by_kind = {name: d["kind"] == k for k, name in KINDS.items()}
+    res["today_by_kind"] = {name: mean_se(today, m) for name, m in by_kind.items()}
+    res["today_by_kind_within_turn"] = {name: mean_se(within_turn(today), m) for name, m in by_kind.items()}
+    res["by_lambda"] = {}
+    for lam in PER_DECISION[1:]:
+        a = weight(lam, False)
+        left_out = a - today
+        res["by_lambda"][str(lam)] = {
+            **summary(a),
+            "result_share_of_target": float((lam ** remaining).mean()),
+            "mean_square_over_todays_by_tenth": [
+                float((a[tenth == i] ** 2).mean() / (today[tenth == i] ** 2).mean()) for i in range(10)],
+            "share_of_power_in_first_three_tenths": float((a[progress_of(d) < 0.3] ** 2).sum() / (a ** 2).sum()),
+            "difference_from_todays_by_kind": {name: mean_se(left_out, m) for name, m in by_kind.items()},
+            "difference_from_todays_by_kind_within_turn": {
+                name: mean_se(within_turn(left_out), m) for name, m in by_kind.items()}}
     # how the weight's power is spread along the game under each
     progress = d["index"] / d["n"]
     res["share_of_power_in_first_three_tenths"] = {
