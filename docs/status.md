@@ -47,10 +47,11 @@ registered 3. It is not an adoption claim: the candidate samples while
 the reference plays its pinned decode. The run goes on, and since
 2026-11-20 it plays from the main checkout (the loop's code is in `main`
 since 0.34.0). Since the verdict the level has stepped up and held: the
-seven matches of rounds 128 to 224 average +115.4 ± 4.9 and the fourteen
-of rounds 240 to 448 average +152.8 ± 3.6 (to 2026-11-23). A line through
-the twenty-one from round 128 rises 0.16 ± 0.03 Elo a round; within
-rounds 240 to 448 no rise is read (0.03 ± 0.06).
+seven matches of rounds 128 to 224 average +115.4 ± 4.9 and the fifteen
+of rounds 240 to 464 average +152.5 ± 3.5 (to 2026-11-23). A line through
+the twenty-two from round 128 rises 0.14 ± 0.03 Elo a round; within
+rounds 240 to 464 no rise is read (0.02 ± 0.05). Round 464 is the last at
+λ = 1.
 
 **The loop's network at the reference's own decode** (2026-11-20,
 `docs/loop_pure_match_prereg_20261120.md`). Round 208's network reads
@@ -87,17 +88,23 @@ one-off refit of the head and proposed continuing at λ = 0.99
 mean square, the result being a third of what the present estimate is
 compared with.
 
-**λ = 0.99 is registered** (2026-11-23, the user: "Alright, do it.";
+**The loop runs at λ = 0.99 since round 465** (2026-11-23 23:58, the
+user: "Alright, do it.";
 `docs/lambda_prereg_20261123.md`, departure 9 of the simple loop's
 registration). The policy's weight becomes generalised advantage
 estimation's, fading by the decision; the value head still trains on the
 result, and the learning rate and the optimizer's state are unchanged.
 The code is in `main` since 0.35.0 (`--lam` on the pass and the runner, 1
-by default). The run switches after its match at round 464, so round 465
-is the first at 0.99. What decides: the fifteen matches of rounds 480 to
-704 against the fifteen of rounds 240 to 464; λ = 0.99 is rejected if it
-reads more than 2 standard errors lower, and stays otherwise. A gain
-would not show that λ caused it, since no run at λ = 1 plays beside it.
+by default). The run switched after its match at round 464, and its
+command now carries `--lam 0.99`. Round 465 checked out: its weights'
+mean square is 0.33 of what the same round reads at λ = 1 (0.3 expected),
+and its replay is inside the exact check. What decides: the fifteen
+matches of rounds 480 to 704 against the fifteen of rounds 240 to 464
+(+152.5 ± 3.5); λ = 0.99 is rejected if it reads more than 2 standard
+errors lower, and stays otherwise. A gain would not show that λ caused
+it, since no run at λ = 1 plays beside it. Read by hand meanwhile: from
+round 528, the λ matches' mean more than 3 standard errors under that
+block sends the run back to λ = 1.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128

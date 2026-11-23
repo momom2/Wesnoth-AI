@@ -278,6 +278,9 @@ These were settled while building, before the launch.
   hidden window. The worktree `..\wesnoth_ai-run-simple` is deleted. Both
   venvs (`.venv` and `venvs\wesnoth_rocm`) hold the wheel built from
   `main`, phase 39.
+- **Since 2026-11-23 23:58:47 the command carries `--lam 0.99`**
+  (departure 9), after `--lr 1e-5`. The runner's default is 1, so a
+  restart without it would go back to λ = 1.
 - **To stop it:** a file named STOP in `wesnoth_runs\simple_loop`.
 - **Started 2026-11-17 16:33:49** (the launching `cmd.exe` is pid
   27620). The match at step 0 was playing two minutes later, 43 games
@@ -322,6 +325,11 @@ Filled in as the run goes.
 | 416 | +161.7 ± 13.6 | 574 | 2026-11-23 07:25 |
 | 432 | +151.1 ± 13.5 | 564 | 2026-11-23 12:35 |
 | 448 | +152.2 ± 13.5 | 565 | 2026-11-23 18:09 |
+| 464 | +148.0 ± 13.4 | 561 | 2026-11-23 23:58 |
+
+Round 464's is the last match at λ = 1. From round 465 the run plays at
+λ = 0.99 (departure 9), and its matches from round 480 on are read in
+`docs/lambda_prereg_20261123.md`.
 
 **The verdict: the loop trains.** The matches at rounds 128, 144 and 160
 average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
@@ -404,6 +412,21 @@ registered on. Not registered either.
 - The code of departure 9 is in `main` since 0.35.0 (`--lam`, 1 by
   default). From that merge on the run's passes record the weights' mean
   square and the gradient's norm per group of parameters, still at λ = 1.
+
+**To round 464, the last at λ = 1** (2026-11-23 23:58). Not registered
+either.
+- Round 464 read +148.0 ± 13.4. The fifteen matches of rounds 240 to 464
+  average +152.5 ± 3.5, scatter by 7.2 around their mean, and a line
+  through them rises 0.02 ± 0.05 Elo a round. A line through the
+  twenty-two from round 128 rises 0.14 ± 0.03.
+- The eleven rounds whose passes record the gradient's parts (454 to 464)
+  read, as medians: the policy's part 57.0, the value head's 30.4, the
+  whole 68.2. The value head holds 23% of a round's squared gradient (4%
+  to 39%). The 43% above is Adam's average over the whole run, not the
+  present share.
+- The run stopped on a STOP file after that match and started again at
+  23:58:47 with `--lam 0.99`. Round 465 checked out
+  (`docs/lambda_prereg_20261123.md`, Results).
 
 **A pause for a match at the reference's decode** (2026-11-20, the
 user's approval; `docs/loop_pure_match_prereg_20261120.md`). The run was

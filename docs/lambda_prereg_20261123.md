@@ -1,8 +1,9 @@
 # A weight with λ = 0.99: pre-registration (2026-11-23)
 
-**Status: registered, not switched yet.** The simple loop
-(`docs/simple_loop_prereg_20261117.md`) runs at λ = 1 until its match at
-round 464 has been read. Round 465 is planned as the first at λ = 0.99.
+**Status: switched. Round 465 is the first at λ = 0.99** (2026-11-23
+23:58:47), and it checked out (Results). The simple loop
+(`docs/simple_loop_prereg_20261117.md`) ran at λ = 1 to its match at
+round 464. The deciding number is read after the match at round 704.
 
 The user proposed it on 2026-11-23 ("How about we continue with
 λ = 0.99?"), was shown the readings taken on the logged games
@@ -211,7 +212,44 @@ rounds, 9.5 days at 73 rounds a day).
   the run after it. The launch's command starts again with `--lam 0.99`
   added.
 - **The check:** kill criterion 3, on round 465.
+- **What happened** (2026-11-23): the STOP file was written at 23:45:59,
+  25 seconds into the match at round 464. The match read at 23:58:14 and
+  the runner stopped before round 465. The launch's command started again
+  at 23:58:47 with `--lam 0.99`; its first log line reads "lambda 0.99".
+  The GPU idled for 33 seconds.
 
 ## Results
 
 Filled in as the run goes.
+
+**The block before the switch.** The match at round 464 read +148.0 ±
+13.4 (561 wins of 800). The fifteen matches of rounds 240 to 464 average
++152.5 ± 3.5 Elo. They scatter by 7.2 around their mean, and a line
+through them rises 0.02 ± 0.05 Elo a round.
+- Kill criterion 2 in numbers: the first four matches at λ = 0.99
+  averaging under +129.7, or the first eight under +134.7.
+- Both take each match's standard error near 13.5. The deciding
+  number's standard error stays about 4.9.
+
+**Round 465, the first at λ = 0.99, checks out** (2026-11-24 00:15:11;
+kill criterion 3).
+
+| Reading | Rounds 454 to 464, λ = 1: median (range) | Expected | Round 465 |
+|---|---|---|---|
+| The replay of the games (second-order KL, limit 1e-4) | 7.1e-6 (6.4e-6 to 7.5e-6) | inside the limit | 7.0e-6 |
+| The weights' mean square over the same round's at λ = 1 | 1 | about 0.3; outside 0.2 to 0.45 kills | 0.328 (0.1735 over 0.5293) |
+| The policy's part of the gradient's norm | 57.0 (55.4 to 83.0) | about 31 | 31.9 |
+| The value head's part | 30.4 (11.8 to 46.0) | unchanged | 20.8 |
+| The whole gradient's norm | 68.2 (61.0 to 86.0) | about 44 | 38.1 |
+| The update's norm | 0.0090 (0.0088 to 0.0093) | about 0.6 of it within some twenty rounds | 0.0086 |
+| The value head's cross-entropy | 0.39 (0.35 to 0.44) | unchanged | 0.39 |
+
+- It is one round. The weight's ratio and the replay are the check; the
+  rest is logged against the expectations and is no verdict.
+- The policy's part is 0.56 of its median at λ = 1. A gradient that is
+  all noise following the weight would read √0.328 = 0.57.
+- The update's norm is 0.93 of round 464's. Adam's step follows a running
+  average of the gradients in which the newest counts for a tenth
+  (β1 = 0.9), so the fall is expected over some twenty rounds.
+- The round holds 230 game-sides, 52,905 decisions and no refused
+  decision. Its pass took 806 s.
