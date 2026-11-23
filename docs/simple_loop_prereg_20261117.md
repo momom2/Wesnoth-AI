@@ -229,6 +229,22 @@ These were settled while building, before the launch.
      games within the exact check's 1e-4. If it does not, the run stops
      there and goes back to the phase-38 wheel and its own worktree,
      which are kept until the check has passed.
+9. **From round 465 the policy's weight leans on the later value
+   estimates: λ = 0.99, fading by the decision** (written 2026-11-23,
+   before the switch). The user, 2026-11-23: "How about we continue with
+   λ = 0.99?" and, shown the readings on the logged games, "Alright, do
+   it." It has its own registration, with its deciding number and kill
+   criteria: `docs/lambda_prereg_20261123.md`.
+   - **What changes:** in the pass, the weight z − v_t becomes the sum
+     over k >= 0 of 0.99^k (v_{t+k+1} − v_{t+k}), the estimate after a
+     side's last decision being its result z. It is generalised advantage
+     estimation with no discount and the result as the only reward; at
+     λ = 1 it is z − v_t.
+   - **What does not:** the value head's training on z, the learning
+     rate, the optimizer's state, the games, the pool, the matches, this
+     document's kill criteria, `config.json`.
+   - **How:** a STOP file while the match at round 464 plays; the
+     launch's command again with `--lam 0.99`.
 
 ## The launch
 
