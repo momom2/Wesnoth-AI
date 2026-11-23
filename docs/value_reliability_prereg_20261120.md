@@ -426,8 +426,8 @@ turn, so that when in a game a kind is taken does not count:
   +0.0002 and +0.0033, recruit +0.0043 and +0.0044, end of turn +0.0104
   and +0.0082.
 - So at 0.99 the weights of attacks, moves and recruits move against one
-  another by 0.0003 at most, against contrasts of 0.004 to 0.013 between
-  them today.
+  another by 0.0003 at most. Today's weight sets attacks and recruits
+  0.010 and 0.018 apart.
 - The end-of-turn decision is always its turn's last, so its column
   carries the place in the turn too. Two neighbouring decisions' columns
   differ by (1 − λ) times the later one's weight, and the weight's mean
