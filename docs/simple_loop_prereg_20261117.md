@@ -229,6 +229,22 @@ These were settled while building, before the launch.
      games within the exact check's 1e-4. If it does not, the run stops
      there and goes back to the phase-38 wheel and its own worktree,
      which are kept until the check has passed.
+9. **From round 465 the policy's weight leans on the later value
+   estimates: λ = 0.99, fading by the decision** (written 2026-11-23,
+   before the switch). The user, 2026-11-23: "How about we continue with
+   λ = 0.99?" and, shown the readings on the logged games, "Alright, do
+   it." It has its own registration, with its deciding number and kill
+   criteria: `docs/lambda_prereg_20261123.md`.
+   - **What changes:** in the pass, the weight z − v_t becomes the sum
+     over k >= 0 of 0.99^k (v_{t+k+1} − v_{t+k}), the estimate after a
+     side's last decision being its result z. It is generalised advantage
+     estimation with no discount and the result as the only reward; at
+     λ = 1 it is z − v_t.
+   - **What does not:** the value head's training on z, the learning
+     rate, the optimizer's state, the games, the pool, the matches, this
+     document's kill criteria, `config.json`.
+   - **How:** a STOP file while the match at round 464 plays; the
+     launch's command again with `--lam 0.99`.
 
 ## The launch
 
@@ -304,6 +320,8 @@ Filled in as the run goes.
 | 384 | +159.6 ± 13.6 | 572 | 2026-11-22 20:48 |
 | 400 | +157.4 ± 13.6 | 570 | 2026-11-23 02:17 |
 | 416 | +161.7 ± 13.6 | 574 | 2026-11-23 07:25 |
+| 432 | +151.1 ± 13.5 | 564 | 2026-11-23 12:35 |
+| 448 | +152.2 ± 13.5 | 565 | 2026-11-23 18:09 |
 
 **The verdict: the loop trains.** The matches at rounds 128, 144 and 160
 average +120.7 ± 7.5 Elo. The first match read +39.2 ± 12.4. The
@@ -363,6 +381,29 @@ Not registered either.
   (medians), against 194 s and 877 s in rounds 1 to 32: a game-side now
   has 256 decisions against 247.
 - The run was alive in round 425 at 10:13 on 2026-11-23.
+
+**To round 448** (2026-11-23 18:09): the readings departure 9 was
+registered on. Not registered either.
+- Rounds 432 and 448 read +151.1 ± 13.5 and +152.2 ± 13.5. The fourteen
+  matches of rounds 240 to 448 average +152.8 ± 3.6, and a line through
+  them rises 0.03 ± 0.06 Elo a round. A line through the twenty-one from
+  round 128 rises 0.16 ± 0.03.
+- The fourteen scatter by 7.3 Elo around their mean, where each one's
+  standard error is 13.5. Every match plays the same seeds, which would
+  explain it.
+- Over rounds 388 to 451 the medians are 69.9 for the gradient's norm,
+  0.0095 for the update's norm and 0.41 for the value head's
+  cross-entropy. The value head's group holds 43% of the squared gradient
+  Adam has averaged (round 451's state); it held 48% at round 76.
+- No round of 388 to 451 holds a refused decision.
+- The runner's log labels round 426's games against a past self and its
+  pass "code 34b3a43f+dirty". The working tree then held the uncommitted
+  records of 50b3547c (10:22): documents, a metrics script with its
+  outputs, and at most the version string. None of the loop's tools was
+  among them.
+- The code of departure 9 is in `main` since 0.35.0 (`--lam`, 1 by
+  default). From that merge on the run's passes record the weights' mean
+  square and the gradient's norm per group of parameters, still at λ = 1.
 
 **A pause for a match at the reference's decode** (2026-11-20, the
 user's approval; `docs/loop_pure_match_prereg_20261120.md`). The run was

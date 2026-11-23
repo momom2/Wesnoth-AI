@@ -4,7 +4,7 @@ docs/training_dynamics_theory_20261111.md, "The user's decisions").
 
     set HIP_VISIBLE_DEVICES=1
     <rocm venv>/python scripts/simple_loop_local.py --out C:/Users/<you>/wesnoth_runs/simple_loop ^
-        --start path/to/pi.pt --lr 1e-5 --keep-awake
+        --start path/to/pi.pt --lr 1e-5 --lam 0.99 --keep-awake
 
 One round is one optimizer step:
 
@@ -14,10 +14,13 @@ One round is one optimizer step:
    past self, drawn uniformly from the pool, the rest against itself. The
    pool is the start network and every checkpoint a match has read.
 2. **Pass.** tools/pg_game_pass.py: the whole-game gradient over the
-   current network's game-sides, each decision weighted by its side's
-   result less the logged value estimate, with the value head trained on
-   the result. Its exact checks (every logged decision trained, the replay
-   identity) stop the run.
+   current network's game-sides, with the value head trained on the
+   result. At --lam 1 each decision is weighted by its side's result less
+   the logged value estimate; under 1 the estimates logged later in the
+   game stand in for part of the result, each later change of the estimate
+   counting for --lam times the one before it (generalised advantage
+   estimation, the pass's `lambda_weights`). Its exact checks (every logged
+   decision trained, the replay identity) stop the run.
 3. **Step.** tools/pg_adam_step.py: one Adam step at --lr, the optimizer's
    state carried from round to round. A gradient that is not finite stops
    the run.
@@ -44,7 +47,7 @@ use the GPU (scripts/gpu_yield.py): a tool is stopped and run again once
 they have been quiet.
 
 In --out: config.json (a later start with another configuration is
-refused; --lr and --max-rounds may change), round_0007/ (games_self/,
+refused; --lr, --lam and --max-rounds may change), round_0007/ (games_self/,
 games_past/, grad.json, pi.pt, pi.step.json), matches/step_0024/ (the
 match's own records), pool.json, matches.json, progress.jsonl (one line a
 round), warnings.log, runner.log. Kept: every pool member's checkpoint and
@@ -291,7 +294,8 @@ class Loop:
             dirs = [str(d / "games_self")] + ([str(d / "games_past")] if past_games else [])
             cmd = (["tools/pg_game_pass.py", "--checkpoint", str(theta), "--games", *dirs, "--out", str(grad),
                     "--device", "cuda", "--fp16", "--packed-trunk", "--workers", str(self.a.pass_workers),
-                    "--streams", str(self.a.streams), "--group-decisions", str(self.a.group_decisions)])
+                    "--streams", str(self.a.streams), "--group-decisions", str(self.a.group_decisions),
+                    "--lam", str(self.a.lam)])
             rc = self.gpu_tool(f"round {k} pass", cmd, f"round_{k:04d}.log", self.a.pass_cut_min)
             if rc != 0:
                 self.fail(f"round {k}'s pass ended rc={rc}"
@@ -318,9 +322,14 @@ class Loop:
                 self.fail(f"round {k}'s step ended rc={rc}"
                           + (": the step was refused (round log)" if rc == PASS_REFUSED else ""))
             step = json.loads((d / "pi.step.json").read_text(encoding="utf-8"))
+            # The lambda is the pass's own record of it: a pass run before a stop keeps the one it used.
+            weight = reading.get("weight") or {}
             line = {"round": k, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "lr": self.a.lr,
+                    "lam": weight.get("lam", 1.0), "weight_mean_square": weight.get("mean_square"),
+                    "weight_mean_square_at_1": weight.get("mean_square_at_1"),
                     "game_sides": reading["game_sides"], "skipped_sides": reading["skipped_sides"],
                     "decisions": reading["decisions"], "grad_norm": reading["norm"],
+                    "grad_norm_by_group": reading.get("norm_by_group"),
                     "update_norm": step["update_norm"], "replay_kl": reading["replay"]["kl"],
                     "value_cross_entropy": reading["value"]["cross_entropy"],
                     "value_squared_error": reading["value"]["squared_error"],
@@ -438,6 +447,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--out", type=Path, required=True, help="the run's directory (resumed when it exists)")
     ap.add_argument("--start", type=Path, required=True, help="the network the run starts from")
     ap.add_argument("--lr", type=float, required=True, help="the learning rate (a change is a numbered departure)")
+    ap.add_argument("--lam", type=float, default=1.0,
+                    help="the pass's weight: each later change of the value estimate counts for this much of the "
+                         "one before it (1: the result less the estimate; a change is a numbered departure)")
     ap.add_argument("--games", type=int, default=GAMES)
     ap.add_argument("--past-games", type=int, default=PAST_GAMES)
     ap.add_argument("--match-every", type=int, default=MATCH_EVERY)
@@ -467,6 +479,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ap.error(f"a round's games must fit its seeds ({PAST_SEED_OFFSET} and {ROUND_SEEDS - PAST_SEED_OFFSET})")
     if not args.lr > 0:
         ap.error("--lr must be positive")
+    if not 0.0 <= args.lam <= 1.0:
+        ap.error("--lam must lie in 0..1")
     return args
 
 
@@ -492,7 +506,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         below_normal_priority()
     if args.keep_awake:
         keep_awake()
-    log(args.out, f"simple loop: out {args.out}, start {args.start}, lr {args.lr:g}, {args.games} games a round "
+    log(args.out, f"simple loop: out {args.out}, start {args.start}, lr {args.lr:g}, lambda {args.lam:g}, "
+                  f"{args.games} games a round "
                   f"({args.past_games} against a past self), a match every {args.match_every} rounds, python "
                   f"{args.python}, tools {args.tools_python}")
     loop = Loop(args)

@@ -5,14 +5,25 @@ docs/training_dynamics_theory_20261111.md, "The user's decisions").
 For every game-side the checkpoint played (theta_k, at the pass's memory
 slots, under the temperature-1 procedure with no offset), the pass sums
 
-    sum_t (z - v_t) grad log pi(a_t | h_t)  -  sum_t grad CE(value head, z)
+    sum_t w_t grad log pi(a_t | h_t)  -  sum_t grad CE(value head, z)
 
 and divides by the game-sides: z the side's result (+1 a win, -1 a loss, 0
-a game without a winner), v_t the value head's reading logged when the
-decision was taken, log pi the masked joint law the player sampled from
-(wesnoth_ai/pg_loss.py), refused decisions included as shadow rows
-(tools/pg_positions.py). v_t is a function of the history before a_t, so
-the first sum stays an unbiased policy gradient.
+a game without a winner), log pi the masked joint law the player sampled
+from (wesnoth_ai/pg_loss.py), refused decisions included as shadow rows
+(tools/pg_positions.py).
+
+The weight w_t is generalised advantage estimation's (`lambda_weights`),
+with no discount and the result as the only reward, over the value head's
+readings v_t logged when each decision was taken:
+
+    w_t = sum_{k>=0} lam^k (v_{t+k+1} - v_{t+k}),
+
+the reading after a side's last decision being z. At lam = 1 (the default)
+it is z - v_t: v_t is a function of the history before a_t, so the first
+sum is an unbiased policy gradient. Under 1 the later readings stand in for
+part of the result, each later change counting for lam times the one before
+it: the weight is less noisy, and the gradient is biased by whatever the
+readings get wrong.
 
 The memory's gradient is not cut: a group of game-sides runs from each
 side's first decision to its last as one graph, so a write is credited
@@ -54,9 +65,13 @@ grad.pt holds:
     groups           per group: its game-sides, decisions, steps, seconds,
                      loss scale and its own gradient's norm per game-side
     norm             the total's norm
+    norm_by_group    its norm over each group of parameters
+                     (wesnoth_ai/param_groups.py): the value head's is the
+                     cross-entropy's gradient, the others' the policy's
     replay           kl, half_mean_square, mean_abs, max_abs, limit
     value            the mean cross-entropy and the mean squared error of
                      the head's expectation against z, before the step
+    weight           lam, the weights' mean square and what it is at lam = 1
     loss_scale, seconds, rate, peak_memory_mb, checkpoint_sha256, config
 
 and grad.json its scalars.
@@ -88,7 +103,7 @@ from tools.pg_positions import (RECORD_SUFFIX, SELF_PLAY_PROCEDURE, ForeignGameE
                                 foreign_sides, record_facts)
 from tools.pg_schedule import PGMemoryRouter  # noqa: E402
 from wesnoth_ai.model_output import VALUE_V_MAX, VALUE_V_MIN  # noqa: E402
-from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
+from wesnoth_ai.param_groups import GROUP_ORDER, group_of, named_model_parameters  # noqa: E402
 from wesnoth_ai.pg_loss import action_log_probs  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, Step  # noqa: E402
 
@@ -118,6 +133,7 @@ class GamePassConfig:
     procedure: str = SELF_PLAY_PROCEDURE    # the procedure every trained game-side was played under
     replay_kl_limit: float = REPLAY_KL_LIMIT
     value_loss: bool = True                 # train the value head on z (module docstring)
+    lam: float = 1.0                        # the weight's lambda (`lambda_weights`); 1: z - v_t
 
 
 def value_cross_entropy(logits: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
@@ -134,6 +150,31 @@ def value_cross_entropy(logits: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     at_lo = logp.gather(1, lo.unsqueeze(1)).squeeze(1)
     at_hi = logp.gather(1, (lo + 1).unsqueeze(1)).squeeze(1)
     return -((1.0 - upper) * at_lo + upper * at_hi)
+
+
+def lambda_weights(v: Sequence[float], z: float, lam: float) -> List[float]:
+    """One game-side's weights in play order: generalised advantage
+    estimation (Schulman et al. 2016) with no discount and the result as
+    the only reward,
+
+        a_t = sum_{k>=0} lam^k (v_{t+k+1} - v_{t+k}),
+
+    v_t the estimate logged at decision t, and the one after the last
+    decision the result z. Each later change of the estimate counts for lam
+    times the one before it: lam = 1 sums them all to z - v_t, and lam = 0
+    keeps the first alone. Written as a comparison, a_t is a blend of the
+    later estimates and the result, less the present estimate (T the last
+    decision):
+
+        a_t = (1 - lam) sum_{k>=1} lam^(k-1) v_{t+k}  +  lam^(T-t) z  -  v_t
+    """
+    out = [0.0] * len(v)
+    after, later = float(z), 0.0
+    for t in range(len(v) - 1, -1, -1):
+        later = (after - v[t]) + lam * later
+        out[t] = later
+        after = v[t]
+    return out
 
 
 def deal_groups(lengths: Dict[GameSide, int], streams: int, group_decisions: int) -> List[List[GameSide]]:
@@ -240,6 +281,11 @@ class GamePass:
             if len(r) != self.lengths[g]:
                 raise RuntimeError(f"{g.file} side {g.side}: {len(r)} positions replayed for {self.lengths[g]} "
                                    f"logged decisions")
+        # A refused decision is in its side's chain like any other: its
+        # estimate was logged, and the side decided again at once.
+        weights = [lambda_weights([p.v for p in r], self.z[g], self.config.lam) for g, r in zip(group, rows)]
+        squares = (sum(a * a for ws in weights for a in ws),
+                   sum((self.z[g] - p.v) ** 2 for g, r in zip(group, rows) for p in r))
         total = torch.zeros((), device=self.device)
         sums = torch.zeros(6, dtype=torch.float64, device=self.device)   # |d|, max |d|, d, d^2, CE, error^2
         n = shadow = steps_run = 0
@@ -251,7 +297,7 @@ class GamePass:
             staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
             batch = stage_step(positions, staged, self.model, self.device)
             z = torch.tensor([self.z[group[i]] for i in live], device=self.device)
-            w = z - torch.tensor([p.v for p in positions], device=self.device)
+            w = torch.tensor([weights[i][t] for i in live], device=self.device)
             logged = torch.tensor([p.logp for p in positions], dtype=torch.float64, device=self.device)
             args = (staged, mems, batch, w, z, logged)
             loss, mem_padded, diff, ce, error = (checkpoint(self._step, *args, use_reentrant=False)
@@ -267,7 +313,7 @@ class GamePass:
             n += len(live)
             shadow += sum(p.shadow for p in positions)
             steps_run += 1
-        return total, {"sums": sums, "decisions": n, "shadow": shadow, "steps": steps_run}
+        return total, {"sums": sums, "decisions": n, "shadow": shadow, "steps": steps_run, "squares": squares}
 
     def _group_gradient(self, group: Sequence[GameSide]) -> Tuple[Dict[str, torch.Tensor], Dict]:
         """The group's ascent direction per parameter (summed over its
@@ -315,6 +361,7 @@ class GamePass:
         total = {n: torch.zeros_like(p, dtype=torch.float32) for n, p in self.named}
         sums = torch.zeros(6, dtype=torch.float64, device=self.device)
         decisions = shadow = 0
+        squares = [0.0, 0.0]                     # the weights' squares: at the pass's lambda, at 1
         groups = []
         for k, group in enumerate(self.groups):
             self.loader.prefetch({g.file for g in group} | {g.file for g in self.groups[min(k + 1, len(self.groups) - 1)]})
@@ -329,6 +376,7 @@ class GamePass:
             sums[1] = torch.maximum(sums[1], r["sums"][1])
             decisions += r["decisions"]
             shadow += r["shadow"]
+            squares = [a + b for a, b in zip(squares, r["squares"])]
             groups.append({"game_sides": len(group), "decisions": r["decisions"], "steps": r["steps"],
                            "seconds": seconds, "scale": r["scale"], "finite": r["finite"],
                            "norm_per_side": float(square.sqrt()) / len(group)})
@@ -339,11 +387,15 @@ class GamePass:
         self.loader.close()
         n_sides = sum(len(g) for g in self.groups)
         total = {n: (t / n_sides).cpu() for n, t in total.items()}
+        by_group: Dict[str, float] = {}
+        for n, t in total.items():
+            by_group[group_of(n)] = by_group.get(group_of(n), 0.0) + float((t.double() ** 2).sum())
         rows = max(1, decisions)
         spent = sum(g["seconds"] for g in groups)
         result = {
             "names": [n for n, _ in self.named], "total": total,
             "norm": float(torch.sqrt(sum((t.double() ** 2).sum() for t in total.values()))),
+            "norm_by_group": {g: by_group[g] ** 0.5 for g in GROUP_ORDER if g in by_group},
             "finite": all(g["finite"] for g in groups),
             "game_sides": n_sides, "games": len({g.file for group in self.groups for g in group}),
             "decisions": int(decisions), "shadow": int(shadow), "skipped_sides": int(self.skipped),
@@ -352,6 +404,8 @@ class GamePass:
                        "mean_abs": float(sums[0]) / rows, "max_abs": float(sums[1]),
                        "limit": float(self.config.replay_kl_limit)},
             "value": {"cross_entropy": float(sums[4]) / rows, "squared_error": float(sums[5]) / rows},
+            "weight": {"lam": float(self.config.lam), "mean_square": squares[0] / rows,
+                       "mean_square_at_1": squares[1] / rows},
             "loss_scale": None if self.loss_scale is None else self.loss_scale.summary(),
             "seconds": time.time() - t0,
             "rate": {"decisions_per_second": decisions / max(spent, 1e-9), "seconds": spent},
@@ -369,9 +423,10 @@ class GamePass:
         return result
 
 
-SUMMARY_KEYS = ("game_sides", "games", "decisions", "shadow", "skipped_sides", "norm", "finite", "groups",
-                "replay", "value", "loss_scale", "seconds", "rate", "peak_memory_mb", "checkpoint_sha256",
-                "config")
+SUMMARY_KEYS = ("game_sides", "games", "decisions", "shadow", "skipped_sides", "norm", "norm_by_group", "finite",
+                "groups",
+                "replay", "value", "weight", "loss_scale", "seconds", "rate", "peak_memory_mb",
+                "checkpoint_sha256", "config")
 
 
 def save_grad(result: Dict, out: Path) -> None:
@@ -417,10 +472,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="the packed trunk (tools/pg_pass.py); default: the trunk the forward picks")
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT)
     ap.add_argument("--no-value-loss", action="store_true", help="leave the value head untrained")
+    ap.add_argument("--lam", type=float, default=defaults.lam,
+                    help="the weight's lambda: each later change of the value estimate counts for this much of "
+                         "the one before it (1: the result less the estimate)")
     ap.add_argument("--limit-games", type=int, default=0, help="the first N games only (a timing run; 0: all)")
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprints")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
+    if not 0.0 <= args.lam <= 1.0:
+        ap.error("--lam must lie in 0..1")
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(name)s %(levelname)s %(message)s")
     records = game_records(args.games)
     if args.limit_games > 0:
@@ -428,7 +488,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     config = GamePassConfig(streams=args.streams, group_decisions=args.group_decisions, slots=args.slots,
                             workers=args.workers, fp16=args.fp16, packed=True if args.packed_trunk else None,
                             verify=not args.no_verify, replay_kl_limit=args.replay_kl_limit,
-                            value_loss=not args.no_value_loss)
+                            value_loss=not args.no_value_loss, lam=args.lam)
     try:
         result = GamePass(args.checkpoint, records, torch.device(args.device), config).run()
     except GamePassRefused as e:
@@ -438,9 +498,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return EXIT_REFUSED
     save_grad(result, args.out)
     log.info("PG_GAME_PASS_DONE %d game-sides (%d skipped), %d decisions, %d groups in %.0f s; norm %.4g; "
-             "replay %s; value %s; peak %s MB",
+             "replay %s; value %s; weight %s; peak %s MB",
              result["game_sides"], result["skipped_sides"], result["decisions"], len(result["groups"]),
              result["seconds"], result["norm"], json.dumps(result["replay"]), json.dumps(result["value"]),
+             json.dumps(result["weight"]),
              None if result["peak_memory_mb"] is None else round(result["peak_memory_mb"]))
     return 0
 

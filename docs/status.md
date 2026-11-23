@@ -47,10 +47,10 @@ registered 3. It is not an adoption claim: the candidate samples while
 the reference plays its pinned decode. The run goes on, and since
 2026-11-20 it plays from the main checkout (the loop's code is in `main`
 since 0.34.0). Since the verdict the level has stepped up and held: the
-seven matches of rounds 128 to 224 average +115.4 ± 4.9 and the twelve of
-rounds 240 to 416 average +153.0 ± 3.9 (to 2026-11-23). A line through
-the nineteen from round 128 rises 0.18 ± 0.04 Elo a round; within rounds
-240 to 416 no rise is read (0.05 ± 0.07).
+seven matches of rounds 128 to 224 average +115.4 ± 4.9 and the fourteen
+of rounds 240 to 448 average +152.8 ± 3.6 (to 2026-11-23). A line through
+the twenty-one from round 128 rises 0.16 ± 0.03 Elo a round; within
+rounds 240 to 448 no rise is read (0.03 ± 0.06).
 
 **The loop's network at the reference's own decode** (2026-11-20,
 `docs/loop_pure_match_prereg_20261120.md`). Round 208's network reads
@@ -85,7 +85,19 @@ keeps one learning rate for the whole network (2026-11-21), declined a
 one-off refit of the head and proposed continuing at λ = 0.99
 (2026-11-23). Read on the logs, that weight has 0.30 to 0.32 of today's
 mean square, the result being a third of what the present estimate is
-compared with. Nothing is registered for it yet.
+compared with.
+
+**λ = 0.99 is registered** (2026-11-23, the user: "Alright, do it.";
+`docs/lambda_prereg_20261123.md`, departure 9 of the simple loop's
+registration). The policy's weight becomes generalised advantage
+estimation's, fading by the decision; the value head still trains on the
+result, and the learning rate and the optimizer's state are unchanged.
+The code is in `main` since 0.35.0 (`--lam` on the pass and the runner, 1
+by default). The run switches after its match at round 464, so round 465
+is the first at 0.99. What decides: the fifteen matches of rounds 480 to
+704 against the fifteen of rounds 240 to 464; λ = 0.99 is rejected if it
+reads more than 2 standard errors lower, and stays otherwise. A gain
+would not show that λ caused it, since no run at λ = 1 plays beside it.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
