@@ -1,11 +1,13 @@
 """The whole-game gradient pass (tools/pg_game_pass.py): its sum is the
 uncut gradient of sum (z - v_t) log pi with the value head's cross-entropy
-on the head alone, however the game-sides are grouped; another network's
-game-sides are left out; a log it does not reproduce is refused."""
+on the head alone, however the game-sides are grouped; under a lambda below
+1 each game-side's later estimates stand in for part of its result; another
+network's game-sides are left out; a log it does not reproduce is refused."""
 from __future__ import annotations
 
 import json
 import math
+import random
 import shutil
 import sys
 from pathlib import Path
@@ -63,12 +65,23 @@ def _run(games, records, **config):
     return GamePass(games.checkpoint, records, CPU, GamePassConfig(**config)).run()
 
 
-def _reference(games, records, z, leave_out=()):
+def _blend(v, z, lam):
+    """The lambda weight of each decision of one game-side, written as a
+    comparison by code of its own: the later estimates and the result
+    blended, less the present estimate. The estimate k decisions later takes
+    (1 - lam) lam^(k-1) of the blend and the result what is left, lam to the
+    power of the decisions still to come."""
+    last = len(v) - 1
+    return [(1.0 - lam) * sum(lam ** (k - 1) * v[t + k] for k in range(1, last - t + 1))
+            + lam ** (last - t) * z - v[t] for t in range(len(v))]
+
+
+def _reference(games, records, z, leave_out=(), lam=1.0):
     """Each game-side walked alone, its memory's gradient never cut, by code
     of its own (helpers.pg_games.side_forwards): the gradient of
-    sum (z - v_t) log pi on every parameter, and on the value head's
-    parameters that of minus the cross-entropy of its law against z; divided
-    by the game-sides."""
+    sum w_t log pi on every parameter, w_t the side's `_blend` (z - v_t at
+    lam = 1), and on the value head's parameters that of minus the
+    cross-entropy of its law against z; divided by the game-sides."""
     from helpers.pg_games import side_forwards
     from tools.pg_game_pass import value_cross_entropy
     from tools.pg_pass import load_network
@@ -83,8 +96,9 @@ def _reference(games, records, z, leave_out=()):
             if (game, side) in leave_out:
                 continue
             sides += 1
-            for p, (out, batch) in zip(rows, side_forwards(encoder, model, rows)):
-                policy = policy + (z[(game, side)] - p.v) * action_log_probs(out, batch)[0]
+            weights = _blend([p.v for p in rows], z[(game, side)], lam)
+            for w, (out, batch) in zip(weights, side_forwards(encoder, model, rows)):
+                policy = policy + w * action_log_probs(out, batch)[0]
                 value = value - value_cross_entropy(out.value_logits.float(), torch.tensor([z[(game, side)]]))[0]
     named = named_model_parameters(model, encoder)
     params = [p for _, p in named]
@@ -128,6 +142,54 @@ def test_the_pass_is_the_uncut_gradient_however_the_game_sides_are_grouped(tmp_p
     assert len(small["groups"]) > 2
     assert torch.allclose(_flat(small["total"], names), total, rtol=1e-4, atol=1e-6 * float(ref.abs().max()))
     assert sum(g["decisions"] for g in small["groups"]) == one["decisions"]
+
+
+@needs_core
+def test_under_lambda_each_game_side_is_weighted_by_its_own_later_estimates(tmp_path):
+    """At lambda 0.9, in small groups: the pass is the uncut gradient of
+    sum a_t log pi, a_t the blend of the game-side's own later logged
+    estimates and its result, less the present estimate, refused decisions
+    in the chain; the value head's gradient is still its cross-entropy's
+    against the result. The pass records the weights' mean square and what
+    it is at lambda 1."""
+    from tools.pg_positions import positions_of, read_record
+    games, records, z = _games_with_results(tmp_path)
+    lam = 0.9
+    result = _run(games, records, streams=2, group_decisions=40, recompute=True, lam=lam)
+    names = result["names"]
+    ref = _flat(_reference(games, records, z, lam=lam), names)
+    assert len(result["groups"]) > 2 and result["shadow"] == 2 and ref.norm() > 0
+    assert torch.allclose(_flat(result["total"], names), ref, rtol=1e-4, atol=1e-6 * float(ref.abs().max()))
+    faded, today = [], []
+    for game, path in records.items():
+        for side, rows in positions_of(read_record(path), *games.vocab, game=game).sides.items():
+            v = [p.v for p in rows]
+            faded += _blend(v, z[(game, side)], lam)
+            today += [z[(game, side)] - x for x in v]
+    weight = result["weight"]
+    assert weight["lam"] == lam and len(faded) == result["decisions"]
+    assert weight["mean_square"] == pytest.approx(sum(a * a for a in faded) / len(faded))
+    assert weight["mean_square_at_1"] == pytest.approx(sum(a * a for a in today) / len(today))
+    assert weight["mean_square"] < 0.9 * weight["mean_square_at_1"]     # the games are long enough to tell the two
+
+
+def test_the_lambda_weight_fades_each_later_change_of_the_estimate():
+    """At 1 the weight is the result less the estimate. At 0 it is the
+    estimate's next change alone, the last decision's being to the result.
+    Between, each later change counts for lambda times the one before it,
+    which is the blend of the later estimates and the result less the
+    present estimate."""
+    from tools.pg_game_pass import lambda_weights
+    v, z = [0.2, 0.4, -0.1], 1.0
+    assert lambda_weights(v, z, 1.0) == pytest.approx([0.8, 0.6, 1.1])
+    assert lambda_weights(v, z, 0.0) == pytest.approx([0.2, -0.5, 1.1])
+    assert lambda_weights(v, z, 0.5) == pytest.approx([0.2 + 0.5 * 0.05, -0.5 + 0.5 * 1.1, 1.1])
+    rng = random.Random(0)
+    for lam in (1.0, 0.99, 0.5, 0.0):
+        for z in (1.0, -1.0, 0.0):
+            v = [rng.uniform(-1.0, 1.0) for _ in range(40)]
+            assert lambda_weights(v, z, lam) == pytest.approx(_blend(v, z, lam), abs=1e-12)
+    assert lambda_weights([], 1.0, 0.9) == []
 
 
 @needs_core
@@ -209,6 +271,10 @@ def test_a_log_the_pass_does_not_reproduce_is_refused_and_its_sums_kept_aside(tm
     kept = torch.load(out, weights_only=True)
     summary = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
     assert kept["game_sides"] == summary["game_sides"] == 6 and "total" not in summary
+    assert summary["weight"]["lam"] == summary["config"]["lam"] == 1.0
+    assert summary["weight"]["mean_square"] == pytest.approx(summary["weight"]["mean_square_at_1"])
+    with pytest.raises(SystemExit):
+        main(argv + ["--lam", "1.5"])
     assert math.isfinite(summary["norm"]) and summary["norm"] > 0
     out.unlink()
 

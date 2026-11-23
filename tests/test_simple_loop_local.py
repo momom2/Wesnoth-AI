@@ -54,9 +54,11 @@ class FakeTools:
             grad = Path(arg("--out"))
             k = int(grad.parent.name.split("_")[1])
             grad.write_bytes(b"grad")
+            lam = float(arg("--lam"))
             grad.with_suffix(".json").write_text(json.dumps({
                 "game_sides": 2 * GAMES - PAST, "skipped_sides": PAST, "decisions": 4000, "norm": self.norm(k),
                 "replay": {"kl": 1e-6}, "value": {"cross_entropy": 0.4, "squared_error": 0.5},
+                "weight": {"lam": lam, "mean_square": 0.8 * lam, "mean_square_at_1": 0.8},
                 "rate": {"decisions_per_second": 80.0}, "peak_memory_mb": 2000.0,
                 "loss_scale": {"overflows": 0}, "groups": [{"scale": 1024.0}]}), encoding="utf-8")
             return 0
@@ -129,7 +131,8 @@ def test_a_round_plays_passes_and_steps_and_a_match_reads_every_second(tmp_path)
     assert _flag(the_pass, "--checkpoint") == str(sl.checkpoint_of(out, 2))
     games = the_pass[the_pass.index("--games") + 1:the_pass.index("--out")]
     assert games == [str(sl.round_dir(out, 3) / "games_self"), str(sl.round_dir(out, 3) / "games_past")]
-    assert "--fp16" in the_pass and "--packed-trunk" in the_pass
+    assert "--fp16" in the_pass and "--packed-trunk" in the_pass and _flag(the_pass, "--lam") == "1.0"
+    assert [(p["lam"], p["weight_mean_square"]) for p in loop.progress()] == [(1.0, 0.8)] * 4
     assert "--state" not in by_name["round 1 step"]
     step = by_name["round 3 step"]
     assert _flag(step, "--state") == str(sl.round_dir(out, 2) / "adam.pt") and _flag(step, "--lr") == "1e-05"
@@ -138,6 +141,32 @@ def test_a_round_plays_passes_and_steps_and_a_match_reads_every_second(tmp_path)
     assert "--sampled-candidate" in a_match and _flag(a_match, "--checkpoint") == str(sl.checkpoint_of(out, 2))
     past_of_round_4 = json.loads((sl.round_dir(out, 4) / "past.json").read_text(encoding="utf-8"))
     assert past_of_round_4["step"] in (0, 2)
+
+
+def test_the_weights_lambda_reaches_the_pass_and_a_round_records_the_one_its_pass_used(tmp_path):
+    """--lam goes to the pass. A round's line carries the lambda its pass
+    recorded: a pass run before a stop keeps the one it used when the step
+    after it runs under another."""
+    class StopAfterPass(FakeTools):
+        def __call__(self, out, name, cmd, *rest, **kw):
+            rc = super().__call__(out, name, cmd, *rest, **kw)
+            if name == "round 2 pass":
+                (Path(out) / "STOP").write_text("asked\n", encoding="utf-8")
+            return rc
+    fake = StopAfterPass()
+    loop = _loop(tmp_path, fake, "--max-rounds", "3")
+    with pytest.raises(lm.Stopped):
+        loop.run()
+    (loop.out / "STOP").unlink()
+    again = FakeTools()
+    assert _loop(tmp_path, again, "--max-rounds", "3", "--lam", "0.99").run() == 0
+    assert [name for name, _ in again.calls][0] == "round 2 step"
+    assert _flag(dict(again.calls)["round 3 pass"], "--lam") == "0.99"
+    progress = loop.progress()
+    assert [p["lam"] for p in progress] == [1.0, 1.0, 0.99]
+    assert progress[2]["weight_mean_square"] == pytest.approx(0.8 * 0.99) and progress[2]["weight_mean_square_at_1"] == 0.8
+    with pytest.raises(SystemExit):
+        _args(tmp_path, "--lam", "1.5")
 
 
 def test_a_failed_pass_stops_the_run_and_the_same_command_resumes_after_it(tmp_path):
@@ -258,7 +287,7 @@ def test_a_round_short_of_its_games_is_played_again_once_then_refused(tmp_path):
     assert [n for n, _ in fake.calls if "games" in n] == ["round 1 games (self)", "round 1 games (self) again"]
 
 
-def test_another_configuration_is_refused_and_the_learning_rate_may_change(tmp_path, monkeypatch):
+def test_another_configuration_is_refused_and_the_learning_rate_and_lambda_may_change(tmp_path, monkeypatch):
     monkeypatch.setenv("HIP_VISIBLE_DEVICES", "1")
     monkeypatch.setattr(sl, "below_normal_priority", lambda: None)
     monkeypatch.setattr(sl, "Loop", lambda args: type("L", (), {"run": lambda self: 0})())
@@ -267,6 +296,7 @@ def test_another_configuration_is_refused_and_the_learning_rate_may_change(tmp_p
     base = ["--out", str(tmp_path / "run"), "--start", str(start)]
     assert sl.main(base + ["--lr", "1e-5"]) == 0
     assert sl.main(base + ["--lr", "3e-5", "--max-rounds", "10"]) == 0
+    assert sl.main(base + ["--lr", "1e-5", "--lam", "0.99"]) == 0
     with pytest.raises(SystemExit, match="CONFIG_DIFFERS.*past_games"):
         sl.main(base + ["--lr", "1e-5", "--past-games", "0"])
     (tmp_path / "run" / "STOP").write_text("asked\n", encoding="utf-8")
