@@ -98,7 +98,9 @@ The code is in `main` since 0.35.0 (`--lam` on the pass and the runner, 1
 by default). The run switched after its match at round 464, and its
 command now carries `--lam 0.99`. Round 465 checked out: its weights'
 mean square is 0.33 of what the same round reads at λ = 1 (0.3 expected),
-and its replay is inside the exact check. What decides: the fifteen
+and its replay is inside the exact check. The first two matches at 0.99
+read +139.8 ± 13.3 and +178.1 ± 13.9 (rounds 480 and 496, to
+2026-11-24). What decides: the fifteen
 matches of rounds 480 to 704 against the fifteen of rounds 240 to 464
 (+152.5 ± 3.5); λ = 0.99 is rejected if it reads more than 2 standard
 errors lower, and stays otherwise. A gain would not show that λ caused

@@ -253,3 +253,41 @@ kill criterion 3).
   (β1 = 0.9), so the fall is expected over some twenty rounds.
 - The round holds 230 game-sides, 52,905 decisions and no refused
   decision. Its pass took 806 s.
+
+**Matches at λ = 0.99** (800 decisive games each, as before):
+
+| After round | Elo | Wins of 800 | Read |
+|---|---|---|---|
+| 480 | +139.8 ± 13.3 | 553 | 2026-11-24 04:50 |
+| 496 | +178.1 ± 13.9 | 589 | 2026-11-24 09:36 |
+
+**To round 500** (2026-11-24 10:48). Nothing here decides.
+- The two matches average +158.9 ± 9.6: +6.4 ± 10.2 against the fifteen
+  before the switch, 0.6 standard errors. Round 496's is the highest
+  reading of the run. Two matches say nothing yet.
+- The thirty-six rounds at λ = 0.99 (465 to 500) read, as medians against
+  the eleven rounds before the switch:
+
+  | Reading | Rounds 454 to 464, λ = 1 | Expected | Rounds 465 to 500 |
+  |---|---|---|---|
+  | The weights' mean square over the same round's at λ = 1 | 1 | about 0.3 | 0.310 (0.278 to 0.343) |
+  | The policy's part of the gradient's norm | 57.0 (55.4 to 83.0) | about 31 | 33.3 (27.6 to 43.7) |
+  | The value head's part | 30.4 (11.8 to 46.0) | unchanged | 29.5 (12.1 to 88.9) |
+  | The whole gradient's norm | 68.2 | about 44 | 45.1 |
+  | The update's norm | 0.0090 | about 0.6 of it within some twenty rounds | 0.0058 over rounds 481 to 500: 0.64 of it |
+  | The value head's cross-entropy | 0.39 | unchanged | 0.39 |
+
+- The update's norm fell from 0.0092 at round 464 to 0.0060 by round 474
+  and has stayed between 0.0056 and 0.0060 since.
+- The value head's part reads above the eleven rounds' highest (46.0) in
+  seven rounds, all from round 484 on: 484, 485, 486, 489, 491, 495 and
+  499, at 46.8 to 88.9. Its median is 26.4 over rounds 465 to 480 and
+  34.2 over rounds 481 to 500. The value head's cross-entropy is 0.39 and
+  0.41 over the same two stretches, and it read 0.41 over rounds 388 to
+  451. Eleven rounds are a short range to compare with, and the passes
+  before round 454 did not record the parts. No warning is logged. The
+  value estimate's re-read on rounds 497 to 528 is where this is looked
+  at.
+- Every replay is inside the exact check (7.7e-6 at most), and no round
+  holds a refused decision. A round takes 178 s of play and 872 s of
+  pass.
