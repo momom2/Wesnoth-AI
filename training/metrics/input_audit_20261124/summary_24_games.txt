@@ -1,0 +1,113 @@
+== games ==
+24 games; Counter({'leader_killed': 24}) turns median 20.0
+matchups: [(('Loyalists', 'Rebels'), 3), (('Drakes', 'Knalgan Alliance'), 3), (('Drakes', 'Undead'), 3), (('Loyalists', 'Loyalists'), 3), (('Drakes', 'Loyalists'), 2), (('Drakes', 'Rebels'), 2), (('Northerners', 'Undead'), 1), (('Knalgan Alliance', 'Undead'), 1), (('Loyalists', 'Undead'), 1), (('Loyalists', 'Northerners'), 1), (('Drakes', 'Northerners'), 1), (('Knalgan Alliance', 'Northerners'), 1), (('Rebels', 'Undead'), 1), (('Northerners', 'Northerners'), 1)]
+errors: []
+
+== zone of control ==
+{'positions': 11622, 'with_level0': 1236, 'mismatch': 0, 'examples': []}
+
+== sampling ==
+decisions: 11622 ; the sampled action is the policy's most likely: 8164 of 11622 (70.2%)
+  move: 7008; most likely action taken 4354 of 7008 (62.1%); sampled with probability under 5%: 483 of 7008 (6.9%), under 1%: 121 of 7008 (1.7%)
+  attack: 2637; most likely action taken 2343 of 2637 (88.9%); sampled with probability under 5%: 34 of 2637 (1.3%), under 1%: 7 of 2637 (0.3%)
+  recruit: 1094; most likely action taken 668 of 1094 (61.1%); sampled with probability under 5%: 89 of 1094 (8.1%), under 1%: 19 of 1094 (1.7%)
+  end_turn: 883; most likely action taken 799 of 883 (90.5%); sampled with probability under 5%: 8 of 883 (0.9%), under 1%: 2 of 883 (0.2%)
+
+== attacks ==
+attacks: 2637 ; ordered from a distance (the simulator picks the hex): 8 of 2637 (0.3%)
+attacks by a unit with two weapons or more: 2196
+  [all] 2196 attacks
+    the weapon used is beaten by another (25% more dealt and no more taken, or as much dealt and 3 less taken): 28 of 2196 (1.3%)
+    the policy's MOST LIKELY weapon is so beaten: 22 of 2196 (1.0%)
+    mean probability the policy puts on a beaten weapon: 0.012
+    used weapon's expected damage over the best weapon's: median 1.0 ; under 0.5 in 102 of 2196 (4.6%)
+  [no weapon with poison, slow, berserk, plague or drain] 2133 attacks
+    the weapon used is beaten by another (25% more dealt and no more taken, or as much dealt and 3 less taken): 26 of 2133 (1.2%)
+    the policy's MOST LIKELY weapon is so beaten: 20 of 2133 (0.9%)
+    mean probability the policy puts on a beaten weapon: 0.011
+    used weapon's expected damage over the best weapon's: median 1.0 ; under 0.5 in 101 of 2133 (4.7%)
+  with several adjacent targets: the most likely weapon is beaten in 3 of 308 (1.0%)
+  with one adjacent target: the most likely weapon is beaten in 19 of 1888 (1.0%)
+  with several adjacent targets, the best weapon (dealt minus taken) differs between them: 76 of 308 (24.7%)
+
+-- pairs where the most likely weapon is beaten (6 attacks or more) --
+  Elvish Fighter on Horseman: beaten in 30% of 10; weapon: (mean probability, dealt, taken) {'sword': (0.55, 10.3, 9.2), 'bow': (0.45, 8.5, 0.0)}
+  Elvish Fighter on Cavalryman: beaten in 22% of 9; weapon: (mean probability, dealt, taken) {'sword': (0.42, 10.7, 11.8), 'bow': (0.58, 8.0, 0.0)}
+  Spearman on Spearman: beaten in 0% of 250; weapon: (mean probability, dealt, taken) {'spear': (0.98, 12.0, 12.7), 'javelin': (0.02, 3.1, 3.3)}
+  Spearman on Elvish Fighter: beaten in 0% of 83; weapon: (mean probability, dealt, taken) {'spear': (1.0, 11.8, 11.9), 'javelin': (0.0, 3.0, 5.7)}
+  Elvish Fighter on Spearman: beaten in 0% of 72; weapon: (mean probability, dealt, taken) {'sword': (0.62, 11.0, 11.6), 'bow': (0.38, 5.4, 3.0)}
+  Spearman on Orcish Grunt: beaten in 0% of 54; weapon: (mean probability, dealt, taken) {'spear': (0.78, 11.4, 8.9), 'javelin': (0.22, 3.0, 0.0)}
+  Saurian Augur on Spearman: beaten in 0% of 52; weapon: (mean probability, dealt, taken) {'staff': (0.0, 4.8, 9.4), 'curse': (1.0, 10.7, 2.6)}
+  Dark Adept on Drake Burner: beaten in 0% of 37; weapon: (mean probability, dealt, taken) {'chill wave': (1.0, 19.0, 12.8), 'shadow wave': (0.0, 11.2, 12.8)}
+  Skeleton Archer on Spearman: beaten in 0% of 31; weapon: (mean probability, dealt, taken) {'fist': (0.0, 2.5, 4.7), 'bow': (1.0, 7.6, 1.2)}
+  Spearman on Swordsman: beaten in 0% of 30; weapon: (mean probability, dealt, taken) {'spear': (0.65, 10.3, 16.9), 'javelin': (0.35, 2.8, 0.0)}
+  Dwarvish Fighter on Drake Fighter: beaten in 0% of 29; weapon: (mean probability, dealt, taken) {'axe': (1.0, 12.0, 9.5), 'hammer': (0.0, 8.0, 9.5)}
+  Spearman on Saurian Augur: beaten in 0% of 28; weapon: (mean probability, dealt, taken) {'spear': (1.0, 9.4, 5.1), 'javelin': (0.0, 2.6, 10.6)}
+  Spearman on Cavalryman: beaten in 0% of 28; weapon: (mean probability, dealt, taken) {'spear': (0.86, 15.9, 10.7), 'javelin': (0.14, 4.1, 0.0)}
+  Drake Fighter on Dwarvish Fighter: beaten in 0% of 28; weapon: (mean probability, dealt, taken) {'war blade': (0.34, 8.8, 12.2), 'fire breath': (0.66, 4.0, 0.0)}
+
+-- resistance of the defender to the weapon used (percent of damage taken) --
+   {'100': 1540, '>100': 464, '71-99': 522, '51-70': 47, '<=50': 64} of 2637
+  attacks into a resistance of 40% or more: 96 of 2637 (3.6%)
+    of those, another weapon would deal 1.5 times as much: 20 of 96 (20.8%)
+    of those, another adjacent target would take 1.5 times as much: 5 of 96 (5.2%)
+    of those, the attack was the policy's most likely action: 73 of 96 (76.0%)
+    examples: [(('Spearman', 'spear', 'pierce', 'Skeleton Archer', 40), 10), (('Orcish Grunt', 'sword', 'blade', 'Skeleton Archer', 60), 7), (('Skeleton Archer', 'bow', 'pierce', 'Heavy Infantryman', 60), 6), (('Spearman', 'spear', 'pierce', 'Javelineer', 60), 5), (('Spearman', 'javelin', 'pierce', 'Wose', 40), 5), (('Drake Burner', 'claws', 'blade', 'Skeleton Archer', 60), 4), (('Goblin Spearman', 'spear', 'pierce', 'Skeleton Archer', 40), 3), (('Saurian Augur', 'curse', 'cold', 'Skeleton Archer', 40), 3), (('Dwarvish Fighter', 'hammer', 'impact', 'Wraith', 50), 3), (('Elvish Fighter', 'bow', 'pierce', 'Skeleton', 40), 3), (('Drake Fighter', 'war blade', 'blade', 'Ghost', 50), 3), (('Saurian Augur', 'curse', 'cold', 'Ghost', 30), 2), (('Drake Fighter', 'war blade', 'blade', 'Skeleton Archer', 60), 2), (('Saurian Oracle', 'curse', 'cold', 'Revenant', 40), 2)]
+
+-- trades --
+  attacks expected to take 1.5 times what they deal (3 or more apart, no likely kill): 133 of 2637 (5.0%)
+    of those, the policy's most likely action: 108 of 133 (81.2%)
+  expected dealt, median: 10.5 ; expected taken, median: 6.0
+  chance to hit of the attacker, mean: 54.3 ; of the defender's answer, mean: 54.7
+
+== experience ==
+kills: 661 ; advancements: 69 (1.44 a game-side)
+level-0 units among attackers: 55 of 2637 (2.1%) ; among defenders: 74 of 2637 (2.8%)
+attacks by a unit at 75% of its experience or more: 86 of 2637 (3.3%)
+
+== recruits ==
+decisions with a recruit legal: 5074 ; recruits made: 1094
+recruits sampled at under 10% among the recruit options: 38 of 1094 (3.5%)
+  Drakes (228): Drake Fighter 73 (32%), Drake Glider 40 (18%), Saurian Augur 40 (18%), Drake Burner 29 (13%), Saurian Skirmisher 25 (11%), Drake Clasher 21 (9%)
+  Knalgan Alliance (104): Dwarvish Fighter 36 (35%), Dwarvish Thunderer 20 (19%), Footpad 12 (12%), Thief 11 (11%), Poacher 11 (11%), Gryphon Rider 8 (8%), Dwarvish Ulfserker 6 (6%)
+  Loyalists (326): Spearman 286 (88%), Cavalryman 28 (9%), Mage 4 (1%), Fencer 3 (1%), Horseman 2 (1%), Heavy Infantryman 2 (1%), Bowman 1 (0%)
+  Northerners (133): Orcish Grunt 94 (71%), Goblin Spearman 13 (10%), Troll Whelp 8 (6%), Wolf Rider 7 (5%), Orcish Archer 6 (5%), Naga Fighter 3 (2%), Orcish Assassin 2 (2%)
+  Rebels (130): Elvish Fighter 80 (62%), Elvish Archer 19 (15%), Elvish Scout 17 (13%), Wose 7 (5%), Mage 5 (4%), Elvish Shaman 2 (2%)
+  Undead (173): Dark Adept 79 (46%), Walking Corpse 22 (13%), Skeleton Archer 20 (12%), Ghost 18 (10%), Vampire Bat 16 (9%), Skeleton 15 (9%), Ghoul 3 (2%)
+recruits from turn 4 on, by the enemy's faction:
+  Drakes against Knalgan Alliance (56): Drake Fighter 36, Saurian Augur 10, Saurian Skirmisher 6, Drake Clasher 4
+  Drakes against Loyalists (21): Saurian Augur 12, Saurian Skirmisher 5, Drake Burner 2, Drake Clasher 2
+  Drakes against Northerners (16): Saurian Augur 6, Drake Clasher 5, Drake Burner 2, Drake Fighter 2, Saurian Skirmisher 1
+  Drakes against Rebels (14): Drake Fighter 7, Saurian Skirmisher 4, Drake Clasher 2, Drake Burner 1
+  Drakes against Undead (43): Drake Burner 21, Drake Fighter 9, Saurian Skirmisher 7, Saurian Augur 3, Drake Glider 3
+  Knalgan Alliance against Drakes (55): Dwarvish Thunderer 19, Dwarvish Fighter 14, Poacher 10, Gryphon Rider 6, Dwarvish Ulfserker 3
+  Knalgan Alliance against Northerners (7): Dwarvish Fighter 5, Dwarvish Thunderer 1, Poacher 1
+  Knalgan Alliance against Undead (10): Dwarvish Fighter 4, Dwarvish Ulfserker 3, Thief 2, Footpad 1
+  Loyalists against Drakes (33): Spearman 33
+  Loyalists against Loyalists (137): Spearman 133, Mage 2, Cavalryman 1, Bowman 1
+  Loyalists against Northerners (11): Spearman 11
+  Loyalists against Rebels (44): Spearman 39, Cavalryman 4, Mage 1
+  Loyalists against Undead (5): Heavy Infantryman 2, Mage 1, Fencer 1, Spearman 1
+  Northerners against Drakes (16): Goblin Spearman 8, Orcish Grunt 6, Orcish Archer 2
+  Northerners against Knalgan Alliance (12): Orcish Grunt 11, Goblin Spearman 1
+  Northerners against Loyalists (23): Orcish Grunt 23
+  Northerners against Northerners (16): Orcish Grunt 11, Orcish Assassin 2, Troll Whelp 2, Orcish Archer 1
+  Northerners against Undead (19): Orcish Grunt 9, Troll Whelp 4, Orcish Archer 3, Goblin Spearman 3
+  Rebels against Drakes (17): Elvish Fighter 10, Elvish Archer 7
+  Rebels against Loyalists (47): Elvish Fighter 30, Elvish Archer 9, Wose 7, Elvish Shaman 1
+  Rebels against Undead (21): Elvish Fighter 14, Mage 5, Elvish Shaman 1, Elvish Scout 1
+  Undead against Drakes (60): Dark Adept 34, Walking Corpse 15, Skeleton Archer 6, Ghoul 3, Skeleton 1
+  Undead against Knalgan Alliance (11): Dark Adept 11
+  Undead against Loyalists (20): Skeleton Archer 8, Ghost 4, Dark Adept 3, Vampire Bat 2, Skeleton 2
+  Undead against Northerners (14): Dark Adept 9, Skeleton Archer 2, Walking Corpse 2, Skeleton 1
+  Undead against Rebels (15): Dark Adept 11, Walking Corpse 4
+attacks into a resistance of 40% or more, by the attacker's faction and the defender's type:
+   [(('Loyalists', 'Skeleton Archer'), 13), (('Northerners', 'Skeleton Archer'), 10), (('Drakes', 'Skeleton Archer'), 10), (('Drakes', 'Ghost'), 9), (('Rebels', 'Skeleton'), 9), (('Knalgan Alliance', 'Ghost'), 7), (('Knalgan Alliance', 'Wraith'), 6), (('Undead', 'Heavy Infantryman'), 6), (('Loyalists', 'Javelineer'), 5), (('Loyalists', 'Wose'), 5), (('Drakes', 'Revenant'), 4), (('Rebels', 'Ghost'), 3)]
+   attacks by faction: {'Loyalists': 738, 'Rebels': 278, 'Knalgan Alliance': 293, 'Drakes': 698, 'Northerners': 241, 'Undead': 389}
+the first recruit of the game, the policy's probabilities (mean over game-sides):
+  Drakes (11 sides): Drake Glider 64%, Drake Fighter 28%, Drake Clasher 5%, Saurian Skirmisher 3%, Drake Burner 1%, Saurian Augur 0%
+  Knalgan Alliance (5 sides): Footpad 65%, Gryphon Rider 31%, Dwarvish Fighter 4%, Dwarvish Guardsman 0%, Poacher 0%, Thief 0%, Dwarvish Thunderer 0%, Dwarvish Ulfserker 0%
+  Loyalists (13 sides): Cavalryman 62%, Spearman 35%, Horseman 2%, Merman Fighter 0%, Fencer 0%, Bowman 0%, Heavy Infantryman 0%, Mage 0%
+  Northerners (6 sides): Wolf Rider 66%, Orcish Grunt 30%, Naga Fighter 2%, Orcish Assassin 1%, Troll Whelp 0%, Orcish Archer 0%, Goblin Spearman 0%
+  Rebels (6 sides): Elvish Scout 77%, Elvish Archer 14%, Elvish Fighter 9%, Merman Hunter 0%, Wose 0%, Elvish Shaman 0%, Mage 0%
+  Undead (7 sides): Ghost 47%, Vampire Bat 44%, Dark Adept 6%, Skeleton 3%, Ghoul 0%, Skeleton Archer 0%, Walking Corpse 0%

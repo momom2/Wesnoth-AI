@@ -108,6 +108,21 @@ it, since no run at λ = 1 plays beside it. Read by hand meanwhile: from
 round 528, the λ matches' mean more than 3 standard errors under that
 block sends the run back to λ = 1.
 
+**What the network is not shown of a unit and of a fight** (2026-11-24,
+`docs/input_facts_design_20261124.md`). The user watched a game of round
+503's network and asked what the network sees. The simulator's rules
+checked out: over 11,622 positions the zone-of-control flags are those of
+the visible enemies of level 1 or more. But a unit's row holds no level
+and no defence, the network sees no number of a fight before it attacks,
+and the weapon is scored without the target. Measured on 24 games of
+round 513's network, its most likely weapon is beaten by another in 1.0%
+of the attacks by a two-weapon unit, and 3.6% of attacks go into a
+resistance of 40% or more. The user ruled: "for sure the network needs
+that information". The design adds what the sidebar and the attack dialog
+show as columns of the unit's row, every new weight starting at zero.
+Nothing is built, and how the new weights are trained is to be discussed:
+at the loop's rate they would take thousands of rounds to count.
+
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
 played 100 live games against Wesnoth's default AI at the reference's
@@ -442,6 +457,11 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
+- **The input additions** (`docs/input_facts_design_20261124.md`,
+  2026-11-24): where the fight's numbers go (columns of the attacker's
+  row are recommended over tokens of their own), whether the attack from
+  a distance stays (the simulator picks its hex by a fixed rule; removal
+  is recommended), and how the new weights are trained.
 - **Resume the lean line, or leave it stopped.** It stopped in round 23's
   games on 2026-11-10 ("The line is stopped", above). Rounds 23 and 24
   with round 24's claim and argmax match would give departures 43 and 44

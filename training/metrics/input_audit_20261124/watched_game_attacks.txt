@@ -1,0 +1,130 @@
+commands by kind: {'init_side': 42, 'recruit': 50, 'move': 323, 'end_turn': 41, 'attack': 128} ; attacks read: 128
+end: turn 21 leaders: [(2, 'Fire Drake', 55)]
+t3 s2 Drake Fighter@31,13 hp38 -> Vampire Bat@31,12 hp17: war blade(blade) 8x3 at 40% takes 100% | back 5x2 at 60% | exp 9.6 dealt / 6.0 taken
+t3 s2 Drake Fighter@30,11 hp42 -> Vampire Bat@31,12 hp5: fire breath(fire) 3x3 at 40% takes 100% | back NonexNone at None% | exp 3.6 dealt / 0.0 taken
+t4 s2 Saurian Skirmisher@31,6 hp26 -> Vampire Bat@31,5 hp2: spear(pierce) 5x4 at 40% takes 100% | back 5x2 at 40% | exp 8.0 dealt / 4.0 taken
+t5 s1 Skeleton@31,12 hp34 -> Drake Fighter@31,13 hp42: axe(blade) 6x3 at 60% takes 90% | back 4x3 at 40% | exp 10.8 dealt / 4.8 taken
+t6 s1 Dark Adept@30,17 hp31 -> Drake Fighter@30,18 hp30: chill wave(cold) 15x2 at 70% takes 150% | back 3x3 at 60% | exp 21.0 dealt / 5.4 taken
+t6 s2 Drake Fighter@5,7 hp38 -> Ghost@4,7 hp18: fire breath(fire) 2x3 at 50% takes 90% | back 6x3 at 70% | exp 3.0 dealt / 12.6 taken BETTER:war blade(blade) 4.5/10.5 BAD-TRADE
+t6 s2 Saurian Skirmisher@31,6 hp26 -> Skeleton@31,7 hp30: spear(pierce) 2x2 at 60% takes 40% | back NonexNone at None% | exp 2.4 dealt / 0.0 taken RESISTED
+t6 s2 Drake Fighter@31,8 hp38 -> Skeleton@31,7 hp26: fire breath(fire) 4x3 at 60% takes 120% | back NonexNone at None% | exp 7.2 dealt / 0.0 taken
+t7 s1 Skeleton@30,6 hp18 -> Saurian Skirmisher@31,6 hp26: axe(blade) 8x3 at 40% takes 110% | back 2x4 at 60% | exp 9.6 dealt / 4.8 taken
+t7 s2 Drake Clasher@29,7 hp48 -> Skeleton@30,6 hp14: spear(pierce) 2x4 at 60% takes 40% | back 6x3 at 60% | exp 4.8 dealt / 10.8 taken RESISTED BETTER:war talon(blade) 7.2/10.8 BAD-TRADE
+t7 s2 Saurian Augur@26,6 hp21 -> Skeleton@26,7 hp34: curse(cold) 2x3 at 70% takes 40% | back NonexNone at None% | exp 4.2 dealt / 0.0 taken RESISTED
+t7 s2 Drake Burner@25,7 hp48 -> Skeleton@26,7 hp28: fire breath(fire) 7x4 at 50% takes 120% | back NonexNone at None% | exp 14.0 dealt / 0.0 taken
+t7 s2 Saurian Skirmisher@17,11 hp31 -> Skeleton@16,11 hp34: spear(pierce) 2x2 at 60% takes 40% | back NonexNone at None% | exp 2.4 dealt / 0.0 taken RESISTED
+t8 s1 Dark Adept@30,8 hp28 -> Drake Fighter@29,8 hp38: chill wave(cold) 15x2 at 70% takes 150% | back 3x3 at 50% | exp 21.0 dealt / 4.5 taken
+t8 s1 Ghost@28,8 hp18 -> Drake Fighter@29,8 hp38: touch(arcane) 4x3 at 60% takes 110% | back 4x3 at 50% | exp 7.2 dealt / 6.0 taken
+t8 s1 Skeleton@28,3 hp10 -> Saurian Skirmisher@28,4 hp10: axe(blade) 8x3 at 40% takes 110% | back 2x4 at 60% | exp 9.6 dealt / 4.8 taken
+t8 s1 Skeleton@26,7 hp21 -> Saurian Augur@26,6 hp21: axe(blade) 6x3 at 40% takes 110% | back 4x2 at 50% | exp 7.2 dealt / 4.0 taken
+t8 s1 Dark Adept@7,9 hp31 -> Saurian Skirmisher@8,8 hp29: chill wave(cold) 9x2 at 70% takes 120% | back 3x2 at 60% | exp 12.6 dealt / 3.6 taken
+t8 s1 Dark Adept@8,9 hp33 -> Saurian Skirmisher@8,8 hp11: chill wave(cold) 9x2 at 70% takes 120% | back 3x2 at 60% | exp 12.6 dealt / 3.6 taken
+t8 s1 Ghost@8,7 hp16 -> Saurian Skirmisher@8,8 hp2: touch(arcane) 3x3 at 50% takes 90% | back 2x4 at 50% | exp 4.5 dealt / 4.0 taken
+t8 s1 Skeleton@13,9 hp32 -> Saurian Skirmisher@14,8 hp25: axe(blade) 6x3 at 40% takes 110% | back 1x4 at 50% | exp 7.2 dealt / 2.0 taken
+t8 s2 Drake Fighter@29,8 hp34 -> Dark Adept@30,8 hp25: war blade(blade) 8x3 at 50% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t8 s2 Drake Clasher@30,7 hp42 -> Dark Adept@30,8 hp17: war talon(blade) 5x4 at 50% takes 100% | back NonexNone at None% | exp 10.0 dealt / 0.0 taken
+t8 s2 Saurian Skirmisher@31,9 hp18 -> Dark Adept@30,8 hp7: spear(pierce) 5x4 at 50% takes 100% | back NonexNone at None% | exp 10.0 dealt / 0.0 taken
+t8 s2 Drake Burner@28,4 hp48 -> Skeleton@28,3 hp6: fire breath(fire) 7x4 at 60% takes 120% | back NonexNone at None% | exp 16.8 dealt / 0.0 taken
+t8 s2 Saurian Augur@25,7 hp15 -> Skeleton@26,7 hp17: curse(cold) 2x3 at 70% takes 40% | back NonexNone at None% | exp 4.2 dealt / 0.0 taken RESISTED
+t8 s2 Drake Fighter@26,6 hp42 -> Skeleton@26,7 hp15: fire breath(fire) 4x3 at 50% takes 120% | back NonexNone at None% | exp 6.0 dealt / 0.0 taken
+t8 s2 Saurian Augur@14,9 hp23 -> Skeleton@13,9 hp28: curse(cold) 2x3 at 70% takes 40% | back NonexNone at None% | exp 4.2 dealt / 0.0 taken RESISTED
+t8 s2 Fire Drake@13,8 hp63 -> Skeleton@13,9 hp22: fire breath(fire) 10x5 at 50% takes 120% | back NonexNone at None% | exp 25.0 dealt / 0.0 taken
+t9 s1 Walking Corpse@26,7 hp18 -> Saurian Augur@25,7 hp15: touch(impact) 7x2 at 40% takes 110% | back 3x2 at 50% | exp 5.6 dealt / 3.0 taken
+t9 s1 Ghost@24,6 hp18 -> Saurian Augur@25,7 hp15: touch(arcane) 3x3 at 40% takes 90% | back 2x2 at 50% | exp 3.6 dealt / 2.0 taken
+t9 s2 Drake Burner@25,2 hp48 -> Vampire Bat@25,1 hp17: fire breath(fire) 7x4 at 40% takes 100% | back NonexNone at None% | exp 11.2 dealt / 0.0 taken
+t9 s2 Drake Fighter@26,1 hp42 -> Vampire Bat@25,1 hp3: war blade(blade) 7x3 at 40% takes 100% | back 5x2 at 70% | exp 8.4 dealt / 7.0 taken
+t9 s2 Drake Fighter@24,9 hp38 -> Skeleton@24,8 hp7: war blade(blade) 6x3 at 40% takes 60% | back 5x3 at 70% | exp 7.2 dealt / 10.5 taken RESISTED
+t9 s2 Fire Drake@8,7 hp63 -> Dark Adept@8,8 hp27: fire breath(fire) 9x5 at 40% takes 100% | back 10x2 at 70% | exp 18.0 dealt / 14.0 taken
+t9 s2 Saurian Augur@17,10 hp23 -> Ghost@18,10 hp18: curse(cold) 1x3 at 70% takes 30% | back 3x3 at 60% | exp 2.1 dealt / 5.4 taken RESISTED BAD-TRADE
+t9 s2 Drake Fighter@9,2 hp38 -> Ghost@8,1 hp17: war blade(blade) 5x3 at 50% takes 50% | back 3x3 at 60% | exp 7.5 dealt / 5.4 taken RESISTED
+t10 s1 Ghost@18,10 hp18 -> Saurian Augur@17,10 hp20: touch(arcane) 4x3 at 60% takes 90% | back 3x2 at 50% | exp 7.2 dealt / 3.0 taken
+t10 s1 Ghost@17,9 hp18 -> Saurian Augur@17,10 hp8: touch(arcane) 4x3 at 60% takes 90% | back 3x2 at 50% | exp 7.2 dealt / 3.0 taken
+t10 s2 Drake Fighter@13,11 hp44 -> Dark Adept@14,11 hp31: war blade(blade) 7x3 at 60% takes 100% | back NonexNone at None% | exp 12.6 dealt / 0.0 taken
+t10 s2 Saurian Skirmisher@15,12 hp31 -> Dark Adept@14,11 hp17: spear(pierce) 4x4 at 60% takes 100% | back NonexNone at None% | exp 9.6 dealt / 0.0 taken
+t10 s2 Saurian Skirmisher@15,11 hp23 -> Dark Adept@14,11 hp13: spear(pierce) 4x4 at 60% takes 100% | back NonexNone at None% | exp 9.6 dealt / 0.0 taken
+t10 s2 Drake Clasher@25,7 hp48 -> Walking Corpse@26,7 hp18: spear(pierce) 6x4 at 50% takes 100% | back 4x2 at 60% | exp 12.0 dealt / 4.8 taken
+t10 s2 Saurian Augur@26,6 hp21 -> Walking Corpse@26,7 hp6: curse(cold) 5x3 at 70% takes 100% | back NonexNone at None% | exp 10.5 dealt / 0.0 taken
+t10 s2 Drake Fighter@25,8 hp32 -> Walking Corpse@26,7 hp1: war blade(blade) 8x3 at 50% takes 100% | back 5x2 at 70% | exp 12.0 dealt / 7.0 taken
+t11 s1 Dark Adept@12,11 hp31 -> Drake Fighter@13,11 hp44: chill wave(cold) 19x2 at 70% takes 150% | back 2x3 at 40% | exp 26.6 dealt / 2.4 taken
+t11 s2 Drake Burner@17,8 hp48 -> Ghost@16,7 hp17: fire breath(fire) 4x4 at 50% takes 90% | back 5x3 at 70% | exp 8.0 dealt / 10.5 taken
+t11 s2 Saurian Augur@17,7 hp21 -> Ghost@16,7 hp9: curse(cold) 2x3 at 70% takes 30% | back 4x3 at 60% | exp 4.2 dealt / 7.2 taken RESISTED BAD-TRADE
+t11 s2 Fire Drake@16,6 hp63 -> Ghost@16,7 hp9: fire breath(fire) 5x5 at 50% takes 90% | back 5x3 at 80% | exp 12.5 dealt / 12.0 taken
+t11 s2 Saurian Skirmisher@15,8 hp31 -> Ghost@16,7 hp4: spear(pierce) 3x4 at 50% takes 50% | back 4x3 at 60% | exp 6.0 dealt / 7.2 taken RESISTED
+t12 s1 Dark Adept@16,8 hp29 -> Drake Fighter@16,7 hp6: chill wave(cold) 19x2 at 70% takes 150% | back 2x3 at 60% | exp 26.6 dealt / 3.6 taken
+t12 s1 Dark Adept@14,8 hp31 -> Saurian Skirmisher@15,8 hp27: chill wave(cold) 15x2 at 70% takes 120% | back 5x2 at 40% | exp 21.0 dealt / 4.0 taken
+t12 s1 Dark Adept@7,9 hp31 -> Drake Fighter@8,8 hp38: chill wave(cold) 19x2 at 70% takes 150% | back 2x3 at 60% | exp 26.6 dealt / 3.6 taken
+t12 s1 Ghost@8,7 hp18 -> Drake Fighter@8,8 hp19: touch(arcane) 5x3 at 60% takes 110% | back 3x3 at 50% | exp 9.0 dealt / 4.5 taken
+t12 s1 Ghost@16,7 hp18 -> Saurian Augur@17,7 hp13: touch(arcane) 4x3 at 60% takes 90% | back 3x2 at 50% | exp 7.2 dealt / 3.0 taken
+t12 s1 Dark Adept@30,8 hp27 -> Drake Clasher@29,8 hp48: chill wave(cold) 15x2 at 70% takes 150% | back NonexNone at None% | exp 21.0 dealt / 0.0 taken
+t12 s2 Drake Clasher@29,8 hp41 -> Dark Adept@30,8 hp27: war talon(blade) 5x4 at 50% takes 100% | back NonexNone at None% | exp 10.0 dealt / 0.0 taken
+t12 s2 Saurian Skirmisher@31,9 hp26 -> Dark Adept@30,8 hp7: spear(pierce) 5x4 at 50% takes 100% | back NonexNone at None% | exp 10.0 dealt / 0.0 taken
+t12 s2 Drake Fighter@15,9 hp32 -> Dark Adept@16,8 hp29: war blade(blade) 6x3 at 60% takes 100% | back NonexNone at None% | exp 10.8 dealt / 0.0 taken
+t12 s2 Drake Burner@17,9 hp47 -> Dark Adept@16,8 hp17: claws(blade) 6x2 at 60% takes 100% | back NonexNone at None% | exp 7.2 dealt / 0.0 taken
+t12 s2 Saurian Augur@17,8 hp21 -> Dark Adept@16,8 hp5: curse(cold) 6x3 at 70% takes 100% | back 15x2 at 70% | exp 12.6 dealt / 21.0 taken
+t12 s2 Saurian Skirmisher@13,8 hp23 -> Dark Adept@14,8 hp31: spear(pierce) 5x4 at 40% takes 100% | back NonexNone at None% | exp 8.0 dealt / 0.0 taken
+t12 s2 Drake Fighter@8,8 hp22 -> Dark Adept@7,9 hp25: war blade(blade) 6x3 at 60% takes 100% | back NonexNone at None% | exp 10.8 dealt / 0.0 taken
+t13 s1 Dark Adept@7,8 hp13 -> Drake Fighter@8,8 hp22: chill wave(cold) 15x2 at 70% takes 150% | back 3x3 at 50% | exp 21.0 dealt / 4.5 taken
+t13 s1 Dark Adept@13,9 hp21 -> Saurian Skirmisher@13,8 hp23: chill wave(cold) 12x2 at 70% takes 120% | back 4x2 at 50% | exp 16.8 dealt / 4.0 taken
+t13 s1 Ghost@12,7 hp12 -> Saurian Skirmisher@13,8 hp11: touch(arcane) 4x3 at 40% takes 90% | back 2x4 at 50% | exp 4.8 dealt / 4.0 taken
+t13 s1 Dark Adept@31,8 hp2 -> Saurian Skirmisher@31,9 hp26: chill wave(cold) 12x2 at 70% takes 120% | back 4x2 at 60% | exp 16.8 dealt / 4.8 taken
+t13 s2 Drake Clasher@30,8 hp48 -> Dark Adept@31,8 hp2: war talon(blade) 5x4 at 60% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t13 s2 Saurian Augur@17,3 hp23 -> Ghost@16,2 hp18: curse(cold) 2x3 at 70% takes 30% | back 4x3 at 60% | exp 4.2 dealt / 7.2 taken RESISTED BAD-TRADE
+t13 s2 Drake Fighter@8,8 hp30 -> Dark Adept@7,8 hp4: war blade(blade) 8x3 at 50% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t13 s2 Fire Drake@17,2 hp57 -> Ghost@16,2 hp14: fire breath(fire) 6x5 at 50% takes 90% | back 4x3 at 70% | exp 15.0 dealt / 8.4 taken
+t13 s2 Drake Fighter@12,9 hp42 -> Dark Adept@13,9 hp21: war blade(blade) 7x3 at 50% takes 100% | back NonexNone at None% | exp 10.5 dealt / 0.0 taken
+t13 s2 Saurian Skirmisher@14,8 hp7 -> Dark Adept@13,9 hp7: spear(pierce) 4x4 at 50% takes 100% | back NonexNone at None% | exp 8.0 dealt / 0.0 taken
+t13 s2 Saurian Augur@16,3 hp21 -> Ghost@16,2 hp8: curse(cold) 2x3 at 70% takes 30% | back 4x3 at 60% | exp 4.2 dealt / 7.2 taken RESISTED BAD-TRADE
+t13 s2 Drake Fighter@15,3 hp32 -> Ghost@16,2 hp2: fire breath(fire) 3x3 at 50% takes 90% | back 4x3 at 70% | exp 4.5 dealt / 8.4 taken BETTER:war blade(blade) 6.0/8.4
+t13 s2 Drake Burner@13,8 hp48 -> Ghost@12,7 hp12: fire breath(fire) 5x4 at 50% takes 90% | back 4x3 at 60% | exp 10.0 dealt / 7.2 taken
+t14 s2 Saurian Augur@12,4 hp21 -> Ghost@12,5 hp12: curse(cold) 1x3 at 70% takes 30% | back 3x3 at 60% | exp 2.1 dealt / 5.4 taken RESISTED BAD-TRADE
+t14 s2 Drake Burner@12,6 hp36 -> Ghost@12,5 hp11: fire breath(fire) 7x4 at 50% takes 90% | back 3x3 at 70% | exp 14.0 dealt / 6.3 taken
+t14 s2 Saurian Ambusher@19,11 hp36 -> Dark Adept@18,10 hp31: spear(pierce) 5x4 at 40% takes 100% | back NonexNone at None% | exp 8.0 dealt / 0.0 taken
+t14 s2 Drake Fighter@17,10 hp42 -> Dark Adept@18,10 hp21: war blade(blade) 9x3 at 40% takes 100% | back NonexNone at None% | exp 10.8 dealt / 0.0 taken
+t14 s2 Saurian Augur@19,10 hp21 -> Dark Adept@18,10 hp3: curse(cold) 4x3 at 70% takes 100% | back 9x2 at 70% | exp 8.4 dealt / 12.6 taken
+t15 s1 Skeleton@20,10 hp34 -> Saurian Augur@19,10 hp3: axe(blade) 6x3 at 60% takes 110% | back 4x2 at 60% | exp 10.8 dealt / 4.8 taken
+t15 s2 Saurian Skirmisher@23,8 hp27 -> Dark Adept@24,8 hp32: spear(pierce) 4x4 at 40% takes 100% | back NonexNone at None% | exp 6.4 dealt / 0.0 taken
+t15 s2 Saurian Skirmisher@25,9 hp26 -> Dark Adept@24,8 hp32: spear(pierce) 4x4 at 40% takes 100% | back NonexNone at None% | exp 6.4 dealt / 0.0 taken
+t15 s2 Fire Drake@24,7 hp53 -> Dark Adept@24,8 hp24: fire breath(fire) 9x5 at 40% takes 100% | back 10x2 at 70% | exp 18.0 dealt / 14.0 taken
+t15 s2 Drake Fighter@24,9 hp42 -> Dark Adept@24,8 hp6: war blade(blade) 9x3 at 40% takes 100% | back NonexNone at None% | exp 10.8 dealt / 0.0 taken
+t16 s1 Skeleton@18,10 hp34 -> Drake Fighter@17,10 hp38: axe(blade) 6x3 at 70% takes 90% | back 5x3 at 40% | exp 12.6 dealt / 6.0 taken
+t16 s1 Ghoul@5,14 hp33 -> Drake Fighter@5,13 hp38: claws(blade) 4x3 at 60% takes 90% | back 7x3 at 60% | exp 7.2 dealt / 12.6 taken BAD-TRADE
+t16 s2 Saurian Augur@18,9 hp23 -> Skeleton@18,10 hp24: curse(cold) 2x3 at 70% takes 40% | back NonexNone at None% | exp 4.2 dealt / 0.0 taken RESISTED
+t16 s2 Saurian Ambusher@18,11 hp36 -> Skeleton@18,10 hp20: spear(pierce) 2x2 at 40% takes 40% | back NonexNone at None% | exp 1.6 dealt / 0.0 taken RESISTED
+t16 s2 Saurian Skirmisher@19,11 hp27 -> Skeleton@18,10 hp18: spear(pierce) 2x2 at 40% takes 40% | back NonexNone at None% | exp 1.6 dealt / 0.0 taken RESISTED
+t16 s2 Saurian Augur@6,13 hp20 -> Ghoul@5,14 hp19: curse(cold) 3x3 at 70% takes 60% | back NonexNone at None% | exp 6.3 dealt / 0.0 taken RESISTED
+t16 s2 Drake Fighter@5,13 hp38 -> Ghoul@5,14 hp16: war blade(blade) 7x3 at 60% takes 90% | back 4x3 at 60% | exp 12.6 dealt / 7.2 taken
+t16 s2 Drake Fighter@19,10 hp42 -> Skeleton@18,10 hp14: fire breath(fire) 4x3 at 40% takes 120% | back NonexNone at None% | exp 4.8 dealt / 0.0 taken
+t17 s1 Skeleton@18,10 hp18 -> Saurian Augur@18,9 hp23: axe(blade) 10x3 at 60% takes 110% | back 7x2 at 40% | exp 18.0 dealt / 5.6 taken
+t17 s1 Dark Adept@7,14 hp27 -> Saurian Augur@6,13 hp20: chill wave(cold) 15x2 at 70% takes 120% | back 6x3 at 70% | exp 21.0 dealt / 12.6 taken
+t17 s2 Drake Fighter@19,10 hp42 -> Skeleton@18,10 hp11: war blade(blade) 3x3 at 40% takes 60% | back 8x3 at 70% | exp 3.6 dealt / 16.8 taken RESISTED BETTER:fire breath(fire) 3.6/0.0 BAD-TRADE
+t17 s2 Saurian Augur@17,10 hp3 -> Skeleton@18,10 hp2: curse(cold) 3x3 at 70% takes 40% | back NonexNone at None% | exp 6.3 dealt / 0.0 taken RESISTED
+t17 s2 Drake Fighter@17,11 hp34 -> Skeleton@18,10 hp2: war blade(blade) 4x3 at 40% takes 60% | back 8x3 at 70% | exp 4.8 dealt / 16.8 taken RESISTED
+t17 s2 Drake Fighter@18,9 hp45 -> Skeleton@18,10 hp2: war blade(blade) 4x3 at 40% takes 60% | back 8x3 at 70% | exp 4.8 dealt / 16.8 taken RESISTED
+t17 s2 Drake Burner@8,13 hp48 -> Dark Adept@7,14 hp27: claws(blade) 6x2 at 50% takes 100% | back NonexNone at None% | exp 6.0 dealt / 0.0 taken
+t17 s2 Drake Fighter@6,13 hp26 -> Dark Adept@7,14 hp21: war blade(blade) 6x3 at 50% takes 100% | back NonexNone at None% | exp 9.0 dealt / 0.0 taken
+t18 s1 Dark Adept@8,14 hp31 -> Drake Burner@8,13 hp48: chill wave(cold) 17x2 at 70% takes 140% | back 5x4 at 60% | exp 23.8 dealt / 12.0 taken
+t18 s1 Dark Adept@7,13 hp21 -> Drake Burner@8,13 hp31: chill wave(cold) 17x2 at 70% takes 140% | back 5x4 at 60% | exp 23.8 dealt / 12.0 taken
+t18 s1 Dark Adept@19,11 hp32 -> Drake Fighter@19,10 hp26: chill wave(cold) 19x2 at 70% takes 150% | back 2x3 at 50% | exp 26.6 dealt / 3.0 taken
+t18 s2 Drake Fighter@6,13 hp18 -> Dark Adept@7,13 hp1: war blade(blade) 6x3 at 60% takes 100% | back NonexNone at None% | exp 10.8 dealt / 0.0 taken
+t18 s2 Saurian Skirmisher@12,15 hp27 -> Walking Corpse@12,16 hp18: spear(pierce) 6x4 at 60% takes 100% | back 8x2 at 40% | exp 14.4 dealt / 6.4 taken
+t18 s2 Saurian Skirmisher@20,10 hp32 -> Dark Adept@19,11 hp32: spear(pierce) 6x4 at 50% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t18 s2 Saurian Ambusher@18,11 hp36 -> Dark Adept@19,11 hp20: spear(pierce) 7x4 at 50% takes 100% | back NonexNone at None% | exp 14.0 dealt / 0.0 taken
+t18 s2 Saurian Skirmisher@27,9 hp26 -> Dark Adept@28,9 hp33: spear(pierce) 6x4 at 60% takes 100% | back NonexNone at None% | exp 14.4 dealt / 0.0 taken
+t18 s2 Drake Clasher@29,10 hp48 -> Dark Adept@28,9 hp15: war talon(blade) 5x4 at 60% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t18 s2 Drake Fighter@13,16 hp22 -> Walking Corpse@12,16 hp6: war blade(blade) 6x3 at 60% takes 100% | back 6x2 at 60% | exp 10.8 dealt / 7.2 taken
+t19 s1 Dark Adept@28,8 hp10 -> Saurian Skirmisher@27,9 hp26: chill wave(cold) 12x2 at 70% takes 120% | back 4x2 at 50% | exp 16.8 dealt / 4.0 taken
+t19 s1 Dark Adept@14,16 hp27 -> Drake Fighter@13,16 hp16: chill wave(cold) 15x2 at 70% takes 150% | back 3x3 at 50% | exp 21.0 dealt / 4.5 taken
+t19 s1 Dark Adept@7,9 hp21 -> Drake Burner@8,8 hp14: chill wave(cold) 14x2 at 70% takes 140% | back 6x4 at 60% | exp 19.6 dealt / 14.4 taken
+t19 s2 Drake Clasher@29,8 hp48 -> Dark Adept@28,8 hp2: spear(pierce) 6x4 at 50% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t19 s2 Drake Fighter@7,10 hp45 -> Dark Adept@7,9 hp21: war blade(blade) 8x3 at 60% takes 100% | back NonexNone at None% | exp 14.4 dealt / 0.0 taken
+t19 s2 Saurian Skirmisher@8,8 hp32 -> Dark Adept@7,9 hp5: spear(pierce) 5x4 at 60% takes 100% | back NonexNone at None% | exp 12.0 dealt / 0.0 taken
+t20 s1 Dark Adept@7,18 hp33 -> Drake Warrior@7,17 hp58: chill wave(cold) 11x2 at 70% takes 150% | back 6x3 at 60% | exp 15.4 dealt / 10.8 taken
+t20 s1 Dark Sorcerer@8,17 hp48 -> Drake Warrior@7,17 hp36: chill wave(cold) 15x2 at 70% takes 150% | back 6x3 at 60% | exp 21.0 dealt / 10.8 taken
+t20 s2 Drake Warrior@7,17 hp29 -> Dark Adept@7,18 hp21: war blade(blade) 15x3 at 60% takes 100% | back NonexNone at None% | exp 27.0 dealt / 0.0 taken
+t20 s2 Saurian Skirmisher@10,17 hp27 -> Walking Corpse@9,17 hp6: spear(pierce) 4x4 at 50% takes 100% | back 7x2 at 40% | exp 8.0 dealt / 5.6 taken
+t21 s1 Dark Sorcerer@8,17 hp36 -> Drake Warrior@7,17 hp29: chill wave(cold) 15x2 at 70% takes 150% | back 6x3 at 60% | exp 21.0 dealt / 10.8 taken
+t21 s1 Dark Adept@12,15 hp27 -> Drake Fighter@12,14 hp37: chill wave(cold) 11x2 at 70% takes 150% | back 4x3 at 40% | exp 15.4 dealt / 4.8 taken
+t21 s1 Dark Adept@21,21 hp27 -> Saurian Ambusher@21,22 hp36: chill wave(cold) 9x2 at 70% takes 120% | back 4x2 at 40% | exp 12.6 dealt / 3.2 taken
+t21 s2 Drake Fighter@8,18 hp45 -> Dark Sorcerer@8,17 hp30: war blade(blade) 10x3 at 60% takes 100% | back 2x3 at 70% | exp 18.0 dealt / 4.2 taken
+t21 s2 Saurian Skirmisher@9,17 hp32 -> Dark Sorcerer@8,17 hp10: spear(pierce) 4x4 at 60% takes 100% | back 3x3 at 40% | exp 9.6 dealt / 3.6 taken
+t21 s2 Drake Fighter@8,16 hp26 -> Dark Sorcerer@8,17 hp6: war blade(blade) 9x3 at 60% takes 100% | back 2x3 at 70% | exp 16.2 dealt / 4.2 taken
