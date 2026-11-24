@@ -1,12 +1,23 @@
 # Level, defence and the fight's numbers in the network's input: design (2026-11-24)
 
-**Status: a design. Nothing is built.**
+**Status: a design, not approved. Nothing is built.**
 - The user ruled on 2026-11-24, after watching a game of the simple loop's
   network: "for sure the network needs that information".
+- The user read the first version the same day, did not approve it, and
+  ruled two things:
+  - **No token per possible attack:** "the number of possible attacks is
+    astronomically high". The fight's numbers are columns of the
+    attacker's row.
+  - **No outcome of a fight is worked out for the network:** "If you mean
+    the modal or expected outcome, then no, that's for the network to
+    learn." The first version's four such columns are removed (Part 2).
+- The first version's wording was unclear to the user: "six neighbouring
+  hexes holding an enemy", "the dialog", "the predicted outcome". This
+  version says each in plain terms.
 - How the new weights are trained is not decided: "We'll discuss how to
   train it". The last section holds what is known and the options.
-- Two points of this design wait for the user ("Decisions this design
-  raises").
+- Waiting for the user: the design as a whole, and two points of it
+  ("Decisions this design raises").
 
 ## In short
 
@@ -17,12 +28,20 @@ unit's row:
 
 1. **What the sidebar shows:** the unit's level, its chance to be hit
    where it stands and on each kind of terrain, and its movement costs.
-2. **What the attack dialog shows:** for each enemy next to one of our
-   units that can attack, and each of its weapons, the fight's numbers.
+2. **The numbers of a fight the unit can start now.** In Wesnoth a unit
+   attacks only an enemy standing on a hex next to its own, whichever
+   weapon it uses. When a player orders the attack, a window opens to
+   choose the weapon: "the attack dialog" below. For each weapon it lists
+   the damage per hit, the strikes and the chance to hit, of both sides.
+   The network gets those numbers for each of our units that can attack,
+   each enemy next to it, and each of its weapons.
 3. **The weapon reads the target:** the score of a target and of a weapon
    gets the dialog's line for that pair. Today the weapon is scored from
    the attacker's row alone.
 
+- Parts 1 and 2 are input only: columns of the row that the network's
+  input layer turns into the unit's token. Part 3 is a change at the
+  output.
 - There is no new kind of token and no change to the trunk.
 - Every new weight starts at zero, so the widened network plays exactly
   the game it plays today on the day the columns arrive.
@@ -109,7 +128,7 @@ Wesnoth 1.18.4, GitHub tag, read 2026-11-24.
 | Its defence on the hex the mouse points at, else where it stands | sidebar | `src/reports.cpp:577-627` |
 | Its movement cost on each terrain | sidebar tooltip | `src/reports.cpp:671-752` |
 | Per weapon: damage per hit, strikes and chance to hit of both sides, and the weapon that answers | attack dialog | `src/gui/dialogs/unit_attack.cpp:84-200` |
-| The predicted outcome of the fight | the dialog's "Damage Calculations" button | `src/gui/dialogs/unit_attack.cpp:57-67` |
+| The exact chance of each ending of the fight: the hit points each unit is left with, a death (not given to the network: the user's ruling, Part 2) | the dialog's "Damage Calculations" button | `src/gui/dialogs/unit_attack.cpp:57-67` |
 | The same dialog from the hex a move-and-attack would strike from, before the unit moves | attack dialog | `src/mouse_events.cpp:926-946` |
 
 `reports.cpp:619-627`, the defence a player reads:
@@ -166,37 +185,49 @@ any unit it sees). 34 columns.
 
 ## Part 2: what the attack dialog shows
 
-For each of our units with an attack left, and each of its six
-neighbouring hexes (north, north-east, south-east, south, south-west,
-north-west: `observe.rs:26-34`) that holds an enemy it may attack, and
-each of its three weapon slots: 15 columns, 270 in all.
+**Whom a unit can attack.** Every attack in Wesnoth, with a melee or a
+ranged weapon, is made on an enemy standing on one of the six hexes that
+touch the attacker's hex. "Ranged" only decides which of the enemy's
+weapons can answer. So at any moment a unit has at most six possible
+targets. In the 24 measured games, 1,888 of the 2,196 attacks by a
+two-weapon unit had one enemy next to the attacker and 308 had several.
+
+**The columns.** The row of each of our units with an attack left gets
+one slot for each of the six directions (north, north-east, south-east,
+south, south-west, north-west: `observe.rs:26-34`). A slot is filled when
+an enemy the unit may attack stands on that hex, and is zero otherwise.
+A filled slot holds 11 columns for each of the unit's three weapon slots:
+198 columns in all.
 
 | Columns | Value |
 |---|---|
-| 1 | this weapon can strike this neighbour |
+| 1 | this weapon can strike this enemy |
 | 3 | our damage per hit / 40, strikes / 6, chance to hit / 100 |
 | 1 | the enemy answers |
 | 3 | the answer's damage per hit / 40, strikes / 6, chance to hit / 100 |
 | 3 | which of the enemy's weapon slots answers (one-hot) |
-| 4 | the prediction: the chance the enemy dies, the chance our unit dies, the average hit points each is left with / 80 (`HP_NORM`) |
 
 - **The numbers are the fight's own.** The core's `fight_inputs`
   (`core_attack.rs:227-256`) and the answer the engine picks
   (`outcomes.rs:498-536`, `counter_weapon`) are what the attack command
   runs, so the columns carry resistance, time of day, leadership, slow,
   backstab, charge, marksman, magical and steadfast as the fight applies
-  them. The prediction is the core's port of the engine's
-  (`outcomes.rs:360`, `engine_marginals`).
+  them.
 - **Everything else is zero:** an enemy's row, a unit that has attacked, a
-  neighbour hex with no enemy the unit may attack, a recruit option.
+  direction with no enemy the unit may attack, a recruit option.
 - **The enemy's weapon specials** (poison, slow, drain) are in the enemy's
   own row; the one-hot says which weapon they belong to.
+- **No outcome is worked out for the network** (the user, 2026-11-24).
+  The dice decide a fight. The game can show a player the exact chance of
+  each ending (the "Damage Calculations" window), and the first version
+  gave the network four numbers from it: each side's chance to die and
+  the average hit points each is left with. The user: "that's for the
+  network to learn." What stays is what one strike does and how often it
+  lands, for both sides.
 - **The cost in time is measured before the columns are switched on.**
-  The dialog's first three lines are arithmetic. The prediction runs the
-  fight's table of outcomes once per weapon and neighbour; if it slows
-  the games, that is reported and the four prediction columns can wait.
+  They are arithmetic on numbers the core already holds.
 
-The unit's row grows from 109 columns to 109 + 34 + 270 = 413.
+The unit's row grows from 109 columns to 109 + 34 + 198 = 341.
 
 ## Part 3: the weapon reads the target
 
@@ -205,16 +236,22 @@ Today (`wesnoth_ai/action_sampler.py:126-133`):
     P(unit u attacks hex h with weapon w)
         = P(u) × P(attack | u) × P(h | u, attack) × P(w | u)
 
-The last factor does not see h. Two terms are added, each a learned
-weighting of Part 2's 15 numbers, starting at zero:
+The last factor does not see h: one unit's weapon is scored the same
+whichever enemy it strikes. That holds even with Part 2's columns in the
+row, because the weapon's score is read from the attacker's token alone.
+This part is not input: it changes how the output is computed. It is put
+to the user as its own item (decision 3 below).
+
+As first written, two terms are added, each a learned weighting of Part
+2's 11 numbers, starting at zero:
 
 - the score of weapon w for target h gains `weapon_line · line(u, h, w)`;
 - the score of target h for an attack gains
   `target_line · [line(u, h, 1), line(u, h, 2), line(u, h, 3)]`.
 
-`line(u, h, w)` is read from u's own row: h is one of u's six neighbours.
-For a target that is not next to u (the attack from a distance, below) the
-line is zero and the scores are today's.
+`line(u, h, w)` is read from u's own row: h is one of the six hexes next
+to u. For a target that is not next to u (the attack from a distance,
+below) the line is zero and the scores are today's.
 
 ## What changes in the code
 
@@ -224,15 +261,16 @@ line is zero and the scores are today's.
   hold the wheel, so the run stops for the rebuild.
 - **The encoder** (`wesnoth_ai/encoder.py`): the widths, behind a new
   checkpoint key `unit_row_version` (1: today's 109 columns; 2: this
-  design's 413). `OBSERVATION_EPOCH` goes to 12.
+  design's 341). `OBSERVATION_EPOCH` goes to 12.
 - **The run's checkpoint is widened once,** at the switch: zeros for the
   new columns of `unit_feat_proj.weight` and for their averages in Adam's
   state. `pad_legacy_encoder_state` and `repair_optimizer_state_shapes`
   (`wesnoth_ai/encoder.py`) do this for the layers that grew before; the
   first gains this layer. The loop's step (`tools/pg_adam_step.py`) loads
   Adam's state as saved, so the widening is a step of its own.
-- **The network** (`wesnoth_ai/model.py`): two vectors, `weapon_line` (15)
-  and `target_line` (45), zero at the start; the heads add the two terms.
+- **The network** (`wesnoth_ai/model.py`), if Part 3 stays as first
+  written: two vectors, `weapon_line` (11) and `target_line` (33), zero at
+  the start; the heads add the two terms.
 - **The readers of the weapon's score** take it per target:
   `wesnoth_ai/action_sampler.py`, `wesnoth_ai/server_priors.py`, and the
   loop's pass (`tools/pg_game_pass.py`), which replays a decision's
@@ -256,8 +294,8 @@ registration is written once the training is decided.
   They are fixed per type too. Setting the existing trait columns on a
   recruit option would change the present network's play at once.
 - **The dialog from a hex the unit has not moved to.** A player sees it
-  before a move-and-attack. The network moves first and attacks second in
-  2,629 of 2,637 attacks, and Part 1 gives it the ingredients (its defence
+  before a move-and-attack. In 2,629 of 2,637 attacks the network's unit
+  already stood next to its target, and Part 1 gives it the ingredients (its defence
   by terrain, the enemy's chance to be hit where it stands, resistances,
   time of day). The numbers themselves arrive once it stands next to the
   enemy.
@@ -267,26 +305,38 @@ registration is written once the training is decided.
 
 ## Decisions this design raises
 
-1. **Where the fight's numbers go.** This design puts them in the
-   attacker's row, six neighbour slots of three weapons. The other form is
-   one token per possible attack (attacker, target, weapon), which the
-   network would pick directly.
-   - Columns: the trunk is untouched, the network starts as the same
-     player, and the build is the encoder's input layer and two vectors.
-   - Tokens: the standard form for scoring candidate actions, and it
-     removes the weapon head. But a new kind of token changes what every
-     other token attends to, so the network would not start as the same
-     player, and the stream has to pass through every trunk path (padded,
-     packed, the RX 6600's fused loop).
-   - Recommended: columns.
-2. **The attack from a distance.** The mask lets a unit attack an enemy it
-   can reach this turn, and the simulator picks the hex to strike from by a
-   fixed rule (`tools/wesnoth_sim.py:271-319`, the cheapest route). That
-   rule decides play beside the network, against principle 3. The network
-   used it for 8 of 2,637 attacks. A player chooses that hex with the
-   mouse (`mouse_events.cpp:691-760`).
-   - Recommended: remove it from the legal actions. The network already
-     moves, then attacks.
+1. **Where the fight's numbers go: decided, columns of the attacker's
+   row** (the user, 2026-11-24). The other form was one token per possible
+   attack (attacker, target, weapon), which the network would pick
+   directly. Rejected by the user: "the number of possible attacks is
+   astronomically high (combinatorial explosion)". It was not the
+   recommended form either: a new kind of token changes what every other
+   token attends to, so the network would not start as the same player.
+2. **The attack from a distance.** An attack is one decision: a unit, an
+   enemy, a weapon. The legal actions offer two kinds:
+   - on an enemy next to the unit: the fight happens where the unit
+     stands;
+   - on an enemy the unit is not next to but can reach this turn: the
+     simulator first moves the unit to a hex next to that enemy, then
+     runs the fight. It picks that hex by a fixed rule
+     (`tools/wesnoth_sim.py:271-319`, the cheapest route). The network
+     does not choose it.
+
+   That rule decides play beside the network, against principle 3. A
+   player ordering the same thing chooses the hex with the mouse
+   (`mouse_events.cpp:691-760`). In 24 games the network's attacks were
+   of the first kind 2,629 times of 2,637: the unit already stood next to
+   its target. It got there by a move decided earlier or the enemy came
+   to it; that split was not counted.
+   - Recommended: remove the second kind from the legal actions.
+3. **How the weapon comes to read the target** (Part 3; not yet put to
+   the user). Two forms, both starting at zero:
+   - as first written: the weapon's and the target's scores read Part 2's
+     numbers directly, beside the network;
+   - the weapon's score reads the target's token as well as the
+     attacker's. Everything the network knows of the fight then comes
+     through its input, and nothing is wired from an input column to an
+     output.
 
 ## Training the new weights: open
 

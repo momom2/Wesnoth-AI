@@ -126,6 +126,7 @@ of the attacks by a two-weapon unit, and 3.6% of attacks go into a
 resistance of 40% or more. The user ruled: "for sure the network needs
 that information". The design adds what the sidebar and the attack dialog
 show as columns of the unit's row, every new weight starting at zero.
+The user has not approved it (see "Open").
 Nothing is built, and how the new weights are trained is to be discussed:
 at the loop's rate they would take thousands of rounds to count.
 
@@ -464,10 +465,14 @@ both sides, 3,200 decisive games on the same seeds:
 ## Open (for the user unless noted)
 
 - **The input additions** (`docs/input_facts_design_20261124.md`,
-  2026-11-24): where the fight's numbers go (columns of the attacker's
-  row are recommended over tokens of their own), whether the attack from
-  a distance stays (the simulator picks its hex by a fixed rule; removal
-  is recommended), and how the new weights are trained.
+  2026-11-24). The user read the first version and did not approve it:
+  its wording was unclear. Ruled the same day: the fight's numbers are
+  columns of the attacker's row, not tokens of their own, and no outcome
+  of a fight is worked out for the network ("that's for the network to
+  learn"). Still open: the design as reworded, whether the attack from a
+  distance stays (the simulator picks its hex by a fixed rule; removal is
+  recommended), how the weapon comes to read the target, and how the new
+  weights are trained.
 - **Resume the lean line, or leave it stopped.** It stopped in round 23's
   games on 2026-11-10 ("The line is stopped", above). Rounds 23 and 24
   with round 24's claim and argmax match would give departures 43 and 44
