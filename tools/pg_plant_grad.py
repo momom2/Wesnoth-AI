@@ -63,7 +63,8 @@ class MassGradients:
         self.records = {g: Path(p) for g, p in records.items()}
         self.lengths = side_lengths(record_facts(self.records, workers))
         self.loader = PositionLoader(self.records, dict(self.encoder.unit_type_to_id),
-                                     dict(self.encoder.faction_to_id), workers=workers, verify=verify)
+                                     dict(self.encoder.faction_to_id), workers=workers, verify=verify,
+                                     unit_row_version=self.encoder.unit_row_version)
         self.recompute = device.type == "cuda"
 
     def close(self) -> None:

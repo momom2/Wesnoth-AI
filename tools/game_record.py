@@ -54,7 +54,13 @@ marks the game played with a unit's uncovered state leaving the board
 with the unit, as in the engine; in records of format 4 and earlier a
 unit that died while uncovered stays in the uncovered list, which their
 fingerprints cover, and a later unit given its id reads as uncovered
-(`keep_removed_uncovered`).
+(`keep_removed_uncovered`). 6 marks the game played with a unit attacking
+only an enemy on a hex that touches its own. In records of format 5 and
+earlier a player could also order an attack on an enemy its unit could
+reach that turn: the simulator moved the unit first, so the commands hold
+that move and the attack, and the decision log holds one decision at the
+move (tools/approach_hex.py). Such a record rebuilds as before; its
+distant attacks are not legal under today's masks (tools/pg_positions.py).
 """
 from __future__ import annotations
 
@@ -77,7 +83,7 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 5
+FORMAT = 6
 # The core's rules of earlier records: (the global that keeps the rule, the
 # last format played under it). See "Formats" above.
 OLD_RULES = (("skip_first_turn_resting", 3), ("keep_removed_uncovered", 4))

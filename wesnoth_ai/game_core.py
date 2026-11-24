@@ -91,7 +91,7 @@ _RECORD_SIDES = (1, 2)
 # takes a unit that leaves the board out of the uncovered list
 # (`keep_removed_uncovered` keeps the earlier list for records of format 4
 # and earlier).
-_CORE_PHASE = 39
+_CORE_PHASE = 40
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
@@ -853,20 +853,23 @@ class CoreState:
     def encode_raw(self, *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                    relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
                    terrain_multi_hot: bool = False, observation_parity: bool = False,
-                   relevant_set_version: int = 1, masks: bool = False):
+                   relevant_set_version: int = 1, masks: bool = False, unit_row_version: int = 1):
         """`encoder.encode_raw` over the core for the side to move: the
         same RawEncoded, byte for byte (tests/test_game_core.py). With
         `observation_parity` the parity observation (encoder.py's layout
         "The parity observation"), which only the core builds, with the
         faction posterior and the sighting stream. `relevant_set_version`
         2 widens the relevant set (the parity recipe's; needs
-        `relevant_set`). With `masks` the decision's packed legality masks
+        `relevant_set`). `unit_row_version` 2 widens the parity
+        observation's unit and recruit rows (encoder.py, "The unit row,
+        version 2"). With `masks` the decision's packed legality masks
         come along in `core_masks` (rust/wesnoth_core/src/core_masks.rs),
         what `server_priors.pack_masks` packs from the Python builder."""
         raw, _label = self._encode(None, type_to_id=type_to_id, faction_to_id=faction_to_id,
                                    relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
                                    terrain_multi_hot=terrain_multi_hot, observation_parity=observation_parity,
-                                   relevant_set_version=relevant_set_version, masks=masks)
+                                   relevant_set_version=relevant_set_version, masks=masks,
+                                   unit_row_version=unit_row_version)
         return raw
 
     def encode_labelled(self, label_args: tuple, **encoding) -> Tuple[Optional[object], Optional[tuple]]:
@@ -884,7 +887,7 @@ class CoreState:
     def _encode(self, label_args: Optional[tuple], *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                 relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
                 terrain_multi_hot: bool = False, observation_parity: bool = False,
-                relevant_set_version: int = 1, masks: bool = False):
+                relevant_set_version: int = 1, masks: bool = False, unit_row_version: int = 1):
         """(RawEncoded, the core's label of `label_args` or None): the body
         of `encode_raw` and `encode_labelled`."""
         from wesnoth_ai import encoder as enc
@@ -914,11 +917,12 @@ class CoreState:
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
             enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot),
             observation_parity=bool(observation_parity), parity_norms=parity_norms,
-            relevant_set_version=int(relevant_set_version), recruit_costs=recruit_costs, label=label_args)
+            relevant_set_version=int(relevant_set_version), recruit_costs=recruit_costs, label=label_args,
+            unit_row_version=int(unit_row_version))
         label = d.get("label")
         if label_args is not None and label is None:
             return None, None
-        _require_widths(d, bool(observation_parity))
+        _require_widths(d, bool(observation_parity), int(unit_row_version))
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
             hex_positions = [static.positions[t] for t in d["full_slots"].tolist()]
@@ -1105,15 +1109,17 @@ def _require_global_width(global_feats) -> None:
     _require_width("global_feats", global_feats, enc.GLOBAL_FEAT_DIM)
 
 
-def _require_widths(d: dict, parity: bool) -> None:
+def _require_widths(d: dict, parity: bool, unit_row_version: int = 1) -> None:
     """`_require_global_width` for an encoding, and under the parity flag
-    every row the parity observation widens."""
+    every row the parity observation widens, the unit and recruit rows at
+    their version's width."""
     from wesnoth_ai import encoder as enc
     if not parity:
         _require_global_width(d["global_feats"])
         return
-    for key, width in (("global_feats", enc.GLOBAL_FEAT_DIM_PARITY), ("unit_feats", enc.UNIT_FEAT_DIM_PARITY),
-                       ("recruit_feats", enc.UNIT_FEAT_DIM_PARITY),
+    unit_feats = enc.observation_widths(True, unit_row_version).unit_feats
+    for key, width in (("global_feats", enc.GLOBAL_FEAT_DIM_PARITY), ("unit_feats", unit_feats),
+                       ("recruit_feats", unit_feats),
                        ("hex_dynamic_flags", enc.NUM_HEX_DYNAMIC_FLAGS_PARITY),
                        ("sight_feats", enc.SIGHT_FEAT_DIM)):
         _require_width(key, d[key], width)
@@ -1169,6 +1175,11 @@ def _check_parity_layout() -> None:
         "hex_extra": enc.NUM_HEX_DYNAMIC_FLAGS_PARITY - enc.NUM_HEX_DYNAMIC_FLAGS,
         "global_extra": enc.GLOBAL_FEAT_DIM_PARITY - enc.GLOBAL_FEAT_DIM,
         "sight_feat_dim": enc.SIGHT_FEAT_DIM, "terrain_classes": enc.NUM_TERRAINS_PARITY,
+        # The unit row of version 2: its widths, the level's divisor, and its
+        # per-class columns in the hex tokens' class order.
+        "unit_extra_v2": enc.UNIT_EXTRA_ROWS2, "facts_cols": enc.UNIT_FACTS_COLS,
+        "fight_directions": enc.FIGHT_DIRECTIONS, "fight_cols": enc.FIGHT_COLS,
+        "level_norm": enc.LEVEL_NORM, "archetype_classes": list(range(enc.NUM_TERRAINS_PARITY)),
     }
     off = {k: (got.get(k), v) for k, v in want.items() if got.get(k) != v}
     if off:

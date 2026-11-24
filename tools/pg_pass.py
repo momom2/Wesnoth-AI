@@ -158,9 +158,11 @@ def load_network(path: Path, device: torch.device):
     fused fp16 loop's bias fold off (WesnothModel.fold_biases: these tools'
     no-grad fp16 forwards, the floor's and the evaluator's, run the loop
     that served stage 1)."""
+    from wesnoth_ai.checkpoint_structure import saved_structure
     ck = torch.load(path, map_location="cpu", weights_only=True)
     arch = {k: int(ck["arch"][k]) for k in ARCH}
-    encoder, model = build_modules(ck["unit_type_to_id"], ck["faction_to_id"], device, arch)
+    encoder, model = build_modules(ck["unit_type_to_id"], ck["faction_to_id"], device, arch,
+                                   unit_row_version=saved_structure(ck)["unit_row_version"])
     model.load_state_dict(ck["model_state"])
     encoder.load_state_dict(ck["encoder_state"])
     model.fold_biases = False
@@ -279,7 +281,8 @@ class GradientPass(SplitFiles):
             raise ValueError(f"the luck correction needs one beta per luck column ({len(LUCK_COLUMNS)}), "
                              f"got {len(config.luck_beta)}")
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
-                                     workers=config.workers, verify=config.verify, luck=bool(config.gamma))
+                                     workers=config.workers, verify=config.verify, luck=bool(config.gamma),
+                                     unit_row_version=self.encoder.unit_row_version)
         splits = {g: sides[1].split for g, sides in self.games.items()}
         self.split_counts = Counter(splits.values())
         self.schedules = split_schedules(splits, self.lengths, config.streams, config.seed, config.slots)

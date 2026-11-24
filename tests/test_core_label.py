@@ -216,7 +216,7 @@ def _view_approach_attack(gs, commands, k, side):
     """`own_trajectories.approach_attack` on a view."""
     from tools.abilities import hex_neighbors
     from tools.replay_dataset import _action_indices
-    from tools.wesnoth_sim import attack_hex
+    from tools.approach_hex import attack_hex
     from wesnoth_ai.classes import Position
     cmd, nxt = commands[k], commands[k + 1] if k + 1 < len(commands) else None
     if cmd[0] != "move" or nxt is None or nxt[0] != "attack":

@@ -140,8 +140,8 @@ def test_a_salted_eval_sim_is_not_a_search_fork():
     src = inspect.getsource(wesnoth_sim)
     assert "log.debug if self._seed_salt" not in src, \
         "the log sites must branch on _is_search_fork, not on the salt"
-    assert src.count("log.debug if self._is_search_fork") == 3, \
-        "all three live-sim contract checks branch on the fork flag"
+    assert src.count("log.debug if self._is_search_fork") == 4, \
+        "all four live-sim contract checks branch on the fork flag"
 
     # The eval path sets the salt and must NOT set the flag.
     eval_src = inspect.getsource(elo_eval_game)

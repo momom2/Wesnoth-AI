@@ -145,12 +145,17 @@ pub struct GlobalRec {
 }
 
 /// Per (unit type, slowed, defense table) and per map: the pathfinder's
-/// arrays and the defense percentage on every hex.
+/// arrays and the defense percentage on every hex; and per terrain class
+/// of the parity observation (`terrain::CLASS_ARCHETYPES`) the movement
+/// cost and the chance to be hit the same tables give on the class's own
+/// terrain, which the unit row of version 2 shows (core_parity.rs).
 #[derive(Clone, Debug)]
 pub struct ClassRec {
     pub mcost: Vec<i64>,
     pub dsub: Vec<i64>,
     pub defense_pct: Vec<i64>,
+    pub class_mcost: [i64; terrain::CLASS_ARCHETYPES.len()],
+    pub class_def: [i64; terrain::CLASS_ARCHETYPES.len()],
 }
 
 /// A movement class's identity: the type (its movement costs), the
@@ -371,15 +376,28 @@ impl GameCore {
     fn compute_class(&self, t: &TypeRec, slowed: bool, table: &DefTable) -> ClassRec {
         let all: Vec<usize> = (0..self.map.h).collect();
         let (mcost, dsub, defense_pct) = self.compute_class_at(t, slowed, table, &all);
-        ClassRec { mcost, dsub, defense_pct }
+        let costs = Self::class_costs(t, slowed);
+        let mut class_mcost = [0i64; terrain::CLASS_ARCHETYPES.len()];
+        let mut class_def = [0i64; terrain::CLASS_ARCHETYPES.len()];
+        for (k, code) in terrain::CLASS_ARCHETYPES.iter().enumerate() {
+            class_mcost[k] = terrain::mvt_cost(&self.tdb, code, &costs);
+            class_def[k] = terrain::def_pct(&self.tdb, code, table);
+        }
+        ClassRec { mcost, dsub, defense_pct, class_mcost, class_def }
+    }
+
+    /// A type's movement costs as a unit of the class pays them: doubled
+    /// below UNREACHABLE when slowed.
+    fn class_costs(t: &TypeRec, slowed: bool) -> DefTable {
+        t.movement_costs.iter()
+            .map(|(k, v)| (k.clone(), if slowed && *v < terrain::UNREACHABLE_COST { 2 * v } else { *v }))
+            .collect()
     }
 
     /// `compute_class` on the listed hexes only, in their order.
     pub fn compute_class_at(&self, t: &TypeRec, slowed: bool, table: &DefTable, hexes: &[usize])
         -> (Vec<i64>, Vec<i64>, Vec<i64>) {
-        let costs: DefTable = t.movement_costs.iter()
-            .map(|(k, v)| (k.clone(), if slowed && *v < terrain::UNREACHABLE_COST { 2 * v } else { *v }))
-            .collect();
+        let costs = Self::class_costs(t, slowed);
         let n = hexes.len();
         let (mut mcost, mut dsub, mut defense) = (vec![0; n], vec![0; n], vec![0; n]);
         let mut memo: HashMap<&str, (i64, i64)> = HashMap::new();

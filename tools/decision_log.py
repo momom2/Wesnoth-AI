@@ -8,10 +8,11 @@ actor, kind, target, weapon, prior), and the game's record carries the
 merged log as its `decisions` field (tools/game_record.py). An entry:
 
     side         the side that decided
-    cmd          the index in the record's command list of the first
-                 command the decision emitted (an approach move before its
-                 attack belongs to the attack's decision); -1 when the
-                 simulator refused it
+    cmd          the index in the record's command list of the command
+                 the decision emitted (in a record of format 5 or earlier,
+                 the first of them: an attack ordered from a distance
+                 emitted the simulator's approach move, then the attack);
+                 -1 when the simulator refused it
     refused      the simulator refused the action; the decision counts
     action       [actor, kind, target, weapon], the keys of
                  wesnoth_ai/own_loss.py (-1 for an absent target or weapon)

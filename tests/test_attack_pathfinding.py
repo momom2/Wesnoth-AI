@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Regression tests for WesnothSim._find_attack_hex (the implicit
-move-to-attack pathfinder used in self-play rollouts).
+"""Regression tests for `approach_hex.attack_hex`: the hex the simulator
+struck from when an attack was ordered from a distance. Players could
+order one until 2026-11-24; the function now only reads the game records
+played before (tools/approach_hex.py).
 
 The 2026-06-29 review found the BFS treated FRIENDLY units as
 impassable walls, silently downgrading legal attacks routed past an
@@ -27,6 +29,7 @@ from wesnoth_ai.classes import (   # noqa: E402
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,
     Position, SideInfo, Terrain, Unit,
 )
+from tools.approach_hex import attack_hex   # noqa: E402
 from tools.wesnoth_sim import WesnothSim   # noqa: E402
 
 
@@ -49,7 +52,7 @@ def _u(uid, side, x, y, *, name="Spearman", moves=5, abilities=None):
 
 def _sim(units, *, rows=(0,), width=8) -> WesnothSim:
     """Build a flat-terrain sim of `width` columns over the given rows,
-    bypassing __init__'s turn setup (we only exercise _find_attack_hex,
+    bypassing __init__'s turn setup (we only exercise attack_hex,
     which reads self.gs)."""
     hexes = {Hex(position=Position(x, y), terrain_types={Terrain.FLAT},
                  modifiers=set())
@@ -78,7 +81,7 @@ def test_routes_through_friendly_unit():
     ally = _u("ally", 1, 1, 0)          # blocks the corridor at (1,0)
     target = _u("tgt", 2, 3, 0)
     sim = _sim([attacker, ally, target])
-    hex_ = sim._find_attack_hex(attacker, Position(3, 0))
+    hex_ = attack_hex(sim.gs, attacker, Position(3, 0))
     assert hex_ is not None, "attack through a friendly must be reachable"
     assert (hex_.x, hex_.y) == (2, 0), "lands on the target's near neighbour"
 
@@ -90,7 +93,7 @@ def test_enemy_unit_blocks_passthrough():
     blocker = _u("enemy_block", 2, 1, 0)   # enemy at (1,0) blocks entry
     target = _u("tgt", 2, 3, 0)
     sim = _sim([attacker, blocker, target])
-    hex_ = sim._find_attack_hex(attacker, Position(3, 0))
+    hex_ = attack_hex(sim.gs, attacker, Position(3, 0))
     assert hex_ is None, "cannot pass THROUGH an enemy unit"
 
 
@@ -102,7 +105,7 @@ def test_zoc_stops_non_skirmisher():
                                         # its ZoC covers (3,0)
     target = _u("tgt", 2, 5, 0)
     sim = _sim([attacker, emitter, target], rows=(0, 1))
-    hex_ = sim._find_attack_hex(attacker, Position(5, 0))
+    hex_ = attack_hex(sim.gs, attacker, Position(5, 0))
     assert hex_ is None, "ZoC at (3,0) must stop the attacker short"
 
 
@@ -113,7 +116,7 @@ def test_skirmisher_ignores_zoc():
     emitter = _u("zoc", 2, 3, 1)
     target = _u("tgt", 2, 5, 0)
     sim = _sim([attacker, emitter, target], rows=(0, 1))
-    hex_ = sim._find_attack_hex(attacker, Position(5, 0))
+    hex_ = attack_hex(sim.gs, attacker, Position(5, 0))
     assert hex_ is not None, "skirmisher ignores ZoC"
     assert (hex_.x, hex_.y) == (4, 0)
 
@@ -124,5 +127,5 @@ def test_adjacent_attacker_uses_own_hex():
     attacker = _u("atk", 1, 2, 0)
     target = _u("tgt", 2, 3, 0)
     sim = _sim([attacker, target])
-    hex_ = sim._find_attack_hex(attacker, Position(3, 0))
+    hex_ = attack_hex(sim.gs, attacker, Position(3, 0))
     assert hex_ is not None and (hex_.x, hex_.y) == (2, 0)

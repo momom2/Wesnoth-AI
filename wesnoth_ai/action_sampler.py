@@ -1112,10 +1112,9 @@ def _build_legality_masks(encoded: EncodedState, game_state: GameState) -> Legal
             continue
         if not (u.current_moves > 0 or not u.has_attacked):
             continue
-        # An enemy is attackable iff the unit is ALREADY adjacent or
-        # can LAND on a hex adjacent to it this turn (the
-        # move-to-attack normalization in WesnothSim.step then routes
-        # the approach).
+        # An enemy is attackable iff it stands on a hex that touches
+        # the unit's own (rows_from_reach; the user removed the attack
+        # from a distance on 2026-11-24).
         move_row = move_rows[i]
         attack_row = attack_rows[i]
 

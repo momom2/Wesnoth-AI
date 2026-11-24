@@ -268,57 +268,6 @@ def _recruit_cost_for(unit_type: str) -> int:
         return 14
 
 
-def attack_hex(gs: GameState, attacker, target) -> Optional[Position]:
-    """Pick a hex the attacker can move to and attack `target` from.
-
-    Returns the chosen attack hex (a neighbor of `target` the
-    attacker can LAND on this turn, per the shared
-    observable-state planner), or None if no such hex exists.
-
-    Why this helper: the policy emits attack actions with
-    `start_hex = unit's current position`. When `start_hex` isn't
-    adjacent to `target`, Wesnoth's replay engine rejects the
-    bare `[attack]` command (battle_context disables out-of-range
-    weapons; the attack handler then returns without consuming the
-    [random_seed] follow-up, and the next outer-loop iteration
-    errors with "found dependent command in replay while
-    is_synced=false"). So before recording an [attack], we have to
-    emit an explicit [move] putting the attacker on a neighbor of
-    the target hex -- mirroring what Wesnoth's UI does when the
-    player clicks an enemy from a non-adjacent unit.
-
-    Knowledge level: the plan runs on the ACTING SIDE'S
-    OBSERVABLE state (tools/pathfind_sim.ReachContext), exactly
-    like a player's own attack order -- hidden units neither
-    block nor ZoC the approach; they resolve during the nested
-    move's execution walk (blocked/ambush truncation aborts the
-    attack, as in Wesnoth).
-
-    Choice among candidate hexes: minimal Wesnoth float cost
-    (MP + defense/ally subcosts, pathfind.cpp:815-820), i.e. the
-    cheapest approach preferring defensible terrain -- the same
-    preference order Wesnoth's own pathfinder applies.
-    """
-    from tools.abilities import hex_neighbors
-    from tools.pathfind_sim import ReachContext, unit_reach
-
-    target_neighbors = set(hex_neighbors(target.x, target.y))
-    ctx = ReachContext.for_side(
-        gs, attacker.side, exclude_unit=attacker)
-    reach = unit_reach(attacker, gs, ctx)
-    # The attacker's own hex is a free "landing" if already
-    # adjacent (defensive: callers normally handle that case).
-    if reach.start in target_neighbors:
-        return Position(x=reach.start[0], y=reach.start[1])
-    candidates = [
-        pos for pos in reach.landable if pos in target_neighbors
-    ]
-    if not candidates:
-        return None
-    best = min(candidates, key=lambda pos: reach.cost[pos])
-    return Position(x=best[0], y=best[1])
-
-
 @dataclass
 class SimResult:
     """Outcome of a simulated game."""
@@ -996,10 +945,6 @@ class WesnothSim:
             f"{self._seed_salt}:{self._rng_requests}".encode()).hexdigest()
         return h[:8]
 
-    def _find_attack_hex(self, attacker, target) -> Optional[Position]:
-        """`attack_hex` on the simulator's state."""
-        return attack_hex(self.gs, attacker, target)
-
     def _refused(self, action: dict, kind: str) -> bool:
         """A refused action. The caller re-decides (`last_step_rejected`,
         `last_step_refusal`) until _MAX_CONSECUTIVE_REJECTS refusals in a
@@ -1032,9 +977,7 @@ class WesnothSim:
         ownership) taken before/after detects objective progress;
         full quiet turns are counted at each turn increment and --
         when `no_progress_turns` > 0 -- end the game as a stalemate
-        draw. Nested step() calls (move-to-attack pre-moves) run the
-        wrapper too; that is harmless (each level sees its own
-        delta)."""
+        draw."""
         if self.done:
             return True
         t0 = self.turn_number
@@ -1085,88 +1028,8 @@ class WesnothSim:
 
         _es = getattr(self, "_engagement", None)
         if _es is not None and action.get("type") == "attack":
-            # Count the POLICY-chosen attack (before move-to-attack
-            # normalization; nested pre-move step()s are moves and
-            # can't double count).
+            # Count the attack the policy chose.
             _es.note_attack_attempt(self.gs, action)
-
-        # Implicit move-to-attack: if the policy picked an attack on a
-        # target that the actor isn't adjacent to, plan a pre-move to a
-        # reachable attack hex and dispatch it via a nested step()
-        # call. Then continue with the (now-adjacent) attack. The
-        # policy's mask permits attacks within `current_moves + 1`
-        # hexes of an enemy (the +1 lets the actor cover one MP
-        # then strike), so this branch fires only on actions the mask
-        # already approved.
-        if action.get("type") == "attack":
-            from tools.abilities import hex_neighbors
-            start = action.get("start_hex")
-            target = action.get("target_hex")
-            if (start is not None and target is not None
-                and (target.x, target.y) not in hex_neighbors(start.x, start.y)):
-                # Locate the attacker and target units. If either is
-                # missing, the attack is illegal anyway -- fall through
-                # to _action_to_command to handle the rejection.
-                attacker = next(
-                    (u for u in self.gs.map.units
-                     if u.position.x == start.x and u.position.y == start.y
-                     and u.side == self.current_side), None)
-                defender = next(
-                    (u for u in self.gs.map.units
-                     if u.position.x == target.x and u.position.y == target.y),
-                    None)
-                if attacker is None or defender is None:
-                    # Stale action -- units moved / died. Drop it; the
-                    # outer loop will pick a fresh action next call.
-                    self._forced_end_turn_note = (
-                        f"attempted {_describe_action(action)}; "
-                        f"stale (unit moved/died) -> end_turn")
-                    action = {"type": "end_turn"}
-                else:
-                    attack_hex = self._find_attack_hex(attacker, target)
-                    if attack_hex is None:
-                        # No landable attack hex. The mask computes
-                        # attackability from the SAME observable-state
-                        # reach, so this is a mask/sim disagreement --
-                        # loud, and re-decide rather than burn the
-                        # turn.
-                        log.warning(
-                            f"sim: attack {start.x},{start.y}->"
-                            f"{target.x},{target.y} has no landable "
-                            f"attack hex; mask/sim reachability "
-                            f"disagreement -- re-deciding")
-                        if self._refused(action, "mask_disagreement"):
-                            return self.done
-                        action = {"type": "end_turn"}
-                    else:
-                        # Dispatch the move first; if it produces a
-                        # game-over (e.g. capture-the-flag scenario),
-                        # propagate.
-                        if self.step({
-                            "type": "move",
-                            "start_hex": start,
-                            "target_hex": attack_hex,
-                        }):
-                            return True
-                        # Verify the move actually landed: ZoC / ambush
-                        # / village-capture stops can zero MP without
-                        # changing position, but the position update
-                        # always succeeds when the core accepts the
-                        # move. If for any reason the attacker
-                        # didn't land on attack_hex, abort: the next
-                        # action_sampler call will pick a fresh action.
-                        moved = next(
-                            (u for u in self.gs.map.units
-                             if u.id == attacker.id
-                             and u.position.x == attack_hex.x
-                             and u.position.y == attack_hex.y), None)
-                        if moved is None:
-                            return self.done
-                        # Update the action to attack from the new hex.
-                        action = {
-                            **action,
-                            "start_hex": attack_hex,
-                        }
 
         side_now = self.gs.global_info.current_side
 
@@ -1190,8 +1053,9 @@ class WesnothSim:
         cmd, terrain_cost = self._action_to_command(action)
         if cmd is not None and cmd[0] in ("__retry_recruit__",
                                           "__reject_action__"):
-            # Recruit hex god-view-occupied, or a move target outside
-            # the planner's landable set. Normally: bail out without
+            # Recruit hex god-view-occupied, a move target outside the
+            # planner's landable set, or an attack on a unit the
+            # attacker is not next to. Normally: bail out without
             # applying anything and let the caller re-decide
             # (`last_step_rejected`). BUT a policy that does NOT
             # consult the legality mask (scripted DummyPolicy, buggy
@@ -1484,20 +1348,27 @@ class WesnothSim:
             start: Position = action["start_hex"]
             target: Position = action["target_hex"]
             weapon = int(action.get("attack_index", 0))
-            # Defensive adjacency check. step() normally normalizes
-            # non-adjacent attack actions into a move + adjacent
-            # attack pair before reaching here, but if a future caller
-            # bypasses step() or my move-planning logic misses a case,
-            # emitting an [attack] from a non-adjacent source produces
-            # an invalid Wesnoth replay (battle_context disables
-            # out-of-range weapons; the [random_seed] follow-up
-            # orphans, errors with "found dependent command in replay
-            # while is_synced=false"). Reject rather than emit garbage.
+            # A unit attacks an enemy on a hex that touches its own, and
+            # the legality mask offers no other target
+            # (rust/wesnoth_core/src/lib.rs `rows_from_landable`). Until
+            # 2026-11-24 an attack on a unit the attacker could reach was
+            # legal too, and the simulator chose the hex to strike from
+            # and moved the unit there first; the user removed it
+            # (principle 3: the network did not choose that hex). An
+            # [attack] from a hex that does not touch the target's would
+            # make an invalid Wesnoth replay (battle_context disables
+            # out-of-range weapons; the [random_seed] follow-up orphans
+            # with "found dependent command in replay while
+            # is_synced=false"), so it is refused and the caller decides
+            # again.
             if (target.x, target.y) not in hex_neighbors(start.x, start.y):
-                log.debug(
-                    f"sim: rejecting non-adjacent attack "
-                    f"{(start.x, start.y)}->{(target.x, target.y)}")
-                return None, None
+                (log.debug if self._is_search_fork else log.warning)(
+                    f"sim: attack {(start.x, start.y)}->{(target.x, target.y)} "
+                    f"is on a unit the attacker is not next to; "
+                    + ("search-fork chance divergence"
+                       if self._is_search_fork else "mask/sim disagreement")
+                    + " -- re-deciding")
+                return ["__reject_action__"], None
             # Allocate a synced-RNG seed so combat damage rolls match
             # what Wesnoth replays back from the [random_seed]
             # follow-up command sim_to_replay emits. cmd[7] is the

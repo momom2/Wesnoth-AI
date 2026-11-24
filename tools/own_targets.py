@@ -5,9 +5,10 @@ distribution at each. The records it writes sit beside the corpus's and the
 sequence trainer reads them with `--own-sequences`.
 
 A recorded command is one decision of the player, one forward of its
-network, but for one case: the simulator turns an attack on a unit the
-attacker does not stand next to into its approach move and the attack
-(`wesnoth_sim.attack_hex`), so a move followed by an attack from its end is
+network, but for one case in records of format 5 and earlier: the
+simulator turned an attack on a unit the attacker did not stand next to
+into its approach move and the attack (`approach_hex.attack_hex`), so a
+move followed by an attack from its end is
 one attack decision, or a move decision then an attack decision. The match's
 count of the player's forwards says how many pairs were one decision
 (`merges_owed`: candidates plus refused recruits, each decided again from

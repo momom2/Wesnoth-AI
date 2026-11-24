@@ -10,10 +10,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::combat::combat_modifier;
-use crate::core::{GameCore, UnitRec};
+use crate::core::{ClassRec, GameCore, UnitRec};
 use crate::core_attack::{apply_illumination, dt_index};
 use crate::db::{UnitType, DAMAGE_TYPES};
-use crate::terrain::{FUNGUS, REEF};
+use crate::observe::SideView;
+use crate::outcomes::{FightLine, StrikeLine};
+use crate::terrain::{archetype_class, CLASS_ARCHETYPES, FUNGUS, REEF, UNREACHABLE_COST};
 use crate::units::scaled_max_exp;
 
 /// Weapon specials with a column, in column order (encoder.PARITY_SPECIALS).
@@ -58,6 +60,45 @@ pub const FOG_RADIUS: i64 = 6;
 /// The recruit row's has_attacked column (encoder.UNIT_NUMERIC_FEATS 8).
 pub const HAS_ATTACKED_COL: usize = 8;
 pub const NUM_PARITY_NORMS: usize = 6;
+
+// The unit row of version 2 (docs/input_facts_design_20261124.md): after
+// the columns above, what the sidebar shows of the unit, then the attack
+// dialog's lines for each fight the unit can start now. The layout is
+// encoder.py's ("The unit row, version 2").
+
+/// The terrain classes of the hex tokens' terrain set.
+pub const TERRAIN_CLASSES: usize = CLASS_ARCHETYPES.len();
+/// The sidebar's columns: the level, the chance to be hit where the unit
+/// stands, then per terrain class its chance to be hit and one over its
+/// movement cost.
+pub const FACTS_COLS: usize = 2 + 2 * TERRAIN_CLASSES;
+/// The hexes that touch a unit's, in `observe::neighbours` order: north,
+/// north-east, south-east, south, south-west, north-west.
+pub const FIGHT_DIRECTIONS: usize = 6;
+/// One weapon slot of the unit against the enemy on one of those hexes,
+/// its line of the attack dialog: the weapon can strike; its damage per
+/// hit, strikes and chance to hit; the enemy answers; the answer's damage
+/// per hit, strikes and chance to hit; which of the enemy's weapon slots
+/// answers (one-hot).
+pub const FIGHT_COLS: usize = 8 + WEAPON_SLOTS;
+pub const FIGHTS_COLS: usize = FIGHT_DIRECTIONS * WEAPON_SLOTS * FIGHT_COLS;
+/// The columns a unit or recruit row of version 2 gains after its first 13.
+pub const UNIT_EXTRA_V2: usize = UNIT_EXTRA + FACTS_COLS + FIGHTS_COLS;
+/// The level's divisor: the highest level of the default era's unit types
+/// (encoder.LEVEL_NORM).
+pub const LEVEL_NORM: f64 = 4.0;
+const PERCENT: f64 = 100.0;
+
+/// The columns a unit or recruit row gains after its first 13 under a
+/// unit row version: 1, the parity observation's; 2, with the sidebar's
+/// facts and the fights' lines.
+pub(crate) fn unit_extra_cols(unit_row_version: i64) -> PyResult<usize> {
+    match unit_row_version {
+        1 => Ok(UNIT_EXTRA),
+        2 => Ok(UNIT_EXTRA_V2),
+        v => Err(pyo3::exceptions::PyValueError::new_err(format!("unit_row_version {v}: 1 or 2"))),
+    }
+}
 
 /// The divisors of the parity columns, in `parity_norms` order
 /// (encoder.py's module values).
@@ -136,6 +177,44 @@ pub(crate) fn recruit_extra(t: &UnitType, pn: &ParityNorms, out: &mut [f32]) {
     name_bits(&t.abilities, &ABILITIES, &mut out[ABILITIES_AT..POISONED_AT]);
 }
 
+/// The sidebar's columns (`FACTS_COLS`) from a level, the chance to be hit
+/// where the unit stands (None for a recruit option, written 0) and its
+/// movement class's tables per terrain class. One over the movement cost
+/// is 0 where the unit cannot go.
+fn facts_cols(level: i64, stands: Option<i64>, class: Option<&ClassRec>, out: &mut [f32]) {
+    out[0] = (level as f64 / LEVEL_NORM) as f32;
+    out[1] = stands.map_or(0.0, |d| (d as f64 / PERCENT) as f32);
+    let Some(c) = class else { return };
+    for k in 0..TERRAIN_CLASSES {
+        out[2 + k] = (c.class_def[k] as f64 / PERCENT) as f32;
+        let cost = c.class_mcost[k];
+        out[2 + TERRAIN_CLASSES + k] =
+            if cost <= 0 || cost >= UNREACHABLE_COST { 0.0 } else { (1.0 / cost as f64) as f32 };
+    }
+}
+
+/// One side's strikes in a fight's line: damage per hit, strikes, chance
+/// to hit.
+fn strike_cols(s: &StrikeLine, pn: &ParityNorms, out: &mut [f32]) {
+    out[0] = (s.damage as f64 / pn.damage) as f32;
+    out[1] = (s.strikes as f64 / pn.strikes) as f32;
+    out[2] = (s.cth as f64 / PERCENT) as f32;
+}
+
+/// One weapon slot's columns against one enemy (`FIGHT_COLS`). An answer
+/// with a weapon past the row's slots sets no slot.
+fn fight_cols(line: &FightLine, pn: &ParityNorms, out: &mut [f32]) {
+    out[0] = 1.0;
+    strike_cols(&line.attacker, pn, &mut out[1..4]);
+    if let Some((weapon, answer)) = &line.answer {
+        out[4] = 1.0;
+        strike_cols(answer, pn, &mut out[5..8]);
+        if *weapon < WEAPON_SLOTS {
+            out[8 + weapon] = 1.0;
+        }
+    }
+}
+
 /// `rows` rows of `base_cols` then `extra_cols` columns, row-major.
 pub(crate) fn widen(base: &[f32], base_cols: usize, extra: &[f32], extra_cols: usize) -> Vec<f32> {
     let rows = if base_cols == 0 { 0 } else { base.len() / base_cols };
@@ -171,6 +250,70 @@ impl GameCore {
         out[SLOWED_AT] = flag(u.has_status("slowed"));
         out[TOD_AT] = (self.time_of_day_modifier(i) as f64 / pn.lawful_bonus) as f32;
         out[LEADERSHIP_AT] = (self.leadership(i) as f64 / pn.leadership) as f32;
+    }
+
+    /// Unit `i`'s sidebar columns (`FACTS_COLS`): its level
+    /// (src/reports.cpp:277-291, 1.18.4), the chance to be hit where it
+    /// stands as its fights read it (`defense_at`; reports.cpp:577-627),
+    /// and per terrain class the chance to be hit and one over the
+    /// movement cost of its movement class, the slowed one while it is
+    /// slowed (reports.cpp:671-752).
+    pub(crate) fn unit_facts(&self, i: usize, out: &mut [f32]) {
+        let u = &self.units[i];
+        let level = self.unit_level(i);
+        let stands = self.defense_at(i);
+        let class = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
+        let classes = self.classes.read().unwrap();
+        facts_cols(level, Some(stands), usize::try_from(class).ok().and_then(|c| classes.get(c)), out);
+    }
+
+    /// A recruit option's sidebar columns from its type: the level and the
+    /// tables of the class a recruited unit of the type moves in. The
+    /// column "where it stands" stays 0.
+    pub(crate) fn recruit_facts(&self, name: &str, out: &mut [f32]) {
+        let type_idx = self.type_idx(name) as i64;
+        let t = self.type_rec(type_idx);
+        let class = self.class_for(type_idx, false, &t.defense);
+        let classes = self.classes.read().unwrap();
+        facts_cols(t.level, None, usize::try_from(class).ok().and_then(|c| classes.get(c)), out);
+    }
+
+    /// Whether unit `i` is one of `side`'s with an attack left: the
+    /// legality mask's condition for an attack (`observe_core`'s
+    /// `can_attack` of an acting unit).
+    pub(crate) fn may_attack(&self, i: usize, side: i64) -> bool {
+        let u = &self.units[i];
+        u.side == side && u.hex >= 0 && !u.has_attacked && !u.has_status("petrified")
+    }
+
+    /// Unit `i`'s fight columns (`FIGHTS_COLS`): for each of the six hexes
+    /// that touch its own, in `observe::neighbours` order, and each of its
+    /// first `WEAPON_SLOTS` weapons, the attack dialog's line against the
+    /// enemy the side may attack there (`SideView::attackable`, the
+    /// legality mask's own test), zero where there is none. The numbers
+    /// are the attack command's (`fight_line`).
+    pub(crate) fn unit_fights(&self, i: usize, view: &SideView, pn: &ParityNorms, out: &mut [f32])
+        -> PyResult<()> {
+        let u = &self.units[i];
+        if u.hex < 0 || u.attacks.is_empty() {
+            return Ok(());
+        }
+        let m = &self.map;
+        let h = u.hex as usize;
+        let weapons = u.attacks.len().min(WEAPON_SLOTS);
+        for k in 0..FIGHT_DIRECTIONS {
+            let nb = m.nbrs[h * 6 + k];
+            if nb < 0 || !view.attackable(nb as usize) {
+                continue;
+            }
+            let nb = nb as usize;
+            let Some(d) = self.unit_at(m.hx[nb], m.hy[nb]) else { continue };
+            for w in 0..weapons {
+                let at = (k * WEAPON_SLOTS + w) * FIGHT_COLS;
+                fight_cols(&self.fight_line(i, d, w as i64)?, pn, &mut out[at..at + FIGHT_COLS]);
+            }
+        }
+        Ok(())
     }
 
     /// The engine's combat modifier for unit `i` at its hex
@@ -356,6 +499,16 @@ pub fn parity_layout(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     d.set_item("terrain_classes", REEF + 1)?;
     d.set_item("fungus", FUNGUS)?;
     d.set_item("reef", REEF)?;
+    // The unit row of version 2: its widths, the level's divisor, and the
+    // class each archetype's columns stand for (0..TERRAIN_CLASSES in
+    // order when the tables' columns line up with the hex tokens' classes).
+    d.set_item("unit_extra_v2", UNIT_EXTRA_V2)?;
+    d.set_item("facts_cols", FACTS_COLS)?;
+    d.set_item("fight_directions", FIGHT_DIRECTIONS)?;
+    d.set_item("fight_cols", FIGHT_COLS)?;
+    d.set_item("level_norm", LEVEL_NORM)?;
+    d.set_item("archetype_classes",
+               CLASS_ARCHETYPES.iter().map(|c| archetype_class(c).unwrap_or(-1)).collect::<Vec<i64>>())?;
     Ok(d)
 }
 

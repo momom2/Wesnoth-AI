@@ -12,6 +12,8 @@
 //! Under `observation_parity` the rows widen with the parity columns
 //! (core_parity.rs) and a sighting stream is added; `relevant_set_version`
 //! 2 widens the relevant set. That encoding is built here only.
+//! `unit_row_version` 2 widens its unit and recruit rows further, with the
+//! sidebar's facts and the attack dialog's lines (core_parity.rs).
 
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
@@ -23,8 +25,8 @@ use crate::core_label::{CoreLabel, LabelArgs, Recorded};
 use crate::core_masks::{LeafMasks, UNIT_ACTION_TYPES};
 use crate::core_observe::{observation_dict, CoreObservation};
 use crate::core_parity::{
-    recruit_extra, widen, ParityNorms, GLOBAL_EXTRA, HAS_ATTACKED_COL, HEX_EXTRA, NUM_PARITY_NORMS, SIGHT_FEAT_DIM,
-    UNIT_EXTRA,
+    recruit_extra, unit_extra_cols, widen, ParityNorms, FACTS_COLS, GLOBAL_EXTRA, HAS_ATTACKED_COL, HEX_EXTRA,
+    NUM_PARITY_NORMS, SIGHT_FEAT_DIM, UNIT_EXTRA,
 };
 use crate::encode::{compose_streams, Composed, GLOBAL_FEAT_DIM, NUM_HEX_DYNAMIC_FLAGS, NUM_HEX_MODIFIERS, NUM_NORMS};
 
@@ -94,6 +96,13 @@ impl GameCore {
     /// sighting stream. `relevant_set_version` 2 (with `relevant_set`)
     /// widens the relevant set (`relevant_positions`).
     ///
+    /// `unit_row_version` 2 (with `observation_parity`) appends to every
+    /// unit and recruit row the sidebar's facts (level, chance to be hit
+    /// where it stands and per terrain class, movement costs) and, for the
+    /// side's units with an attack left, the attack dialog's lines against
+    /// each enemy on a hex that touches the unit's
+    /// (docs/input_facts_design_20261124.md; core_parity.rs).
+    ///
     /// With `recruit_costs` (the gold of each of the side's recruit
     /// options, in its recruit-list order) the decision's packed legality
     /// masks come with the encoding (core_masks.rs): mask_actor [A],
@@ -108,21 +117,21 @@ impl GameCore {
     #[pyo3(signature = (side, relevant_set, type_vocab, recruit_type_ids, recruit_stats,
                         fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot=false,
                         observation_parity=false, parity_norms=None, relevant_set_version=1,
-                        recruit_costs=None, label=None))]
+                        recruit_costs=None, label=None, unit_row_version=1))]
     #[allow(clippy::too_many_arguments)]
     fn encode_streams<'py>(&self, py: Python<'py>, side: i64, relevant_set: bool, type_vocab: Vec<i64>,
                            recruit_type_ids: Vec<i64>, recruit_stats: Vec<f64>, fog_hides_enemy_villages: bool,
                            norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize,
                            terrain_multi_hot: bool, observation_parity: bool,
                            parity_norms: Option<[f64; NUM_PARITY_NORMS]>, relevant_set_version: i64,
-                           recruit_costs: Option<Vec<i64>>, label: Option<LabelArgs>)
+                           recruit_costs: Option<Vec<i64>>, label: Option<LabelArgs>, unit_row_version: i64)
         -> PyResult<Bound<'py, PyDict>> {
         // The encoding touches no Python object: other threads of the
         // process run while it is computed (a worker's game threads).
         let args = EncodeArgs {
             side, relevant_set, type_vocab, recruit_type_ids, recruit_stats, fog_hides_enemy_villages, norms,
             map_limit, num_alignments, terrain_multi_hot, observation_parity, parity_norms, relevant_set_version,
-            recruit_costs, label: label.map(Recorded::from_args).transpose()?,
+            recruit_costs, label: label.map(Recorded::from_args).transpose()?, unit_row_version,
         };
         let labelled = args.label.is_some();
         match py.allow_threads(|| self.encode_parts(&args))? {
@@ -167,13 +176,15 @@ struct EncodeArgs {
     relevant_set_version: i64,
     recruit_costs: Option<Vec<i64>>,
     label: Option<Recorded>,
+    unit_row_version: i64,
 }
 
 /// The parity observation's rows and its sighting stream.
 struct ParityParts {
     hex_dynamic: Vec<f32>,      // [ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA]
-    unit_feats: Vec<f32>,       // [u, feat_dim + UNIT_EXTRA]
-    recruit_feats: Vec<f32>,    // [r, feat_dim + UNIT_EXTRA]
+    unit_cols: usize,           // feat_dim + the row version's extra columns
+    unit_feats: Vec<f32>,       // [u, unit_cols]
+    recruit_feats: Vec<f32>,    // [r, unit_cols]
     global: Vec<f32>,
     sight_ids: Vec<i64>,
     sight_xs: Vec<i64>,
@@ -248,8 +259,8 @@ impl EncodedParts {
             }
             Some(p) => {
                 d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA, p.hex_dynamic))?;
-                d.set_item("unit_feats", to2(c.u, feat_dim + UNIT_EXTRA, p.unit_feats))?;
-                d.set_item("recruit_feats", to2(c.r, feat_dim + UNIT_EXTRA, p.recruit_feats))?;
+                d.set_item("unit_feats", to2(c.u, p.unit_cols, p.unit_feats))?;
+                d.set_item("recruit_feats", to2(c.r, p.unit_cols, p.recruit_feats))?;
                 d.set_item("global_feats", p.global.into_pyarray(py))?;
                 let s = p.sight_ids.len();
                 d.set_item("sight_type_ids", p.sight_ids.into_pyarray(py))?;
@@ -272,9 +283,14 @@ impl GameCore {
         let EncodeArgs { side, relevant_set, ref type_vocab, ref recruit_type_ids, ref recruit_stats,
                          fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot,
                          observation_parity, parity_norms, relevant_set_version, ref recruit_costs,
-                         ref label } = *args;
+                         ref label, unit_row_version } = *args;
         let them_side = opponent_of(side)?;
         let parity = parity_norms_of(observation_parity, terrain_multi_hot, parity_norms)?;
+        let extra_cols = unit_extra_cols(unit_row_version)?;
+        if unit_row_version != 1 && parity.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "unit_row_version 2 widens the parity observation's rows: pass observation_parity=True"));
+        }
         let obs = self.observe_relevant(side, relevant_set, relevant_set_version)?;
         let m = &self.map;
         let h = m.h;
@@ -459,9 +475,17 @@ impl GameCore {
             None => None,
             Some(pn) => {
                 let hex_extra = self.hex_extra(&slots, &obs.view.seen, pn);
-                let mut unit_extra = vec![0f32; vis.len() * UNIT_EXTRA];
+                let mut unit_extra = vec![0f32; vis.len() * extra_cols];
                 for (k, &i) in vis.iter().enumerate() {
-                    self.unit_extra(i, pn, &mut unit_extra[k * UNIT_EXTRA..(k + 1) * UNIT_EXTRA]);
+                    let (row, more) = unit_extra[k * extra_cols..(k + 1) * extra_cols].split_at_mut(UNIT_EXTRA);
+                    self.unit_extra(i, pn, row);
+                    if unit_row_version == 2 {
+                        let (facts, fights) = more.split_at_mut(FACTS_COLS);
+                        self.unit_facts(i, facts);
+                        if self.may_attack(i, side) {
+                            self.unit_fights(i, &obs.view, pn, fights)?;
+                        }
+                    }
                 }
                 let mut global = c.global_feats.clone();
                 global.extend(self.global_extra(side, them_side, norms[4], norms[5], pn));
@@ -470,8 +494,9 @@ impl GameCore {
                     self.sighting_stream(side, &obs.view.visible, type_vocab, map_limit, norms[0]);
                 Some(ParityParts {
                     hex_dynamic: widen(&c.dynamic_flags, NUM_HEX_DYNAMIC_FLAGS, &hex_extra, HEX_EXTRA),
-                    unit_feats: widen(&c.feats, feat_dim, &unit_extra, UNIT_EXTRA),
-                    recruit_feats: self.parity_recruit_feats(side, &c.r_feats, feat_dim, pn)?,
+                    unit_cols: feat_dim + extra_cols,
+                    unit_feats: widen(&c.feats, feat_dim, &unit_extra, extra_cols),
+                    recruit_feats: self.parity_recruit_feats(side, &c.r_feats, feat_dim, pn, unit_row_version)?,
                     global, sight_ids, sight_xs, sight_ys, sight_feats,
                 })
             }
@@ -534,16 +559,23 @@ impl GameCore {
     /// The recruit rows under the parity flag: the composed 13 columns
     /// with has_attacked set (a recruit has no attack left on the turn it
     /// arrives, docs/wesnoth_rules.md "Recruit place_recruit zeroes MP
-    /// and attacks"), then the type's parity columns.
-    fn parity_recruit_feats(&self, side: i64, base: &[f32], feat_dim: usize, pn: &ParityNorms)
-        -> PyResult<Vec<f32>> {
+    /// and attacks"), then the type's parity columns, and under unit row
+    /// version 2 its sidebar columns (its fight columns stay 0: it stands
+    /// nowhere).
+    fn parity_recruit_feats(&self, side: i64, base: &[f32], feat_dim: usize, pn: &ParityNorms,
+                            unit_row_version: i64) -> PyResult<Vec<f32>> {
         let names = self.parity_recruit_names(side, if feat_dim == 0 { 0 } else { base.len() / feat_dim })?;
+        let extra_cols = unit_extra_cols(unit_row_version)?;
         let mut base = base.to_vec();
-        let mut extra = vec![0f32; names.len() * UNIT_EXTRA];
+        let mut extra = vec![0f32; names.len() * extra_cols];
         for (k, name) in names.iter().enumerate() {
             base[k * feat_dim + HAS_ATTACKED_COL] = 1.0;
-            recruit_extra(&self.db.get(name), pn, &mut extra[k * UNIT_EXTRA..(k + 1) * UNIT_EXTRA]);
+            let (row, more) = extra[k * extra_cols..(k + 1) * extra_cols].split_at_mut(UNIT_EXTRA);
+            recruit_extra(&self.db.get(name), pn, row);
+            if unit_row_version == 2 {
+                self.recruit_facts(name, &mut more[..FACTS_COLS]);
+            }
         }
-        Ok(widen(&base, feat_dim, &extra, UNIT_EXTRA))
+        Ok(widen(&base, feat_dim, &extra, extra_cols))
     }
 }

@@ -717,7 +717,8 @@ def inference_blueprint(model, encoder) -> InferenceBlueprint:
                             fog_hides_enemy_villages=bool(getattr(encoder, "fog_hides_enemy_villages", False)),
                             terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False)),
                             observation_parity=bool(encoder.observation_parity),
-                            relevant_set_version=int(encoder.relevant_set_version)))
+                            relevant_set_version=int(encoder.relevant_set_version),
+                            unit_row_version=int(encoder.unit_row_version)))
 
 
 def build_inference_pair(blueprint: InferenceBlueprint, device: torch.device) -> Tuple:
@@ -767,6 +768,7 @@ class RemoteEncoder:
         terrain_multi_hot: bool = False,
         observation_parity: bool = False,
         relevant_set_version: int = 1,
+        unit_row_version: int = 1,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
@@ -776,6 +778,9 @@ class RemoteEncoder:
         # core builds: the state encoded must be a view of a core.
         self.observation_parity = bool(observation_parity)
         self.relevant_set_version = int(relevant_set_version)
+        # The unit and recruit rows the served network reads (encoder.py,
+        # "The unit row, version 2").
+        self.unit_row_version = int(unit_row_version)
         self._device = device or torch.device("cpu")
         # Server-side priors: the actor packs the legality masks at
         # encode time and RemoteModel ships them with the leaf.
@@ -800,6 +805,7 @@ class RemoteEncoder:
             observation_parity=self.observation_parity,
             relevant_set_version=self.relevant_set_version,
             masks=self._server_priors,
+            unit_row_version=self.unit_row_version,
         )
 
     def encode(self, game_state: GameState) -> EncodedState:
