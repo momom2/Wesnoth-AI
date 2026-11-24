@@ -4,6 +4,7 @@
 23:58:47), and it checked out (Results). The simple loop
 (`docs/simple_loop_prereg_20261117.md`) ran at λ = 1 to its match at
 round 464. The deciding number is read after the match at round 704.
+Kill criterion 2 was first read at round 528 and is not met (Results).
 
 The user proposed it on 2026-11-23 ("How about we continue with
 λ = 0.99?"), was shown the readings taken on the logged games
@@ -260,6 +261,8 @@ kill criterion 3).
 |---|---|---|---|
 | 480 | +139.8 ± 13.3 | 553 | 2026-11-24 04:50 |
 | 496 | +178.1 ± 13.9 | 589 | 2026-11-24 09:36 |
+| 512 | +164.9 ± 13.7 | 577 | 2026-11-24 14:39 |
+| 528 | +175.8 ± 13.9 | 587 | 2026-11-24 19:21 |
 
 **To round 500** (2026-11-24 10:48). Nothing here decides.
 - The two matches average +158.9 ± 9.6: +6.4 ± 10.2 against the fifteen
@@ -291,3 +294,78 @@ kill criterion 3).
 - Every replay is inside the exact check (7.7e-6 at most), and no round
   holds a refused decision. A round takes 178 s of play and 872 s of
   pass.
+
+**Kill criterion 2 at round 528: not met** (read 2026-11-24 20:17, the
+first reading the criterion allows).
+- The four matches at λ = 0.99 average +164.7 ± 6.8 Elo. That is +12.2 ±
+  7.7 against the fifteen before the switch (+152.5 ± 3.5): 1.6 standard
+  errors above, where the criterion asks for 3 below.
+- With these four matches' own standard errors the criterion's line is
+  +129.5 (+129.7 was stated with each match's at 13.5).
+- So the run goes on at λ = 0.99, unchanged. The criterion is read again
+  with each match.
+- The four scatter by 17.5 Elo around their mean, and the fifteen before
+  the switch by 7.2. Four matches are few to read a scatter from.
+- Nothing here decides, and +1.6 standard errors is no gain read. The
+  deciding number is the fifteen matches to round 704.
+
+**Rounds 497 to 528**, as medians (range). Nothing here decides.
+
+| Reading | Rounds 454 to 464, λ = 1 | Expected | Rounds 497 to 528 |
+|---|---|---|---|
+| The weights' mean square over the same round's at λ = 1 | 1 | about 0.3 | 0.317 (0.270 to 0.345) |
+| The policy's part of the gradient's norm | 57.0 (55.4 to 83.0) | about 31 | 32.4 (28.7 to 37.8) |
+| The value head's part | 30.4 (11.8 to 46.0) | unchanged | 33.6 (14.3 to 88.9) |
+| The whole gradient's norm | 68.2 | about 44 | 47.1 |
+| The update's norm | 0.0090 | about 0.6 of it | 0.0058 (0.0056 to 0.0062): 0.64 of it |
+| The value head's cross-entropy | 0.39 | unchanged | 0.39 (0.34 to 0.46) |
+
+- The value head's part, sixteen rounds at a time from round 465: 26.4,
+  36.6, 32.8 and 33.6, against 30.4 over the eleven rounds before the
+  switch. It reads above those rounds' highest (46.0) in six of rounds
+  481 to 496 and in six of rounds 497 to 528 (499, 502, 503, 515, 520 and
+  524).
+- The value head's cross-entropy over the same four stretches: 0.39,
+  0.42, 0.39 and 0.39. So the head's fit is where it was before the
+  switch.
+- Every replay from round 465 to round 528 is inside the exact check
+  (7.7e-6 at most, limit 1e-4), and no warning is logged. A round takes
+  183 s of play and 860 s of pass.
+
+**The value estimate on rounds 497 to 528** (measurement 3, 2026-11-24;
+`where_optimism.py`, whose outputs `where_433_464.json`,
+`where_465_496.json` and `where_497_528.json` are in
+`training/metrics/value_reliability_20261120/`). The two windows before
+the registered one were read too, so that the last window at λ = 1 stands
+beside the two at λ = 0.99. The first row is the latest window the value
+document holds.
+
+| Rounds | λ | The estimate's rise over a side's turn | Its change across the enemy's turn | Estimate less result: all decisions | In self games alone | A turn's first decision | The end-of-turn decision | The opening slope |
+|---|---|---|---|---|---|---|---|---|
+| 393 to 424 | 1 | +0.024 | −0.024 | +0.027 | +0.026 | +0.005 | +0.030 | 0.54 |
+| 433 to 464 | 1 | +0.006 | −0.006 | +0.030 | +0.037 | +0.018 | +0.026 | 0.63 |
+| 465 to 496 | 0.99 | +0.014 | −0.013 | +0.017 | +0.028 | −0.001 | +0.014 | 0.57 |
+| 497 to 528 | 0.99 | +0.019 | −0.019 | +0.032 | +0.036 | +0.012 | +0.033 | 0.73 |
+
+- The changes are ± 0.001, the differences ± 0.003 (± 0.001 in self games
+  alone) and the slopes ± 0.09.
+- **No change is read at the switch.** Over all decisions the estimate is
+  optimistic by +0.032 ± 0.003, where the last window at λ = 1 read +0.030
+  ± 0.003. The four windows run from +0.017 to +0.032: the reading moves
+  by about 0.01 from one window to the next under either λ, which is more
+  than one window's standard error allows.
+- **The rise over a side's own turn** is +0.019, between the two windows
+  before the switch (+0.024 and +0.006), and the enemy's turn still takes
+  it back. At 0.99 about 6% of such a rise enters the weight: 0.001.
+- **The opening slope** reads 0.73 ± 0.09, the highest of the four: 0.8
+  standard errors above the last window at λ = 1 and 1.5 above rounds 393
+  to 424. Its spread stays at 0.128. No change is read.
+- **Two patterns older than the switch stay.**
+  - Early in a game the estimate is too low. At the first decision of a
+    side's third turn it reads 0.111 under the result (± 0.004). The same
+    reading was −0.037 in rounds 241 to 272, −0.075 in rounds 283 to 314,
+    then −0.096, −0.095 and −0.122 in the three windows before this one.
+  - By the side's own faction it is too high for Knalgans (+0.12), Drakes
+    (+0.10) and Loyalists (+0.09) and too low for Northerners (−0.09),
+    each ± 0.02, as in the earlier windows.
+- None of it is a verdict: the matches decide.

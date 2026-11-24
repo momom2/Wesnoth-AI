@@ -461,6 +461,8 @@ alone. Over every window read:
   (attack), +0.0090 ± 0.0001 (move) and +0.0065 ± 0.0004 (recruit).
 - The opening slope reads 0.54 ± 0.09 with a spread of 0.131: no change
   from rounds 283 to 314 (0.61 ± 0.09, 0.128).
+- Later windows (rounds 433 to 464 at λ = 1, rounds 465 to 496 and 497 to
+  528 at λ = 0.99) are in `docs/lambda_prereg_20261123.md`, "Results".
 
 **What the rise within a turn means for λ.** A rise that the enemy's turn
 takes back cancels in today's weight. Fading by the decision, a rise k

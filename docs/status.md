@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-20.
+Last updated 2026-11-24.
 
 ## In one paragraph
 
@@ -98,14 +98,20 @@ The code is in `main` since 0.35.0 (`--lam` on the pass and the runner, 1
 by default). The run switched after its match at round 464, and its
 command now carries `--lam 0.99`. Round 465 checked out: its weights'
 mean square is 0.33 of what the same round reads at λ = 1 (0.3 expected),
-and its replay is inside the exact check. The first two matches at 0.99
-read +139.8 ± 13.3 and +178.1 ± 13.9 (rounds 480 and 496, to
-2026-11-24). What decides: the fifteen
+and its replay is inside the exact check. The first four matches at 0.99
+read +139.8 ± 13.3, +178.1 ± 13.9, +164.9 ± 13.7 and +175.8 ± 13.9
+(rounds 480 to 528, to 2026-11-24). They average +164.7 ± 6.8: +12.2 ±
+7.7 against the block before the switch, 1.6 standard errors above, which
+is no gain read. The early-loss criterion, first read at round 528, is
+not met. The value estimate, read again on rounds 497 to 528, is as
+before the switch: optimistic by +0.032 ± 0.003 over all decisions
+(+0.030 in rounds 433 to 464), with a rise of +0.019 over a side's own
+turn that the enemy's turn takes back. What decides: the fifteen
 matches of rounds 480 to 704 against the fifteen of rounds 240 to 464
 (+152.5 ± 3.5); λ = 0.99 is rejected if it reads more than 2 standard
 errors lower, and stays otherwise. A gain would not show that λ caused
-it, since no run at λ = 1 plays beside it. Read by hand meanwhile: from
-round 528, the λ matches' mean more than 3 standard errors under that
+it, since no run at λ = 1 plays beside it. Read by hand at each match
+meanwhile: the λ matches' mean more than 3 standard errors under that
 block sends the run back to λ = 1.
 
 **What the network is not shown of a unit and of a fight** (2026-11-24,
