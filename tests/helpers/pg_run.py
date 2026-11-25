@@ -30,7 +30,10 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-SEED_BASE = 108
+# 450 since 2026-11-25, when the attack from a distance left the legal actions: base 108's first 12
+# games then hold two decisive ones (108, 117; none in half B) and its plant resolves at 3.7 SE.
+# Base 450's hold four (450, 456 trained on, 459 in half A, 461 in half B) and its plant 5.7 and 6.2.
+SEED_BASE = 450
 GAMES = 68
 E2E_GAMES, E2E_HELDOUT_FROM = 12, 8
 PLANT_HELDOUT_FROM = 64

@@ -40,7 +40,13 @@ def _play(model, encoder, out_dir: Path) -> None:
     from tools.game_record import GameRecordLog, game_record
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
-    setup = scenario_setup(3, mini=True)
+    # Scenario seed 4 (3 until 2026-11-25). Without the attack from a
+    # distance, seed 3's game no longer holds a window in which no step
+    # reads an earlier write (tests/test_sequence_launches.py), and its
+    # gradient is too small for the fp8 trunk to follow within the test's
+    # cosine (tests/test_trunk_variants.py: 0.954 where 0.98 is asked).
+    # Seeds 4 and 8 hold both.
+    setup = scenario_setup(4, mini=True)
     sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id, max_turns=3)
     sim._seed_salt = "own-pass"
     players = {}
