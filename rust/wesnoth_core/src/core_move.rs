@@ -132,6 +132,60 @@ impl GameCore {
         self.units.iter().position(|u| u.x == x && u.y == y)
     }
 
+    /// Whether a move of `side` stops on a sighting: the rule is on, the
+    /// side is a player's, it plays under fog and its fog updates are not
+    /// delayed. The engine skips sightings for a side without fog
+    /// (move.cpp:1245, `continued_move |= !current_team.fog_or_shroud()`)
+    /// and clears no fog during a move whose updates are delayed
+    /// (`current_uses_fog_`, move.cpp:371 and 975). A side the game plays
+    /// itself moves with sightings skipped, as the engine's own AI does
+    /// (ai/actions.cpp:477-483, `continue_move` true).
+    pub(crate) fn sighting_stops_for(&self, side: i64) -> bool {
+        self.global.sighting_stops
+            && self.global.fog_on
+            && side >= 1
+            && side as usize <= crate::core_sight::RECORD_SIDES
+            && !self.vision_delayed(side)
+    }
+
+    /// The fog unit `i` clears from map hex `at` during its move, into
+    /// `seen` (the hexes its side has cleared so far), and whether that
+    /// uncovers an enemy the move may stop for. The engine counts a unit
+    /// on a hex whose fog this clearing lifted, visible to the side, not
+    /// petrified and an enemy (vision.cpp:281-291, 1.18.4):
+    ///
+    ///     if ( result  &&  check_units  &&  loc != event_non_loc ) {
+    ///         unit_map::const_iterator sight_it = resources::gameboard->find_visible_unit(loc, tm);
+    ///         if ( sight_it.valid() ) {
+    ///             ...
+    ///             if ( !sight_it->get_state(unit::STATE_PETRIFIED) ) {
+    ///                 if ( tm.is_enemy(sight_it->side()) ) {
+    ///                     ++enemy_count;
+    ///
+    /// `hidden` flags the units a hide ability keeps from the side
+    /// (`is_hidden_hider`): they are not visible, so not counted.
+    fn sights_enemy_from(&self, i: usize, at: usize, occ: &[i64], hidden: &[bool], seen: &mut [u8]) -> bool {
+        let side = self.units[i].side;
+        let mut vision = vec![0u8; self.map.h];
+        self.mark_vision(i, at, &mut vision);
+        let mut sighted = false;
+        for g in 0..self.map.h {
+            if vision[g] == 0 || seen[g] != 0 {
+                continue;
+            }
+            seen[g] = 1;
+            if occ[g] < 0 || occ[g] as usize == i {
+                continue;
+            }
+            let k = occ[g] as usize;
+            let o = &self.units[k];
+            if o.side != side && !o.has_status("petrified") && !hidden[k] {
+                sighted = true;
+            }
+        }
+        sighted
+    }
+
     /// `pathfind_sim.walk_move_path` for unit `i` along the ordered
     /// path (xs[0], ys[0]) = its hex: blocked by an enemy on a path
     /// hex (revealed, stop before it, movement kept), ambush by a
@@ -141,6 +195,22 @@ impl GameCore {
     /// occupied hexes, the capturable-village landing. Movement is
     /// charged per entered hex from the unit's movement class; with
     /// `enforce_budget` off (reconstruction) an overrun clamps to 0.
+    ///
+    /// Under `sighting_stops` (a player's move under fog), the stop on a
+    /// sighting as the engine makes it for a player (`sights_enemy_from`):
+    /// once a step has brought an enemy into view, the unit stops on the
+    /// first hex of its route where a stop is reasonable, with the
+    /// movement it has left (move.cpp:955-957, 1.18.4):
+    ///
+    ///     if ( sighted_ && is_reasonable_stop(*step_from) ) {
+    ///         sighted_stop_ = true;
+    ///         break;
+    ///     }
+    ///
+    /// A stop is reasonable on a hex the unit stands on alone that is not
+    /// a village its side does not own (move.cpp:576-588). The test comes
+    /// before the step's other tests, so it wins over a blocker on the
+    /// next hex. A sighting from the route's last hex stops nothing.
     pub fn walk_move_path(&self, i: usize, xs: &[i64], ys: &[i64], enforce_budget: bool) -> MoveOutcome {
         let u = &self.units[i];
         let side = u.side;
@@ -187,8 +257,26 @@ impl GameCore {
         let mut cum: Vec<i64> = vec![0];
         let mut final_idx = 0usize;
         let mut reason = "end";
+        let stops = self.sighting_stops_for(side);
+        let mut seen: Vec<u8> = if stops { self.seen_by(side) } else { Vec::new() };
+        let mut hidden_flag = vec![false; n];
+        for &k in &hidden {
+            hidden_flag[k] = true;
+        }
+        let mut sighted = false;
         for j in 1..m {
             let hex = self.map.pos_index.get(&(xs[j], ys[j])).copied();
+            if sighted {
+                let from = self.map.pos_index.get(&(xs[j - 1], ys[j - 1])).copied();
+                let alone = other_at(from).is_none();
+                let foreign_village = from.map_or(false, |f| {
+                    self.map.village_terrain[f] != 0 && self.village_owner[f] != side
+                });
+                if alone && !foreign_village {
+                    reason = "sighted";
+                    break;
+                }
+            }
             if let Some(b) = other_at(hex) {
                 if self.units[b].side != side {
                     uncovered.push(self.units[b].id.clone());
@@ -206,6 +294,11 @@ impl GameCore {
             }
             cum.push(last + step_cost);
             final_idx = j;
+            if stops {
+                if let Some(hi) = hex {
+                    sighted |= self.sights_enemy_from(i, hi, &occ, &hidden_flag, &mut seen);
+                }
+            }
             if hex.map_or(false, |hi| hider_adjacent[hi] != 0) {
                 for &k in &hidden {
                     if neighbours(self.units[k].x, self.units[k].y).contains(&(xs[j], ys[j])) {

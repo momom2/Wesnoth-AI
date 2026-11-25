@@ -651,9 +651,87 @@ else if(child["skip_sighted"] == "only_ally") { skip_ally_sighted = true; }
 ```
 Playback re-checks sighted-interrupts UNLESS the [move] WML carries
 `skip_sighted="all"`. Blocked/ambush truncation applies regardless.
-Our exports always emit `skip_sighted="all"` (the sim doesn't model
-sighting interrupts, so exports must not re-check them —
-sim_to_replay._wml_for_command).
+Our exports always emit `skip_sighted="all"`: playback is not asked to
+re-check sightings. A move the simulator itself stopped on a sighting
+(next section) is exported with its route cut at the hex the unit stopped
+on (`sim_to_replay._wml_for_command`).
+
+### A player's move under fog stops where it brings an enemy into view
+
+`src/actions/move.cpp` (1.18.4). After each step of a move, the mover's
+team clears fog from the hex entered, and the units that clearing
+uncovers are counted (`handle_fog`, 548-566):
+```cpp
+if ( clearer_.clear_unit(hex, *move_it_, *current_team_, nullptr,
+                         &enemy_count_, &friend_count_, spectator_,
+                         !new_animation) )
+...
+if ( !skip_sighting_ ) {
+    sighted_ = enemy_count_ != 0 ;
+}
+```
+Before the next step, the move stops if a sighting was made and the hex
+the unit stands on is a reasonable place to stop (`try_actual_movement`,
+955-957):
+```cpp
+if ( sighted_ && is_reasonable_stop(*step_from) ) {
+    sighted_stop_ = true;
+    break;
+}
+```
+A stop is reasonable on a hex the unit could be placed on (not one it is
+passing through over another unit) that is not a village its side does
+not own (576-587):
+```cpp
+if (*move_loc_ != hex) {
+    return false;
+}
+return !resources::gameboard->map().is_village(hex) ||
+       current_team_->owns_village(hex);
+```
+A unit counts as sighted when it stands on a hex whose fog this clearing
+lifted, is visible to the team, is not petrified and is an enemy
+(`src/actions/vision.cpp:281-290`, `clear_loc`):
+```cpp
+if ( result  &&  check_units  &&  loc != event_non_loc ) {
+    unit_map::const_iterator sight_it = resources::gameboard->find_visible_unit(loc, tm);
+    if ( sight_it.valid() ) {
+        ...
+        if ( !sight_it->get_state(unit::STATE_PETRIFIED) ) {
+            if ( tm.is_enemy(sight_it->side()) ) {
+                ++enemy_count;
+```
+The unit keeps the movement it has left; a stop inside a seen enemy's
+zone of control still leaves it none.
+
+Sightings are skipped:
+- for a side without fog or shroud (`move_unit_and_record`, 1245:
+  `continued_move |= !current_team.fog_or_shroud();`);
+- while the side delays its fog updates, since no fog is cleared during
+  the move (`current_uses_fog_`, 371 and 975);
+- when the player continues an interrupted move (`continued_move`), and
+  for the engine's own AI, which always moves that way
+  (`src/ai/actions.cpp:477-483`, `/*bool continue_move*/ true`).
+
+**Why non-obvious:**
+- The count is cumulative over the move, and the test is made on leaving
+  a hex, not on entering one. So a sighting made from a hex where a stop
+  is not reasonable stops the unit on a later hex, and a sighting made
+  from the route's last hex stops nothing.
+- A hidden ambusher on a newly seen hex is not visible, so it stops
+  nothing here; it stops the move by ambush or by blocking (above).
+- The test comes first in the step, before the blocked hex's: a unit that
+  sighted an enemy stops where it stands and does not reveal a blocker
+  on the next hex.
+
+**In the simulator:** `GameCore::walk_move_path`
+(`rust/wesnoth_core/src/core_move.rs`), under the core's `sighting_stops`,
+for sides 1 and 2. The simulator sets the rule for the games it plays
+(`WesnothSim(sighting_stops=True)`, user ruling 2026-11-25) and a game
+record carries it. Reconstruction of a corpus replay leaves it off: the
+extractor has already cut each route where the engine stopped the unit.
+Tests: `tests/test_sighting_stop.py`. Not yet checked against the engine
+by a strict-sync replay: the export does not replay under fog.
 
 ### Replay [move] checkup: final_hex and stopped_early
 

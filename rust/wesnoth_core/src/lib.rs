@@ -686,7 +686,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // (rows_from_landable); encode_streams takes `unit_row_version`, whose
     // 2 adds the sidebar's facts and the attack dialog's lines to the unit
     // and recruit rows (core_parity.rs; parity_layout names the widths).
-    m.add("__phase__", 40)?;
+    // 41: under `sighting_stops` a player's move under fog stops where it
+    // brings an enemy into view (core_move.rs `walk_move_path`); off by
+    // default, the simulator sets it.
+    m.add("__phase__", 41)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

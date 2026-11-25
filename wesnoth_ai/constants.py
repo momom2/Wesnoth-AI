@@ -225,7 +225,16 @@ ERA_FACTIONS = {
 #      The same day the attack on an enemy the unit is not next to left
 #      the legal actions: what a player can order changed, not what it
 #      sees.
-OBSERVATION_EPOCH = 12
+#  13  (2026-11-25) the user's rulings on the blind-spot audit
+#      (docs/blindspot_audit_20261125.md). The encoding is unchanged; what
+#      a player is told and what an order does changed:
+#      - a game set up by a random draw is a game of two Random picks, so
+#        the faction input starts at every faction of the era and is cut
+#        by the unit types the side sees, where it was certain from the
+#        first decision (`ScenarioSetup.random_factions`);
+#      - a player's move under fog stops where it brings an enemy into
+#        view (the core's `sighting_stops`).
+OBSERVATION_EPOCH = 13
 
 
 # ----------------------------------------------------------------------

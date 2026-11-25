@@ -68,6 +68,14 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # them. The unit row of version 2 is asked for by the encoding's own
     # switch and changes no version-1 position.
     40: 40,
+    # A player's move under fog stops where it brings an enemy into view,
+    # as the engine stops a player's (feature/audit-fixes; the user's
+    # ruling of 2026-11-25). The rule is behind the core's `sighting_stops`,
+    # which the simulator sets and reconstruction leaves off: a corpus
+    # replay's routes are already cut where the engine stopped the unit, so
+    # no corpus position changes. The positions of a game the simulator
+    # plays do.
+    41: 41,
 }
 
 

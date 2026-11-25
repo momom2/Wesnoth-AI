@@ -51,7 +51,7 @@ MODELED_GLOBALS = (
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
     "_shroud_delayed", "_pending_vision", "_plan_unit_advance", "_pa_fresh_turn",
-    "_skip_first_turn_resting", "_keep_removed_uncovered",
+    "_skip_first_turn_resting", "_keep_removed_uncovered", "_sighting_stops",
 )
 # The unit underscore attributes the state comparison checks; the core
 # also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
@@ -90,8 +90,10 @@ _RECORD_SIDES = (1, 2)
 # end_turn bias of its requests, 38 writes replies of four head outputs, 39
 # takes a unit that leaves the board out of the uncovered list
 # (`keep_removed_uncovered` keeps the earlier list for records of format 4
-# and earlier).
-_CORE_PHASE = 40
+# and earlier), 40 offers an attack only on an enemy on a hex that touches
+# the unit's own and takes `unit_row_version`, 41 stops a player's move
+# under fog where it brings an enemy into view, under `sighting_stops`.
+_CORE_PHASE = 41
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
@@ -604,6 +606,8 @@ class CoreState:
             gi._skip_first_turn_resting = True
         if g["keep_removed_uncovered"]:
             gi._keep_removed_uncovered = True
+        if g["sighting_stops"]:
+            gi._sighting_stops = True
         gi._tod_start_offset = g["tod_start_offset"]
         gi._experience_modifier = g["experience_modifier"]
         gi._next_uid_counter = g["next_uid_counter"]
@@ -1033,6 +1037,7 @@ class CoreState:
             "advance_counter": int(getattr(gi, "_advance_counter", 0) or 0),
             "skip_first_turn_resting": bool(getattr(gi, "_skip_first_turn_resting", False)),
             "keep_removed_uncovered": bool(getattr(gi, "_keep_removed_uncovered", False)),
+            "sighting_stops": bool(getattr(gi, "_sighting_stops", False)),
             "game_over": bool(gs.game_over), "winner": -1 if gs.winner is None else int(gs.winner),
         })
         owner = getattr(gi, "_village_owner", None) or {}

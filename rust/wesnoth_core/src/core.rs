@@ -142,6 +142,12 @@ pub struct GlobalRec {
     /// that left the board stays in it (`remove_unit`), so a later unit
     /// numbered alike reads as uncovered.
     pub keep_removed_uncovered: bool,
+    /// A player's move under fog stops where it brings an enemy into view
+    /// (`walk_move_path`). Off by default: a corpus replay's routes are
+    /// already cut where the engine stopped the unit, and game records of
+    /// format 6 and earlier were played with every move run to its end.
+    /// The simulator sets it for the games it plays.
+    pub sighting_stops: bool,
 }
 
 /// Per (unit type, slowed, defense table) and per map: the pathfinder's
@@ -771,6 +777,7 @@ impl GameCore {
             advance_counter: get_or(g, "advance_counter", 0)?,
             skip_first_turn_resting: get_or(g, "skip_first_turn_resting", false)?,
             keep_removed_uncovered: get_or(g, "keep_removed_uncovered", false)?,
+            sighting_stops: get_or(g, "sighting_stops", false)?,
         };
         self.game_over = get_or(g, "game_over", false)?;
         self.winner = get_or(g, "winner", -1)?;
@@ -779,8 +786,8 @@ impl GameCore {
 
     /// One integer global by name: next_uid_counter, advance_counter,
     /// rng_request_counter (what the Python builders advance),
-    /// advance_uniform (0/1), current_side, and the two rules of older
-    /// game records (0/1).
+    /// advance_uniform (0/1), current_side, the two rules of older game
+    /// records (0/1) and sighting_stops (0/1).
     fn set_global_int(&mut self, name: &str, value: i64) -> PyResult<()> {
         match name {
             "next_uid_counter" => self.global.next_uid_counter = value,
@@ -790,6 +797,7 @@ impl GameCore {
             "current_side" => self.global.current_side = value,
             "skip_first_turn_resting" => self.global.skip_first_turn_resting = value != 0,
             "keep_removed_uncovered" => self.global.keep_removed_uncovered = value != 0,
+            "sighting_stops" => self.global.sighting_stops = value != 0,
             _ => return Err(pyo3::exceptions::PyKeyError::new_err(name.to_string())),
         }
         Ok(())
@@ -815,6 +823,7 @@ impl GameCore {
         d.set_item("advance_counter", g.advance_counter)?;
         d.set_item("skip_first_turn_resting", g.skip_first_turn_resting)?;
         d.set_item("keep_removed_uncovered", g.keep_removed_uncovered)?;
+        d.set_item("sighting_stops", g.sighting_stops)?;
         d.set_item("game_over", self.game_over)?;
         d.set_item("winner", self.winner)?;
         Ok(d)

@@ -291,6 +291,15 @@ class ScenarioSetup:
     # start time on any map.
     tod_start: Optional[int] = None
 
+    # Both players picked Random in the lobby, so neither is told the
+    # other's faction: each side's faction input starts at every faction of
+    # the era and is cut by the unit types it sees (faction_posterior.py;
+    # user ruling 2026-11-25). `random_setup` sets it: it draws the
+    # factions as a Random pick does. False, the default and what every
+    # game record written before the field holds, is a faction picked
+    # openly, which the other player knows from the first turn.
+    random_factions: bool = False
+
     def label(self) -> str:
         """Short human-readable label. Filesystem-safe: no colons,
         slashes, asterisks, etc. Wesnoth's save dialog rejects
@@ -378,8 +387,13 @@ def random_setup(
     forced_faction: Optional[str] = ...,
     mini_maps: bool = False,
     category: str = "ladder",
+    random_factions: bool = True,
 ) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
+
+    `random_factions`: the game is set up as two Random picks, so a side
+    learns the other's faction from the units it sees
+    (`ScenarioSetup.random_factions`). False sets it up as two open picks.
 
     `forced_faction`: if set to a faction name, one side is
     randomly chosen to play it; the other samples uniformly from
@@ -447,6 +461,7 @@ def random_setup(
         fogless=fogless,
         category=category,
         tod_start=sample_tod_start(scenario_id, rng),
+        random_factions=random_factions,
     )
 
 
@@ -807,6 +822,7 @@ def build_scenario_gamestate(
             "nb_villages_controlled": len(side_pre_villages.get(1, [])),
             "village_income": village_gold,
             "village_support": village_upkeep,
+            "chose_random": bool(setup.random_factions),
             **side_vision.get(1, {}),
         },
         {
@@ -818,6 +834,7 @@ def build_scenario_gamestate(
             "nb_villages_controlled": len(side_pre_villages.get(2, [])),
             "village_income": village_gold,
             "village_support": village_upkeep,
+            "chose_random": bool(setup.random_factions),
             **side_vision.get(2, {}),
         },
     ]
