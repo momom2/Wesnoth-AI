@@ -247,8 +247,35 @@ gained strength.
 - The run's records carry `code_version` 0.35.6, the version `main` had
   when the branch was cut: a topic branch does not touch the version.
   The commit each tool ran from is in the runner's log.
+- The run resumed at 01:35:16 from the worktree, with the launch's
+  command and `--lam 0.99`; its tools log `code 2a523b56`.
 - To go back (kill criteria 1 and 2): stop the run, copy `pi.rows1.pt`
   and `adam.rows1.pt` over `pi.pt` and `adam.pt` of round 544, restore
   `pool.json`'s hash, rebuild the wheel from `main` into both venvs,
   delete the rounds after 544 and their markers, and start the launch's
   command from the main checkout.
+
+**Round 545, the first on the new inputs, checks out** (2026-11-25
+01:52:36). Kill criterion 2 is not met.
+- **The exact check:** 7.2e-6 against the limit of 1e-4, where the run's
+  rounds read 5e-6 to 8e-6.
+- **The round:** 230 game-sides, 57,560 decisions, no warning. Its games
+  took 183 s and its pass 853 s (182 s and 848 s in round 544): the new
+  columns cost no time that shows.
+- **The two kinds of network played each other.** The round's past self
+  was round 112's network, which reads the 109 columns.
+- **The gradient's norm** is 64.7, of which the value head's part is 54.8
+  (48.2 in round 544; 14 to 89 over rounds 497 to 528).
+- **The update's norm** is 0.0069, where rounds 543 and 544 read 0.0061.
+  The difference is the new projection's first step: 97% of its 89,088
+  weights moved, each by 1e-5, which is 0.0029 in norm. Adam's first step
+  of a weight is the learning rate whatever the gradient's size, so this
+  says only that the gradient reaches them. The 3% that did not move
+  read columns that were 0 in every position of the round.
+- **The new weights' size** after one round: 9.8e-6 root mean square, in
+  every block of columns (level, defences, movement costs, fights). The
+  old projection's is 0.104.
+
+What the next rounds can show is whether the new weights keep moving the
+same way (1e-5 a round) or turn back and forth: read at each match with
+`training/metrics/input_facts_20261125/new_weights.py`.

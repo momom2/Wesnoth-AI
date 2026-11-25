@@ -135,7 +135,10 @@ night's training is clearly flawed or stalled."
 (`docs/input_facts_prereg_20261125.md`, departure 10 of the simple loop.)
 - **Built on the branch `feature/input-facts`, not merged into `main`:**
   the merge is the user's to decide. The run plays from the branch's
-  worktree meanwhile.
+  worktree meanwhile (`C:\Users\momom2\wesnoth_worktrees\input-facts`).
+  Both venvs hold the branch's core (phase 40), so until the merge a
+  local pytest belongs in that worktree: run from the main checkout it
+  would test `main`'s Python against the branch's core.
 - **A unit attacks only an enemy on a hex that touches its own.** The
   simulator no longer moves a unit before its attack. The reference at
   its pinned decode ordered no such attack in 1,660, so the yardstick
