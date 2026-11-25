@@ -315,9 +315,10 @@ not met in any of them.
 | fights | 4.7e-5 | 1.43e-4 |
 | all 232 | 4.6e-5 | 1.43e-4 |
 
-- **Against the old projection:** its root mean square is 0.1043 at
-  round 544 and at round 560. The new weights are about 2,300 times
-  smaller.
+- **Against the old projection's size:** its root mean square is 0.1043
+  at round 544 and at round 560. The new weights are about 2,300 times
+  smaller. That size comes from the imitation training and is the wrong
+  yardstick for the loop's pace: see "The yardstick" below.
 - **How they move.** A weight whose gradient kept its sign for sixteen
   rounds would stand at 1.6e-4, and the largest is at 1.43e-4, so some
   weights are pushed one way round after round. The average weight
@@ -326,12 +327,42 @@ not met in any of them.
   each round would stand 3.2e-5 from zero on average. So for most of the
   new weights the gradient does not keep its sign from round to round.
 - **98% of them have moved** (97% after round 545).
-- **What it says of the pace.** The whole projection grew from 9.8e-6
-  after one round to 4.6e-5 after sixteen: 4.7 times for 16 times the
-  rounds, close to the square root (4). At that law it reaches a
-  hundredth of the old projection's size (0.001) after about 7,500
-  rounds, three months of this run; the few weights that march steadily
-  get there in 100 rounds. Nothing here says what size the new weights
-  need before they change play. This is the reading for the discussion
-  the user set: the night was not flawed, and by the one learning rate
-  the new inputs cannot yet count.
+- **Their growth.** The whole projection grew from 9.8e-6 after one
+  round to 4.6e-5 after sixteen: 4.7 times for 16 times the rounds,
+  close to the square root (4).
+
+**The yardstick: how far the loop's own weights moved**
+(`training/metrics/input_facts_20261125/weight_moves_to_round_0560.json`;
+root mean square of the change, over the run's kept checkpoints). This
+corrects the first record of this reading (0.35.9), which set the new
+weights against the old projection's size and concluded "by the one
+learning rate the new inputs cannot yet count". The loop never moved a
+weight by anything like its size.
+
+| From the run's start to round | Whole network | Old unit projection |
+|---|---|---|
+| 16 | 4.4e-5 | 4.3e-5 |
+| 128 | 1.6e-4 | 1.2e-4 |
+| 256 | 3.0e-4 | 1.7e-4 |
+| 400 | 4.0e-4 | 2.2e-4 |
+| 544 | 4.6e-4 | 2.5e-4 |
+
+- **The loop made its whole gain with moves of a few ten-thousandths.**
+  Its first match read +39.2 and the baseline is +167.6; over those 544
+  rounds the whole network moved 4.6e-4 and the old unit projection
+  2.5e-4.
+- **The new projection moves at the pace the network had when the loop
+  began.** It stands at 4.6e-5 after its first sixteen rounds; the whole
+  network stood at 4.4e-5 and the old unit projection at 4.3e-5 after
+  the loop's first sixteen, when Adam's state was as new for them as it
+  is now for the new projection.
+- **Over the same sixteen rounds, 545 to 560,** the old unit projection
+  moved 1.6e-5 and the whole network 2.0e-5: the new projection moved 2.9
+  times as far as the old one.
+- **What follows.** Nothing in the weights says the new inputs are
+  stalled: they learn at the loop's ordinary pace, and if they follow the
+  old projection's path they stand near 1.2e-4 at the verdict (128
+  rounds after the switch). What the weights cannot say is whether moves
+  of that size make the network use the new numbers. That is read from
+  the attacks: the audit's counts of beaten weapons and of attacks into
+  resistance, played again on a later network.

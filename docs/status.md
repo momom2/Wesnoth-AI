@@ -158,12 +158,15 @@ night's training is clearly flawed or stalled."
   round time. The match at round 560 read +157.4 ± 13.6 (570 of 800),
   0.7 standard errors under the baseline of +167.6 ± 6.1: no change
   read, and the "clearly flawed" criterion is not met.
-- **The pace is the open point.** A new weight moves at most 1e-5 a
-  round. After sixteen rounds the new projection's root mean square is
-  4.6e-5, about 2,300 times under the old projection's (0.104). It grew
-  4.7 times in sixteen rounds, about the square root: most new weights'
-  gradients do not keep their sign from round to round. At that law a
-  hundredth of the old projection's size is about 7,500 rounds away.
+- **The new weights move at the loop's ordinary pace.** After sixteen
+  rounds the new projection's root mean square is 4.6e-5. That is about
+  2,300 times under the old projection's size (0.104), but the size is
+  the wrong yardstick: the loop made its whole gain (+39 to +168) while
+  the whole network moved 4.6e-4 and the old unit projection 2.5e-4, and
+  after the loop's first sixteen rounds they stood at 4.4e-5 and 4.3e-5.
+  Over rounds 545 to 560 the new projection moved 2.9 times as far as
+  the old one. Whether such moves make the network use the new numbers
+  is read from the attacks, not from the weights.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
@@ -508,11 +511,13 @@ both sides, 3,200 decisive games on the same seeds:
   design lists four options (`docs/input_facts_design_20261124.md`,
   "Training the new weights"). The night was not flawed: the match at
   round 560 read +157.4 ± 13.6, 0.7 standard errors under the baseline
-  (+167.6 ± 6.1), and the sixteen rounds checked out. But by the one
-  learning rate the new inputs cannot yet count: after sixteen rounds the
-  new weights' root mean square is 4.6e-5 against the old projection's
-  0.104, and it grows like the square root of the rounds
-  (`docs/input_facts_prereg_20261125.md`, Results).
+  (+167.6 ± 6.1), and the sixteen rounds checked out. Nor is it stalled
+  by the weights' reading: the new projection moved 4.6e-5 in sixteen
+  rounds, the pace the whole network had in the loop's first sixteen
+  (4.4e-5), where the loop's whole gain took a move of 4.6e-4
+  (`docs/input_facts_prereg_20261125.md`, "The yardstick"). Whether the
+  network comes to use the new numbers is not yet read; the audit's
+  counts on a later network would say.
 - **How the weapon comes to read the target** (the design's Part 3, not
   yet put to the user). Today a unit's weapon is scored the same
   whichever enemy it strikes.

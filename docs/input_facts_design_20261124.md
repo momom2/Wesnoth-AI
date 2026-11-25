@@ -373,6 +373,11 @@ To be discussed with the user. What is known:
   columns average 0.07 in size. Reaching that takes 7,000 rounds at the
   fastest and about 48,000 at the average pace; the run plays about 80 a
   day.
+  - *Corrected on 2026-11-25:* the weights' size is the wrong yardstick.
+    The loop made its whole gain (+39 to +168 over 544 rounds) while the
+    old unit projection moved 2.5e-4, and the new projection moved 4.6e-5
+    in its first sixteen rounds, the pace the network had when the loop
+    began (`docs/input_facts_prereg_20261125.md`, "The yardstick").
 - **Imitating its own games teaches the new weights nothing.** The widened
   network already reproduces its own choices exactly.
 

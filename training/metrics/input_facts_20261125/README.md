@@ -21,6 +21,13 @@ or changes a network.
   checkpoint (all zero) and round 560's, the first match on the new
   inputs: root mean square 4.6e-5, largest 1.43e-4, against the old
   projection's 0.1043.
+- `weight_moves.py`: how far the weights moved between checkpoints, the
+  whole network and a few named tensors. The yardstick for the new
+  weights' pace: the loop never moved a weight by anything like its size.
+- `weight_moves_to_round_0560.json`: its output from the run's start
+  (`rounds_local\round_22\pi.pt`) through rounds 16, 128, 256, 400, 528,
+  544 and 560. The whole network moved 4.6e-4 (root mean square) over
+  the 544 rounds before the switch, and 4.4e-5 over the first sixteen.
 
 To read the new weights of the run's checkpoints:
 
