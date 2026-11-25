@@ -279,3 +279,59 @@ gained strength.
 What the next rounds can show is whether the new weights keep moving the
 same way (1e-5 a round) or turn back and forth: read at each match with
 `training/metrics/input_facts_20261125/new_weights.py`.
+
+**The matches after the switch** (baseline +167.6 ± 6.1):
+
+| After round | Elo | Wins of 800 | Read |
+|---|---|---|---|
+| 560 | +157.4 ± 13.6 | 570 | 2026-11-25 06:29 |
+
+**The match at round 560: kill criterion 3's first half is not met.** It
+reads 10.2 under the baseline, 0.7 of the difference's standard error
+(14.9), where the criterion asks for under about +122. For its second
+half (the mean of 560 and 576 under about +131), the match at round 576
+would have to read under about +105.
+
+**Rounds 545 to 560, the first sixteen on the new inputs** (01:35 to
+06:17, 17.6 minutes a round, as before the switch). Kill criterion 2 is
+not met in any of them.
+- **The exact check** reads 6.8e-6 to 7.7e-6 in the sixteen rounds, against
+  the limit of 1e-4. Every gradient is finite, and the console log holds
+  no warning.
+- **The gradient's norm** runs from 34 to 73, **the update's** from
+  0.0069 in round 545 down to 0.0060 to 0.0063 from round 550 on (0.0061
+  before the switch), and **the value head's cross-entropy** from 0.353
+  to 0.455 (0.34 to 0.46 over rounds 497 to 528).
+
+**Measurement 3, the new weights at round 560**
+(`training/metrics/input_facts_20261125/new_weights_round_0560.json`):
+
+| Columns | Root mean square | Largest |
+|---|---|---|
+| level | 4.3e-5 | 1.08e-4 |
+| defence where it stands | 4.0e-5 | 1.07e-4 |
+| defence by terrain | 3.9e-5 | 1.31e-4 |
+| movement costs by terrain | 3.9e-5 | 1.25e-4 |
+| fights | 4.7e-5 | 1.43e-4 |
+| all 232 | 4.6e-5 | 1.43e-4 |
+
+- **Against the old projection:** its root mean square is 0.1043 at
+  round 544 and at round 560. The new weights are about 2,300 times
+  smaller.
+- **How they move.** A weight whose gradient kept its sign for sixteen
+  rounds would stand at 1.6e-4, and the largest is at 1.43e-4, so some
+  weights are pushed one way round after round. The average weight
+  stands 3.7e-5 from zero, 0.23 of the learning rate a round. For
+  comparison, a weight stepping the full rate in a direction drawn afresh
+  each round would stand 3.2e-5 from zero on average. So for most of the
+  new weights the gradient does not keep its sign from round to round.
+- **98% of them have moved** (97% after round 545).
+- **What it says of the pace.** The whole projection grew from 9.8e-6
+  after one round to 4.6e-5 after sixteen: 4.7 times for 16 times the
+  rounds, close to the square root (4). At that law it reaches a
+  hundredth of the old projection's size (0.001) after about 7,500
+  rounds, three months of this run; the few weights that march steadily
+  get there in 100 rounds. Nothing here says what size the new weights
+  need before they change play. This is the reading for the discussion
+  the user set: the night was not flawed, and by the one learning rate
+  the new inputs cannot yet count.

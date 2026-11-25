@@ -17,6 +17,11 @@ or changes a network.
   and how far they moved per round in units of the learning rate. The
   registration's measurement 3.
 
+- `new_weights_round_0560.json`: its output for round 544's widened
+  checkpoint (all zero) and round 560's, the first match on the new
+  inputs: root mean square 4.6e-5, largest 1.43e-4, against the old
+  projection's 0.1043.
+
 To read the new weights of the run's checkpoints:
 
     python -I -X utf8 training/metrics/input_facts_20261125/new_weights.py --lr 1e-5 <round_0544/pi.pt> <round_0560/pi.pt> ...

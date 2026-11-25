@@ -153,10 +153,17 @@ night's training is clearly flawed or stalled."
   Part 3), which changes the output and has not been put to the user.
 - **The time of day** was already in the input, globally and per hex
   (the user asked on 2026-11-24): the registration lists where.
-- **The pace is the open point.** At the loop's rate a new weight moves
-  at most 1e-5 a round, against 0.07 for the weights that read the old
-  columns. One night shows that nothing broke and how fast the new
-  weights move, not a gain.
+- **The first night** (rounds 545 to 560, to 2026-11-25 06:29): every
+  round's exact check holds (6.8e-6 to 7.7e-6), no warning, the same
+  round time. The match at round 560 read +157.4 ± 13.6 (570 of 800),
+  0.7 standard errors under the baseline of +167.6 ± 6.1: no change
+  read, and the "clearly flawed" criterion is not met.
+- **The pace is the open point.** A new weight moves at most 1e-5 a
+  round. After sixteen rounds the new projection's root mean square is
+  4.6e-5, about 2,300 times under the old projection's (0.104). It grew
+  4.7 times in sixteen rounds, about the square root: most new weights'
+  gradients do not keep their sign from round to round. At that law a
+  hundredth of the old projection's size is about 7,500 rounds away.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
@@ -499,8 +506,13 @@ both sides, 3,200 decisive games on the same seeds:
 - **How the new weights are trained.** The user set it for discussion on
   2026-11-25, "if the night's training is clearly flawed or stalled". The
   design lists four options (`docs/input_facts_design_20261124.md`,
-  "Training the new weights"); the night's readings of the new weights'
-  pace are in `docs/input_facts_prereg_20261125.md`.
+  "Training the new weights"). The night was not flawed: the match at
+  round 560 read +157.4 ± 13.6, 0.7 standard errors under the baseline
+  (+167.6 ± 6.1), and the sixteen rounds checked out. But by the one
+  learning rate the new inputs cannot yet count: after sixteen rounds the
+  new weights' root mean square is 4.6e-5 against the old projection's
+  0.104, and it grows like the square root of the rounds
+  (`docs/input_facts_prereg_20261125.md`, Results).
 - **How the weapon comes to read the target** (the design's Part 3, not
   yet put to the user). Today a unit's weapon is scored the same
   whichever enemy it strikes.
