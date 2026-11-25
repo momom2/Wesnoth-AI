@@ -153,20 +153,24 @@ night's training is clearly flawed or stalled."
   Part 3), which changes the output and has not been put to the user.
 - **The time of day** was already in the input, globally and per hex
   (the user asked on 2026-11-24): the registration lists where.
-- **The first night** (rounds 545 to 560, to 2026-11-25 06:29): every
-  round's exact check holds (6.8e-6 to 7.7e-6), no warning, the same
-  round time. The match at round 560 read +157.4 ± 13.6 (570 of 800),
-  0.7 standard errors under the baseline of +167.6 ± 6.1: no change
-  read, and the "clearly flawed" criterion is not met.
+- **The first 32 rounds** (545 to 576, to 2026-11-25 11:41): every
+  round's exact check holds (6.8e-6 to 7.8e-6), with no warning. The
+  matches at rounds 560 and 576 read +157.4 ± 13.6 and +179.2 ± 13.9
+  (570 and 590 of 800). They average +168.3 ± 9.7 against the baseline
+  of +167.6 ± 6.1: no change read, and the "clearly flawed" criterion
+  is not met and is spent. Rounds 561 to 576 took 7% longer than the
+  sixteen before (18.8 minutes), not explained. The verdict is after
+  the match at round 672.
 - **The new weights move at the loop's ordinary pace.** After sixteen
   rounds the new projection's root mean square is 4.6e-5. That is about
   2,300 times under the old projection's size (0.104), but the size is
   the wrong yardstick: the loop made its whole gain (+39 to +168) while
   the whole network moved 4.6e-4 and the old unit projection 2.5e-4, and
   after the loop's first sixteen rounds they stood at 4.4e-5 and 4.3e-5.
-  Over rounds 545 to 560 the new projection moved 2.9 times as far as
-  the old one. Whether such moves make the network use the new numbers
-  is read from the attacks, not from the weights.
+  At round 576 the new projection is at 6.2e-5, where the old one stood
+  at 6.0e-5 after the loop's first 32 rounds; the fights' columns grow
+  fastest. Whether such moves make the network use the new numbers is
+  read from the attacks, not from the weights.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128

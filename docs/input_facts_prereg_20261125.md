@@ -285,12 +285,18 @@ same way (1e-5 a round) or turn back and forth: read at each match with
 | After round | Elo | Wins of 800 | Read |
 |---|---|---|---|
 | 560 | +157.4 ± 13.6 | 570 | 2026-11-25 06:29 |
+| 576 | +179.2 ± 13.9 | 590 | 2026-11-25 11:41 |
 
 **The match at round 560: kill criterion 3's first half is not met.** It
 reads 10.2 under the baseline, 0.7 of the difference's standard error
 (14.9), where the criterion asks for under about +122. For its second
 half (the mean of 560 and 576 under about +131), the match at round 576
 would have to read under about +105.
+
+**The match at round 576: kill criterion 3's second half is not met, and
+the criterion is now spent.** The two matches average +168.3 ± 9.7,
+against +131. That is +0.7 ± 11.5 against the baseline: no change read
+so far. Six matches remain before the verdict.
 
 **Rounds 545 to 560, the first sixteen on the new inputs** (01:35 to
 06:17, 17.6 minutes a round, as before the switch). Kill criterion 2 is
@@ -302,6 +308,56 @@ not met in any of them.
   0.0069 in round 545 down to 0.0060 to 0.0063 from round 550 on (0.0061
   before the switch), and **the value head's cross-entropy** from 0.353
   to 0.455 (0.34 to 0.46 over rounds 497 to 528).
+
+**Rounds 561 to 576** (06:29 to 11:29). Kill criterion 2 is not met in
+any of them.
+- **The exact check** reads 7.1e-6 to 7.8e-6, every gradient is finite,
+  and the console log holds no warning.
+- **A round took 18.8 minutes,** against 17.6 in the sixteen before: 7%
+  more, not explained. The rounds hold 2.5% more decisions (58,823 a
+  round against 57,381), and the pass takes 15.9 ms a decision against
+  15.2. The loop's criterion is a round past 1.5 times its estimate.
+- **The crash barriers read a little higher,** inside what the run has
+  shown. Means over sixteen rounds:
+
+  | Rounds | Gradient's norm | Update's norm | Value head's cross-entropy |
+  |---|---|---|---|
+  | 497 to 528 (32 rounds) | 49.6 | 0.0058 | 0.394 |
+  | 529 to 544 | 49.3 | 0.0061 | 0.396 |
+  | 545 to 560 | 47.5 | 0.0062 | 0.386 |
+  | 561 to 576 | 55.9 | 0.0064 | 0.414 |
+
+  Round 567's gradient norm is 99.4, where rounds 465 to 544 reach 96.6.
+  The update's norm was already rising before the switch.
+
+**Measurement 3, the new weights at round 576**
+(`training/metrics/input_facts_20261125/new_weights_round_0576.json`,
+`weight_moves_544_to_576.json`, `weight_moves_first_32_rounds.json`):
+
+| Columns | Root mean square at 560 | At 576 | Largest at 576 |
+|---|---|---|---|
+| level | 4.3e-5 | 4.8e-5 | 1.36e-4 |
+| defence where it stands | 4.0e-5 | 4.3e-5 | 1.28e-4 |
+| defence by terrain | 3.9e-5 | 4.2e-5 | 1.36e-4 |
+| movement costs by terrain | 3.9e-5 | 4.4e-5 | 1.95e-4 |
+| fights | 4.7e-5 | 6.5e-5 | 2.36e-4 |
+| all 232 | 4.6e-5 | 6.2e-5 | 2.36e-4 |
+
+- **The fights' columns grow fastest:** 1.37 times in sixteen rounds,
+  where the unit's own columns (level, defences, movement costs) grew
+  1.07 to 1.12 times.
+- **The new projection is on the path the old one took when the loop
+  began,** like for like on a new Adam state:
+
+  | Root mean square of the move | After 16 rounds | After 32 | In the second sixteen |
+  |---|---|---|---|
+  | New projection, from round 544 | 4.6e-5 | 6.2e-5 | 3.2e-5 |
+  | Old unit projection, from the loop's start | 4.3e-5 | 6.0e-5 | 2.9e-5 |
+  | Whole network, from the loop's start | 4.4e-5 | 6.4e-5 | 3.2e-5 |
+
+- **Over rounds 561 to 576** the old unit projection moved 1.8e-5 and
+  the whole network 2.1e-5; the new projection moved 1.8 times as far as
+  the old one (2.9 times in its first sixteen rounds).
 
 **Measurement 3, the new weights at round 560**
 (`training/metrics/input_facts_20261125/new_weights_round_0560.json`):

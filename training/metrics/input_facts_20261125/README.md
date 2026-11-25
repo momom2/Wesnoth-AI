@@ -28,6 +28,11 @@ or changes a network.
   (`rounds_local\round_22\pi.pt`) through rounds 16, 128, 256, 400, 528,
   544 and 560. The whole network moved 4.6e-4 (root mean square) over
   the 544 rounds before the switch, and 4.4e-5 over the first sixteen.
+- `new_weights_round_0576.json`, `weight_moves_544_to_576.json` and
+  `weight_moves_first_32_rounds.json`: the same at round 576, with the
+  like-for-like comparison. The new projection stands at 6.2e-5 after
+  32 rounds; the old unit projection stood at 6.0e-5 after the loop's
+  first 32.
 
 To read the new weights of the run's checkpoints:
 

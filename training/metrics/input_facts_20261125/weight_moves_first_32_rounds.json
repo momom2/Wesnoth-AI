@@ -1,0 +1,39 @@
+{
+ "first": "C:\\Users\\momom2\\wesnoth_runs\\rounds_local\\round_22\\pi.pt",
+ "rows": [
+  {
+   "file": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0016\\pi.pt",
+   "from_first": {
+    "weights": 15564398,
+    "rms_move": 4.4428461097882636e-05,
+    "encoder_state.unit_feat_proj.weight": 4.2866512361615157e-05,
+    "model_state.value_head.0.weight": 7.216368815360061e-05,
+    "model_state.weapon_head.0.weight": 4.6894814685256155e-05
+   },
+   "from_previous": {
+    "weights": 15564398,
+    "rms_move": 4.4428461097882636e-05,
+    "encoder_state.unit_feat_proj.weight": 4.2866512361615157e-05,
+    "model_state.value_head.0.weight": 7.216368815360061e-05,
+    "model_state.weapon_head.0.weight": 4.6894814685256155e-05
+   }
+  },
+  {
+   "file": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0032\\pi.pt",
+   "from_first": {
+    "weights": 15564398,
+    "rms_move": 6.391167124208116e-05,
+    "encoder_state.unit_feat_proj.weight": 6.007147503881356e-05,
+    "model_state.value_head.0.weight": 0.00017121135071941022,
+    "model_state.weapon_head.0.weight": 6.899938015726833e-05
+   },
+   "from_previous": {
+    "weights": 15564398,
+    "rms_move": 3.161363480114585e-05,
+    "encoder_state.unit_feat_proj.weight": 2.8924172491067182e-05,
+    "model_state.value_head.0.weight": 0.0001042039790412729,
+    "model_state.weapon_head.0.weight": 3.393603711328101e-05
+   }
+  }
+ ]
+}
