@@ -1,7 +1,7 @@
 """The parity-memory recipe's structural checkpoint keys
 (docs/parity_memory_design_20260929.md, "Model interface").
 
-Three top-level keys, beside `relevant_set_hexes` and the other flags:
+Four top-level keys, beside `relevant_set_hexes` and the other flags:
 
 - `observation_parity` (bool): the encoder reads the parity observation and
   the network has its sighting stream and belief head. Sizes parameters.
@@ -9,8 +9,11 @@ Three top-level keys, beside `relevant_set_hexes` and the other flags:
   parameters.
 - `relevant_set_version` (int): which relevant set the hex stream holds.
   Data flow, like the fog gate.
+- `unit_row_version` (int): which unit and recruit rows the encoder reads
+  (encoder.py, "The unit row, version 2"; docs/input_facts_design_20261124.md).
+  Version 2 adds a parameter (`unit_feat_proj2`).
 
-A checkpoint without them is obs8's lineage: False, 0 and 1.
+A checkpoint without them is obs8's lineage: False, 0, 1 and 1.
 
 Older checkpoints also carry the weights of the auxiliary margin head
 (`aux_score_head`), which the network does not have: `model_state_of`
@@ -24,6 +27,7 @@ STRUCTURE_DEFAULTS: Dict[str, object] = {
     "observation_parity": False,
     "memory_slots": 0,
     "relevant_set_version": 1,
+    "unit_row_version": 1,
 }
 
 # The auxiliary margin head's weights, present in the checkpoints that were
@@ -44,7 +48,8 @@ def checkpoint_structure(model, encoder) -> Dict[str, object]:
                          f"different observations")
     return {"observation_parity": bool(encoder.observation_parity),
             "memory_slots": int(model.memory_slots),
-            "relevant_set_version": int(encoder.relevant_set_version)}
+            "relevant_set_version": int(encoder.relevant_set_version),
+            "unit_row_version": int(encoder.unit_row_version)}
 
 
 def saved_structure(ckpt: Dict) -> Dict[str, object]:
@@ -60,7 +65,7 @@ def refuse_other_structure(ckpt: Dict, model, encoder, name: str) -> None:
     tools/eval_players.peek_checkpoint_arch does)."""
     saved = saved_structure(ckpt)
     built = checkpoint_structure(model, encoder)
-    for key in ("observation_parity", "memory_slots"):
+    for key in ("observation_parity", "memory_slots", "unit_row_version"):
         if saved[key] != built[key]:
             raise RuntimeError(f"{name} was trained with {key}={saved[key]!r}; this policy is "
                                f"built with {built[key]!r}. Rebuild it with the checkpoint's own.")

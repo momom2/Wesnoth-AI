@@ -152,11 +152,13 @@ def test_mask_less_caller_cannot_hang_the_sim():
     assert sim.forced_end_turns.get(side0) == 1
 
 
-def test_a_refused_distant_attack_is_bounded_like_a_refused_move(monkeypatch):
-    """An attack on a distant unit whose attack hex the planner cannot
-    find was re-decided with no bound (2026-09-29 audit: the argmax player
-    looped until the per-game timeout). It goes through the same loop
-    guard, and each refusal says it is a mask/simulator disagreement."""
+def test_a_refused_distant_attack_is_bounded_like_a_refused_move():
+    """An attack on a unit the attacker is not next to is refused (the
+    legality mask offers none since 2026-11-24, and the simulator no
+    longer moves the attacker first). A refused attack was once re-decided
+    with no bound (2026-09-29 audit: the argmax player looped until the
+    per-game timeout). It goes through the same loop guard as a refused
+    move, and each refusal says it is a mask/simulator disagreement."""
     from tools.abilities import hex_neighbors
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
@@ -166,7 +168,6 @@ def test_a_refused_distant_attack_is_bounded_like_a_refused_move(monkeypatch):
     leader = next(u for u in sim.gs.map.units if u.side == side0 and u.is_leader)
     foe = next(u for u in sim.gs.map.units if u.side != side0 and u.is_leader)
     assert (foe.position.x, foe.position.y) not in hex_neighbors(leader.position.x, leader.position.y)
-    monkeypatch.setattr(WesnothSim, "_find_attack_hex", lambda self, attacker, target: None)
     attack = {"type": "attack", "start_hex": leader.position, "target_hex": foe.position,
               "attack_index": 0}
     sim.step(attack)

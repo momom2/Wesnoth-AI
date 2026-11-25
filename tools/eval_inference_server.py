@@ -564,6 +564,7 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         # build and how many slots a player's memory may use.
         "observation_parity": bool(getattr(encoder, "observation_parity", False)),
         "relevant_set_version": int(getattr(encoder, "relevant_set_version", 1)),
+        "unit_row_version": int(getattr(encoder, "unit_row_version", 1)),
         "memory_slots": int(getattr(model, "memory_slots", 0) or 0),
         "type_to_id": dict(encoder.unit_type_to_id),
         "faction_to_id": dict(encoder.faction_to_id),

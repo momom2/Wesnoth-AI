@@ -325,10 +325,14 @@ pub(crate) fn landable_rows(
 
 /// The move and attack rows in token space from landable rows, the
 /// semantics of `_build_legality_masks`: a move row is the landable
-/// row; an enemy token is attackable when a map neighbour of its hex is
-/// the unit's own hex or a landable hex. Units with `unit_hexidx` < 0
-/// get empty rows. `tok_of_hex[i]` maps a map hex to its token slot or
-/// -1 (the full board or the relevant subset).
+/// row; an enemy token is attackable when its hex touches the unit's own,
+/// as in the engine, where a unit attacks from where it stands
+/// (`battle_context` disables a weapon out of range, docs/wesnoth_rules.md
+/// "Attack must be from an adjacent hex"). Until phase 40 an enemy next
+/// to a landable hex was attackable too, and the simulator chose the hex
+/// to attack from; the user removed that on 2026-11-24 (principle 3). Units
+/// with `unit_hexidx` < 0 get empty rows. `tok_of_hex[i]` maps a map hex to
+/// its token slot or -1 (the full board or the relevant subset).
 ///
 /// Every non-negative `tok_of_hex` entry must be < `ht`. The caller
 /// builds the two from the same hex-position list, so the invariant
@@ -368,6 +372,12 @@ fn rows_from_landable(
     }
     let mut move_rows = vec![0u8; un * ht];
     let mut attack_rows = vec![0u8; un * ht];
+    let mut is_enemy = vec![false; h];
+    for &e in enemy_hexids {
+        if e >= 0 && (e as usize) < h {
+            is_enemy[e as usize] = true;
+        }
+    }
     for u in 0..un {
         let s = unit_hexidx[u];
         if s < 0 {
@@ -391,21 +401,13 @@ fn rows_from_landable(
             }
         }
         if unit_can_attack[u] != 0 {
-            let is_attack_pos = |i: usize| -> bool { i == s || row[i] != 0 };
-            for &e in enemy_hexids {
-                if e < 0 || e as usize >= h {
+            for &n in &nbrs[s * 6..s * 6 + 6] {
+                if n < 0 || n as usize >= h || !is_enemy[n as usize] {
                     continue;
                 }
-                let e = e as usize;
-                let tok = tok_of_hex[e];
-                if tok < 0 {
-                    continue;
-                }
-                for &n in &nbrs[e * 6..e * 6 + 6] {
-                    if n >= 0 && is_attack_pos(n as usize) {
-                        attack_rows[u * ht + tok as usize] = 1;
-                        break;
-                    }
+                let tok = tok_of_hex[n as usize];
+                if tok >= 0 {
+                    attack_rows[u * ht + tok as usize] = 1;
                 }
             }
         }
@@ -679,7 +681,12 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 39: a unit that leaves the board leaves the uncovered list
     // (`keep_removed_uncovered` keeps the earlier list for game records of
     // format 4 and earlier).
-    m.add("__phase__", 39)?;
+    // 40: an attack row holds the attackable enemies on the hexes that
+    // touch the unit's own, no longer those next to a hex it can land on
+    // (rows_from_landable); encode_streams takes `unit_row_version`, whose
+    // 2 adds the sidebar's facts and the attack dialog's lines to the unit
+    // and recruit rows (core_parity.rs; parity_layout names the widths).
+    m.add("__phase__", 40)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

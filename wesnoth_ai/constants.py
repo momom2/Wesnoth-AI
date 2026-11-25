@@ -216,7 +216,16 @@ ERA_FACTIONS = {
 #      faction, statues on fogged hexes, the mushroom grove and reef rows,
 #      each hex's time of day; and a side that delays its shroud updates
 #      sees the fog it has committed (wesnoth_ai/delayed_shroud.py).
-OBSERVATION_EPOCH = 11
+#  12  (2026-11-25) the unit row of version 2, behind its checkpoint key
+#      `unit_row_version` (docs/input_facts_design_20261124.md): a unit's
+#      level, its chance to be hit where it stands and per terrain class,
+#      its movement costs, and for a unit that can attack the attack
+#      window's lines against each enemy on a hex that touches its own.
+#      A checkpoint without the key reads the rows of epoch 11 unchanged.
+#      The same day the attack on an enemy the unit is not next to left
+#      the legal actions: what a player can order changed, not what it
+#      sees.
+OBSERVATION_EPOCH = 12
 
 
 # ----------------------------------------------------------------------

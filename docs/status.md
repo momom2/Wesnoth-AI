@@ -133,12 +133,12 @@ approved."), and asked for training to go on with it at once: "No
 special learning rate [...] maybe we'll reconsider tomorrow if the
 night's training is clearly flawed or stalled."
 (`docs/input_facts_prereg_20261125.md`, departure 10 of the simple loop.)
-- **Built on the branch `feature/input-facts`, not merged into `main`:**
-  the merge is the user's to decide. The run plays from the branch's
-  worktree meanwhile (`C:\Users\momom2\wesnoth_worktrees\input-facts`).
-  Both venvs hold the branch's core (phase 40), so until the merge a
-  local pytest belongs in that worktree: run from the main checkout it
-  would test `main`'s Python against the branch's core.
+- **In `main` since 0.36.0** (merged 2026-11-25 on the user's word, "Yes,
+  merge", after 32 rounds on it). The run still executes from the
+  branch's worktree (`C:\Users\momom2\wesnoth_worktrees\input-facts`, at
+  2a523b56, the code that was merged): its branch is not to be switched
+  or deleted while the run lives. Both venvs hold the core of phase 40,
+  which is now `main`'s.
 - **A unit attacks only an enemy on a hex that touches its own.** The
   simulator no longer moves a unit before its attack. The reference at
   its pinned decode ordered no such attack in 1,660, so the yardstick
@@ -506,10 +506,10 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
-- **Merge `feature/input-facts` into `main`** (the new inputs and the
-  removal of the attack from a distance, approved 2026-11-24). The run
-  plays from the branch's worktree since round 545; `main` still holds
-  the code of rounds 1 to 544.
+- **Move the run back to the main checkout, at its next stop** (not
+  the user's to decide; a chore). It executes from the worktree of
+  `feature/input-facts`, whose code is `main`'s since 0.36.0. Once it
+  runs from the main checkout, the worktree and the branch can go.
 - **How the new weights are trained.** The user set it for discussion on
   2026-11-25, "if the night's training is clearly flawed or stalled". The
   design lists four options (`docs/input_facts_design_20261124.md`,

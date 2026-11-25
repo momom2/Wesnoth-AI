@@ -65,6 +65,15 @@ pub(crate) struct SideView {
     pub leader_on_keep: bool,
 }
 
+impl SideView {
+    /// Whether map hex `mh` holds a unit the side may attack: one it
+    /// sees, not allied, not inert (a petrified or scenery unit). The
+    /// legality mask's attack targets and the unit row's fights read it.
+    pub fn attackable(&self, mh: usize) -> bool {
+        self.occupied[mh] != 0 && self.inert[mh] == 0 && self.ally[mh] == 0
+    }
+}
+
 /// The observation over slices (see the module doc). Per hex h (H):
 /// nbrs[h*6..], castle_or_keep, keep, recruit_rej, seen. `network`
 /// is the leader's castle network itself (the BFS closure without

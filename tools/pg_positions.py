@@ -62,10 +62,16 @@ from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, KIND_RECRUIT, P
 log = logging.getLogger("pg_positions")
 
 RECORD_SUFFIX = ".game.jsonl.gz"
-# The command a decision of each kind emits first (an attack may emit the
-# simulator's approach move before it).
-KIND_COMMANDS = {KIND_ATTACK: ("attack", "move"), 1: ("move",), KIND_RECRUIT: ("recruit",),
+# The command a decision of each kind emits. In a game record of format 5
+# or earlier an attack could be ordered on an enemy the unit was not next
+# to, and its decision sits at the simulator's approach move: the masks no
+# longer offer that attack, so such a decision is refused as not legal
+# (`_position`).
+KIND_COMMANDS = {KIND_ATTACK: ("attack",), 1: ("move",), KIND_RECRUIT: ("recruit",),
                  KIND_END_TURN: ("end_turn",)}
+# The first game record format played with a unit attacking only an enemy
+# on a hex that touches its own (tools/game_record.py, "Formats").
+ADJACENT_ATTACK_FORMAT = 6
 
 
 class PositionError(ValueError):
@@ -159,11 +165,14 @@ def action_is_legal(masks: PackedMasks, action: ActionKey) -> bool:
 # ---------------------------------------------------------------------------
 
 def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                 game: Optional[str] = None, verify: bool = True, luck: bool = False) -> GamePositions:
+                 game: Optional[str] = None, verify: bool = True, luck: bool = False,
+                 unit_row_version: int = 1) -> GamePositions:
     """Every logged decision of `rec` at its position, by side, in log
     order. With `verify`, the record's fingerprints are checked as
     `game_record.walk` checks them; with `luck`, each position carries the
-    luck dealt before it (module docstring)."""
+    luck dealt before it (module docstring). `unit_row_version` is the
+    unit row the positions are encoded with, the reading network's
+    (encoder.py, "The unit row, version 2")."""
     from tools.game_record import _check, start_core
     from tools.match_luck import COLUMNS, attack_luck
     decisions = decisions_of(rec)
@@ -176,6 +185,7 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
     digests = {int(k): d for k, d in rec.get("turn_digests", ())} if verify else {}
     out = GamePositions(game=game or str(rec.get("game_label")), sides={1: [], 2: []})
     counts: Counter = Counter()
+    distance_attacks = int(rec.get("format", 1)) < ADJACENT_ATTACK_FORMAT
     cs = start_core(rec, verify=verify)
     applied = {"commands": 0}
     seen: Counter = Counter()
@@ -202,7 +212,8 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
     for i, (d, (k, r)) in enumerate(zip(decisions, slots)):
         advance_to(k)
         reject_up_to(k, r)
-        position = _position(cs, d, i, type_to_id, faction_to_id, counts, out.game)
+        position = _position(cs, d, i, type_to_id, faction_to_id, counts, out.game, unit_row_version,
+                             distance_attacks)
         if luck:                      # the luck terms flip sign with the frame (match_luck's side_sign)
             position.luck = tuple(dealt) if d.side == 1 else tuple(-x for x in dealt)
         out.sides[d.side].append(position)
@@ -219,18 +230,27 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
     return out
 
 
-def _position(cs, d: Decision, i: int, type_to_id, faction_to_id, counts: Counter, game: str) -> PGPosition:
-    """Decision i at the core's position, checked against the log."""
+def _position(cs, d: Decision, i: int, type_to_id, faction_to_id, counts: Counter, game: str,
+              unit_row_version: int = 1, distance_attacks: bool = False) -> PGPosition:
+    """Decision i at the core's position, checked against the log.
+    `distance_attacks`: the record's format let a player order an attack
+    from a distance, which the error names when an attack is not legal."""
     from tools.preencode_sequences import ENCODING
     from wesnoth_ai.server_priors import _legal_capacity, core_packed_masks
     from wesnoth_ai.model_output import MAX_ATTACKS
     side = int(cs.core.current_side)
     if side != d.side:
         raise PositionError(f"{game}: decision {i} is side {d.side}'s, and side {side} is to move there")
-    raw = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, masks=True, **ENCODING)
+    raw = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, masks=True,
+                        unit_row_version=unit_row_version, **ENCODING)
     masks = core_packed_masks(raw)
     if not action_is_legal(masks, d.action):
-        raise PositionError(f"{game}: decision {i}'s action {d.action} is not legal at its replayed position")
+        why = ""
+        if distance_attacks and d.action[1] == KIND_ATTACK:
+            why = (f" (the record is of a format before {ADJACENT_ATTACK_FORMAT}: its player could order an "
+                   f"attack on an enemy its unit was not next to, which the legality mask no longer offers)")
+        raise PositionError(f"{game}: decision {i}'s action {d.action} is not legal at its replayed "
+                            f"position{why}")
     if _legal_capacity(masks, MAX_ATTACKS) != d.n:
         counts["legal_count_mismatch"] += 1
     # What the trainer stages, as the sequence records store it
@@ -413,13 +433,14 @@ def refuse_foreign(facts: Dict[str, Dict[int, dict]], checkpoint_sha256: str, sl
 _W: Dict = {}
 
 
-def _worker_init(type_to_id, faction_to_id, verify, luck=False) -> None:
-    _W.update(type_to_id=type_to_id, faction_to_id=faction_to_id, verify=verify, luck=luck)
+def _worker_init(type_to_id, faction_to_id, verify, luck=False, unit_row_version=1) -> None:
+    _W.update(type_to_id=type_to_id, faction_to_id=faction_to_id, verify=verify, luck=luck,
+              unit_row_version=unit_row_version)
 
 
 def _build(game: str, path: str) -> GamePositions:
     return positions_of(read_record(Path(path)), _W["type_to_id"], _W["faction_to_id"], game=game,
-                        verify=_W["verify"], luck=_W["luck"])
+                        verify=_W["verify"], luck=_W["luck"], unit_row_version=_W["unit_row_version"])
 
 
 class PositionLoader:
@@ -428,11 +449,13 @@ class PositionLoader:
     with `luck`, each carries the luck dealt before it (`positions_of`)."""
 
     def __init__(self, paths: Dict[str, Path], type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                 workers: int = 0, verify: bool = True, luck: bool = False):
+                 workers: int = 0, verify: bool = True, luck: bool = False, unit_row_version: int = 1):
         self.paths = {g: Path(p) for g, p in paths.items()}
         self.vocab = (type_to_id, faction_to_id)
         self.verify = bool(verify)
         self.luck = bool(luck)
+        # The unit row the positions are encoded with: the reading network's.
+        self.unit_row_version = int(unit_row_version)
         self._games: Dict[str, object] = {}
         # The replay's counts, summed over the games built (each once).
         self.counts: Counter = Counter()
@@ -440,7 +463,8 @@ class PositionLoader:
         self._pool = None
         if workers > 0:
             self._pool = ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn"), initializer=_worker_init,
-                                             initargs=(type_to_id, faction_to_id, self.verify, self.luck))
+                                             initargs=(type_to_id, faction_to_id, self.verify, self.luck,
+                                                       self.unit_row_version))
         self.wait_seconds = 0.0
 
     def prefetch(self, games: Iterable[str]) -> None:
@@ -458,7 +482,8 @@ class PositionLoader:
                 got = self._games[game]
             else:
                 got = self._games[game] = positions_of(read_record(self.paths[game]), *self.vocab, game=game,
-                                                       verify=self.verify, luck=self.luck)
+                                                       verify=self.verify, luck=self.luck,
+                                                       unit_row_version=self.unit_row_version)
         if not isinstance(got, GamePositions):
             t0 = time.perf_counter()
             got = self._games[game] = got.result()

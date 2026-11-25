@@ -7,8 +7,8 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 ## Open after the input change (2026-11-25)
 
 The branch `feature/input-facts` (the unit row of version 2 and the end of
-the attack from a distance; `docs/input_facts_prereg_20261125.md`). Small
-items it leaves, none blocking the run:
+the attack from a distance; `docs/input_facts_prereg_20261125.md`), merged
+at 0.36.0. Small items it leaves, none blocking the run:
 
 - **The earlier self-play's actors do not carry `unit_row_version`**
   (`tools/actor_pool.py`, `tools/actor_worker.py`, `tools/turn_gap.py`,

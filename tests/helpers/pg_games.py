@@ -39,11 +39,20 @@ TINY_ARCH = {"d_model": 32, "num_layers": 1, "num_heads": 2, "d_ff": 64}
 MAX_TURNS = 3
 LABELS = ("A", "B")
 # The suite's games: name -> (seed, side A's side, the recruit decisions the
-# harness refuses, by their running index over the game). Seeds 13 and 7 hold
-# attacks in their first twelve decisions and a recruit followed by a
-# decision that may still recruit elsewhere; seed 5's side 1 recruits three
-# times in its first turn.
-SUITE = {"g0": (13, 1, ()), "g1": (5, 1, (0, 2)), "g2": (7, 1, ())}
+# harness refuses, by their running index over the game). Seeds 13 and 102
+# hold attacks in their first twelve decisions, and seed 13 a recruit
+# followed by a decision that may still recruit elsewhere; seed 52's side 1
+# recruits three times in its first turn. (Until 2026-11-25 the seeds were
+# 13, 5 and 7: without the attack from a distance, seed 5's game holds no
+# attack and seed 7's first comes later.)
+# g2 is seed 102 and not 47, whose game holds early attacks too: on 13, 52
+# and 47 the forward and reverse KL of test_pg_eval.py's step test sit 4 %
+# apart (0.679, 0.651) where the test needs 10 %; on 13, 52 and 102 they are
+# 0.147 and 0.126. Like 47's, 102's game holds a decision after its last
+# attack (test_pg_positions.py's luck) and, among its first twelve
+# positions, an attack whose weapon score is not 0 (test_pg_loss.py's head
+# scores).
+SUITE = {"g0": (13, 1, ()), "g1": (52, 1, (0, 2)), "g2": (102, 1, ())}
 
 
 def tiny_network(seed: int = 4):

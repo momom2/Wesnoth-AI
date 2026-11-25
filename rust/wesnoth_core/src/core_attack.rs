@@ -165,7 +165,7 @@ impl GameCore {
 
     /// `_terrain_def_pct` on the unit's hex: its movement class's
     /// defense percentage there.
-    fn defense_at(&self, i: usize) -> i64 {
+    pub(crate) fn defense_at(&self, i: usize) -> i64 {
         let u = &self.units[i];
         if u.hex < 0 || u.class_id < 0 {
             return 50;

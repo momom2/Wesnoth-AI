@@ -7,7 +7,8 @@ it from round 545** (`docs/input_facts_prereg_20261125.md`).
   weights: "No special learning rate [...] maybe we'll reconsider
   tomorrow if the night's training is clearly flawed or stalled."
 - **Built as written:** Part 1, Part 2, and the removal of the attack
-  from a distance (decision 2), on the branch `feature/input-facts`.
+  from a distance (decision 2), on the branch `feature/input-facts`,
+  merged into `main` at 0.36.0 (2026-11-25).
 - **Built otherwise than written, in one place.** The new columns are not
   appended to `unit_feat_proj.weight`. They are read by a projection of
   their own, `unit_feat_proj2`, at zero. Zero columns appended to the old

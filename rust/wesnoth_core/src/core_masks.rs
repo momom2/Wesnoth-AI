@@ -8,9 +8,10 @@
 //! oracle and serves the unpacked masks.
 //!
 //! Per unit slot (the encoding's visible units, in slot order): its move
-//! and attack rows in token space (`rows_from_landable` over the acting
-//! units' landable rows, the attackable enemies being the token hexes a
-//! seen, attackable, non-allied unit occupies); type ATTACK legal when
+//! and attack rows in token space (`rows_from_landable`: the acting unit's
+//! landable row, and the attackable enemies on the hexes that touch its
+//! own, an attackable enemy being a seen, non-allied unit that is not
+//! inert, `SideView::attackable`); type ATTACK legal when
 //! its attack row has a hex, MOVE when its move row has one, the slot
 //! legal when either does. Per recruit slot: the recruit row (the
 //! leader's castle network, in token space) when the leader stands on
@@ -83,7 +84,7 @@ impl GameCore {
         let v = &obs.view;
         // The token hexes a seen, attackable enemy occupies.
         let enemy_hexids: Vec<i64> = slots.iter()
-            .filter(|&&mh| v.occupied[mh] != 0 && v.inert[mh] == 0 && v.ally[mh] == 0)
+            .filter(|&&mh| v.attackable(mh))
             .map(|&mh| mh as i64)
             .collect();
         // The acting units' landable rows, by unit slot.

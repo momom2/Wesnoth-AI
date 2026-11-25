@@ -877,8 +877,15 @@ zero strikes, consumes no synced RNG, and any `[random_seed]`
 follow-up emitted by our exporter dangles → "found dependent
 command in replay while is_synced=false" on the next outer-loop
 iteration. **Implication for our sim**: never emit a bare `[attack]`
-where source and destination aren't neighbors. If the policy picks
-a non-adjacent target, plan a `[move]` first.
+where source and destination aren't neighbors. Since 2026-11-25 the
+legality mask offers an attack only on an enemy on a hex that touches the
+attacker's (`rust/wesnoth_core/src/lib.rs`, `rows_from_landable`), and the
+simulator refuses any other (`tools/wesnoth_sim.py`,
+`_action_to_command`). Until then a player could order an attack on an
+enemy its unit could reach, and the simulator planned a `[move]` first, to
+a hex it chose by a fixed rule; the user removed that on 2026-11-24, since
+the network did not choose the hex (principle 3). Game records of format
+5 and earlier hold such attacks (`tools/approach_hex.py`).
 
 ### Charge: doubles damage on BOTH sides, but ONLY if the unit with charge is the attacker
 

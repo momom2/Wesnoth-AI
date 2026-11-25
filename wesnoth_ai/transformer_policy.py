@@ -95,6 +95,7 @@ class TransformerPolicy:
         observation_parity: bool = False,
         memory_slots: int = 0,
         relevant_set_version: int = 1,
+        unit_row_version: int = 1,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -152,13 +153,19 @@ class TransformerPolicy:
         self._observation_parity = bool(observation_parity)
         self._memory_slots = int(memory_slots)
         self._relevant_set_version = int(relevant_set_version)
+        # Which unit and recruit rows the encoders read (encoder.py, "The
+        # unit row, version 2"). Version 2 adds a parameter, so a checkpoint
+        # loads only into a policy built with its own (load_checkpoint
+        # refuses another).
+        self._unit_row_version = int(unit_row_version)
         self._encoder = GameStateEncoder(
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
             terrain_multi_hot=self._terrain_multi_hot,
             observation_parity=self._observation_parity,
-            relevant_set_version=self._relevant_set_version).to(self._device)
+            relevant_set_version=self._relevant_set_version,
+            unit_row_version=self._unit_row_version).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -203,7 +210,8 @@ class TransformerPolicy:
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
             terrain_multi_hot=self._terrain_multi_hot,
             observation_parity=self._observation_parity,
-            relevant_set_version=self._relevant_set_version).to(self._device)
+            relevant_set_version=self._relevant_set_version,
+            unit_row_version=self._unit_row_version).to(self._device)
         self._inference_model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -857,8 +865,9 @@ class TransformerPolicy:
                     f"saved arch instead."
                 )
         # The parity-memory recipe's keys (wesnoth_ai/checkpoint_structure):
-        # the observation and the memory size parameters and must match;
-        # the relevant set's version is data flow and follows the checkpoint.
+        # the observation, the memory and the unit row's version decide which
+        # parameters there are and must match; the relevant set's version is
+        # data flow and follows the checkpoint.
         refuse_other_structure(ckpt, self._model, self._encoder, Path(path).name)
         self.set_relevant_set_version(saved_structure(ckpt)["relevant_set_version"])
         # Pre-C51 checkpoints (pre-2026-05-10) saved a 1-scalar

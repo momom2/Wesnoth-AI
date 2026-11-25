@@ -7,7 +7,6 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sim_test_helpers import scenario_setup  # noqa: E402
@@ -138,18 +137,30 @@ def _fresh_sim():
 
 @pytest.fixture(scope="module")
 def played_game():
-    """Den of Onis, to a leader's death on turn 7, between two samplers of a small random
-    network, at 10% experience so units level, the simulator drawing
-    each advancement among its options."""
-    from tools.eval_players import _PolicyPair, _play_one_eval_game
-    from tools.raw_player import RawPolicyPlayer
-    from wesnoth_ai.transformer_policy import TransformerPolicy
-    torch.manual_seed(0)
-    policy = TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2, d_ff=64)
+    """Den of Onis, to a leader's death on turn 6, between two random legal
+    players whose units close on the enemy leader
+    (tools/random_positions.random_legal_action), at 10% experience so
+    units level, the simulator drawing each advancement among its
+    options."""
+    import random
+    from tools.inference_seam import RemoteEncoder
+    from tools.random_positions import random_legal_action
+    from tools.selfplay_game import _would_recruit_bounce
     sim = _fresh_sim()
     sim.enable_uniform_advancement()
-    player = RawPolicyPlayer(policy, 1.0, seed=6, end_turn_offset=-4.0)
-    _play_one_eval_game(sim, _PolicyPair(player, "a", 1), _PolicyPair(player, "a", 2), game_label="a")
+    rng = random.Random(16)
+    encoder = RemoteEncoder({}, {}, relevant_set=True, fog_hides_enemy_villages=True, server_priors=True,
+                            terrain_multi_hot=True, observation_parity=True, relevant_set_version=2)
+    for _ in range(4000):
+        if sim.done:
+            break
+        side = sim.gs.global_info.current_side
+        leaders = {u.side: (u.position.x, u.position.y) for u in sim.gs.map.units if u.is_leader}
+        action = random_legal_action(encoder.encode(sim.gs), rng, aim=leaders.get(3 - side))
+        if _would_recruit_bounce(action, sim.gs):
+            sim.reject_recruit_hex(action["target_hex"].x, action["target_hex"].y)
+        else:
+            sim.step(action)
     kinds = Counter(rc.kind for rc in sim.command_history)
     choices = [c for rc in sim.command_history for _, c in rc.extras.get("advance_choices") or []]
     assert kinds["recruit"] and kinds["move"] and kinds["attack"] and 1 in choices, (kinds, choices)

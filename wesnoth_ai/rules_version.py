@@ -60,6 +60,14 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # a dead unit's id read as uncovered, so a hider among them was built
     # as seen through its cover: a rule the core applies changed.
     39: 39,
+    # A unit attacks only an enemy on a hex that touches its own: the
+    # legality masks no longer offer an attack on an enemy next to a hex the
+    # unit could land on (feature/input-facts; the user's ruling of
+    # 2026-11-24). The masks a record's positions carry changed, so a
+    # record's merged approach-and-attack label is no longer legal under
+    # them. The unit row of version 2 is asked for by the encoding's own
+    # switch and changes no version-1 position.
+    40: 40,
 }
 
 

@@ -52,7 +52,7 @@ def _play(seed: int, decisions: int, on_step) -> int:
     return steps
 
 
-@pytest.mark.parametrize("seed", [3, 8])
+@pytest.mark.parametrize("seed", [3, 7])
 def test_the_live_view_is_the_cores_state(seed):
     """After every command of a random legal game (moves, attacks with
     their strike records cleared, recruits, rejections, turn ends): the

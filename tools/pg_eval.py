@@ -145,7 +145,8 @@ class EvalContext:
         refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
         lengths = side_lengths(facts)
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
-                                     workers=config.workers, verify=config.verify)
+                                     workers=config.workers, verify=config.verify,
+                                     unit_row_version=self.encoder.unit_row_version)
         self.sides: List[GameSide] = []
         start = 0
         for g in game_order(games, config.seed):

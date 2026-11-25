@@ -1,8 +1,9 @@
 # The new inputs and the end of the attack from a distance: pre-registration (2026-11-25)
 
 **Status: switched. Round 545 is the first on the new inputs** (2026-11-25
-01:36, from the branch `feature/input-facts` at 2a523b56). **Not merged
-into `main`: that is the user's to decide.** The simple loop (`docs/simple_loop_prereg_20261117.md`) stopped
+01:36, from the branch `feature/input-facts` at 2a523b56). **Merged into
+`main` at 0.36.0 on 2026-11-25, on the user's word ("Yes, merge").** The
+simple loop (`docs/simple_loop_prereg_20261117.md`) stopped
 at the round boundary after its match at round 544 (2026-11-25 00:12:28).
 This is its departure 10.
 

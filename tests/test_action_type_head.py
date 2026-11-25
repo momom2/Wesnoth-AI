@@ -329,7 +329,10 @@ def test_mcts_factored_loss_consumes_type_idx():
     unit_priors = [p for p in priors if p.type_idx is not None]
     if not unit_priors:
         pytest.skip("no unit-actor actions in priors")
-    p0 = unit_priors[0]
+    # An action of the Spearman beside the enemy, which may attack or
+    # move: the type term is 0 for an actor with one legal type (the
+    # leader, far from any enemy).
+    p0 = next(p for p in unit_priors if p.action["type"] == "attack")
     new_schema_visits = [
         (p0.actor_idx, p0.target_idx, p0.weapon_idx, 1, p0.type_idx),
     ]

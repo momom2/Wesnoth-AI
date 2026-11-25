@@ -242,7 +242,7 @@ class GamePass:
         games = {g.file for group in self.groups for g in group}
         self.loader = PositionLoader({g: records[g] for g in games}, dict(self.encoder.unit_type_to_id),
                                      dict(self.encoder.faction_to_id), workers=config.workers,
-                                     verify=config.verify)
+                                     verify=config.verify, unit_row_version=self.encoder.unit_row_version)
         cuda = device.type == "cuda"
         self.autocast = torch.float16 if cuda and config.fp16 else None
         self.recompute = cuda if config.recompute is None else bool(config.recompute)

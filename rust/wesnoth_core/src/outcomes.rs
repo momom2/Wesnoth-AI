@@ -446,6 +446,30 @@ struct CounterChoice {
     fallback: bool,
 }
 
+/// What one strike of a side does at the start of a fight: the damage of
+/// a hit, the number of strikes and the chance to hit, in percent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StrikeLine {
+    pub damage: i64,
+    pub strikes: i64,
+    pub cth: i64,
+}
+
+/// One weapon's line of the attack dialog (src/gui/dialogs/unit_attack.cpp
+/// 84-200, 1.18.4): the attacker's strikes, and the defender's answer with
+/// the index of the weapon it answers with, None when it does not answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FightLine {
+    pub attacker: StrikeLine,
+    pub answer: Option<(usize, StrikeLine)>,
+}
+
+/// A side's strikes as its first one lands: the halved damage when it
+/// enters the fight slowed (`combat::perform_hit`).
+fn strike_line(u: &Unit, st: &Stats) -> StrikeLine {
+    StrikeLine { damage: if u.slowed() { st.slow_damage } else { st.damage }, strikes: st.n_attacks, cth: st.cth }
+}
+
 /// One combatant's state in an outcome: type, hit points, slowed,
 /// poisoned, petrified. A dead unit is ("", 0, false, false, false).
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -533,6 +557,21 @@ impl GameCore {
             }
         }
         Ok(CounterChoice { weapon: sims[best].0 as i64, tables, fallback: false })
+    }
+
+    /// The attack dialog's line for unit `a` attacking unit `d` with weapon
+    /// `a_weapon`: the fight's own statistics (`fight_inputs`,
+    /// `combat::fight_stats`) with the defender answering as the attack
+    /// command makes it answer (`counter_weapon`). The unit row of version
+    /// 2 shows it (core_parity.rs `unit_fights`).
+    pub(crate) fn fight_line(&self, a: usize, d: usize, a_weapon: i64) -> PyResult<FightLine> {
+        let counter = self.counter_weapon(a, d, a_weapon)?;
+        let (au, du, a_st, d_st) = fight_stats(&self.fight_inputs(a, d, a_weapon, counter.weapon)?);
+        let answer = match (&d_st, usize::try_from(counter.weapon)) {
+            (Some(st), Ok(w)) => Some((w, strike_line(&du, st))),
+            _ => None,
+        };
+        Ok(FightLine { attacker: strike_line(&au, &a_st), answer })
     }
 
     /// Every outcome of unit `a` attacking unit `d` with weapon `a_weapon`

@@ -267,6 +267,23 @@ fn alias_class(alias: &str) -> Option<i64> {
 pub const FUNGUS: i64 = 14;
 pub const REEF: i64 = 15;
 
+/// The terrain a movetype's table names for each of the parity
+/// observation's 16 classes, in class order (`terrain_class`, then FUNGUS
+/// and REEF): terrain.cfg's archetype of the class, whose movement cost
+/// and chance to be hit `mvt_cost` and `def_pct` read straight from the
+/// table. The rails archetype (`Rt`) shares the flat class in the hex
+/// tokens and has no column of its own.
+pub const CLASS_ARCHETYPES: [&str; 16] = [
+    "Ct", "Ut", "Wdt", "Gt", "Ft", "At", "Ht", "Xt", "Mt", "Dt", "Wst", "St", "Qt", "Vt", "Tt", "Wrt",
+];
+
+/// The class of each archetype of `CLASS_ARCHETYPES`, as the hex tokens'
+/// terrain set names it (`alias_class_parity`); None for a code that is
+/// no archetype. The layout check reads it (`parity_layout`).
+pub fn archetype_class(code: &str) -> Option<i64> {
+    alias_class_parity(code)
+}
+
 /// `alias_class` with mushroom grove and reef in classes of their own.
 fn alias_class_parity(alias: &str) -> Option<i64> {
     match alias {

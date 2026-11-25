@@ -10,9 +10,8 @@ simulator mirrors the game from the engine's log (tools/live_mirror.py), so
 the player observes it as in a simulated match, its memory included. At
 each decision the engine's board and the simulator's are compared field by
 field; any difference stops the game as a fidelity defect. The player's
-action is planned on a fork of the simulator (a move-to-attack becomes the
-move and the attack the simulator would play) and the engine plays those
-commands.
+action is planned on a fork of the simulator and the engine plays the
+command it becomes there.
 
     python tools/live_vs_rca.py [--games 10] [--speed 4] [--seed S]
                                 [--unwatched] [--scenario PART]

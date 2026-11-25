@@ -21,8 +21,9 @@ player decided under, the core's, as the match's actor packed them
 (`server_priors.core_packed_masks`). A move followed
 by an attack from its end on a unit the mover did not stand next to, whose
 approach the simulator would have chosen for that attack
-(`wesnoth_sim.attack_hex`), may be one attack decision: its candidate keeps
-that attack's label beside the move's.
+(`approach_hex.attack_hex`), may be one attack decision in a record of
+format 5 or earlier, whose players could order an attack from a distance:
+its candidate keeps that attack's label beside the move's.
 
 Every game-side not kept is counted by reason (`counts`), and a game whose
 record does not rebuild or holds a position the encoder refuses is dropped
@@ -156,7 +157,7 @@ def approach_attack(cs, commands: List[list], k: int, side: int):
     if (int(nxt[1]), int(nxt[2])) != end or target in hex_neighbors(*start):
         return None
     from tools.replay_dataset import _action_indices
-    from tools.wesnoth_sim import attack_hex
+    from tools.approach_hex import attack_hex
     from wesnoth_ai.classes import Position
     from wesnoth_ai.game_core import view_of
     gs = view_of(cs.fork())

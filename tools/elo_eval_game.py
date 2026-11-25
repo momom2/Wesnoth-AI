@@ -408,7 +408,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
         fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)),
         terrain_multi_hot=bool(h.get("terrain_multi_hot", False)),
         observation_parity=bool(h.get("observation_parity", False)),
-        relevant_set_version=int(h.get("relevant_set_version", 1)))
+        relevant_set_version=int(h.get("relevant_set_version", 1)),
+        unit_row_version=int(h.get("unit_row_version", 1)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,

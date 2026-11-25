@@ -325,6 +325,54 @@ PARITY_HEX_TOD_AT = NUM_HEX_DYNAMIC_FLAGS + 1                                   
 # its last end_turn and does not see now, at the last hex it was seen on, in
 # the unit stream's (y, x, id) order.
 
+# ---------------------------------------------------------------------
+# The unit row, version 2: the unit and recruit rows a network built with
+# the checkpoint key `unit_row_version` 2 reads (2026-11-24,
+# docs/input_facts_design_20261124.md). It widens the parity observation's
+# rows, so it needs `observation_parity`; a checkpoint without the key reads
+# version 1, the 109 columns above. GameCore.encode_streams builds it
+# (rust/wesnoth_core/src/core_parity.rs). After column 108 a unit row holds
+#   109       the unit's level / LEVEL_NORM
+#   110       its chance to be hit where it stands / 100, as its fights read it
+#   111-126   its chance to be hit on each terrain class / 100, in the hex
+#             tokens' class order (NUM_TERRAINS_PARITY)
+#   127-142   one over its movement cost on each terrain class as it pays it
+#             now (doubled while slowed), 0 where it cannot go
+#   143-340   the attack window's lines: for each of the six hexes that touch
+#             the unit's (north, north-east, south-east, south, south-west,
+#             north-west) and each weapon slot, the fight against the enemy
+#             the side may attack on that hex. Direction d, weapon slot w
+#             starts at 143 + FIGHT_COLS * (PARITY_WEAPON_SLOTS * d + w):
+#               +0      the weapon can strike this enemy
+#               +1      its damage per hit / WEAPON_DAMAGE_NORM
+#               +2      its strikes / WEAPON_STRIKES_NORM
+#               +3      its chance to hit / 100
+#               +4      the enemy answers
+#               +5      the answer's damage per hit / WEAPON_DAMAGE_NORM
+#               +6      the answer's strikes / WEAPON_STRIKES_NORM
+#               +7      the answer's chance to hit / 100
+#               +8..10  which of the enemy's weapon slots answers, one-hot
+#             The numbers are the attack command's own: resistance, time of
+#             day, leadership, slow and the weapon specials applied. Zero for
+#             an enemy's row, a unit that has attacked, a hex with no enemy
+#             the side may attack, and a recruit row. No outcome of a fight
+#             is worked out for the network (user ruling 2026-11-24).
+# A recruit row holds the level and the two tables of its type; the column
+# "where it stands" is 0.
+LEVEL_NORM = 4.0               # the highest level of the default era's unit types
+UNIT_FACTS_COLS = 2 + 2 * NUM_TERRAINS_PARITY                                       # 34
+FIGHT_DIRECTIONS = 6
+FIGHT_COLS = 8 + PARITY_WEAPON_SLOTS                                                # 11
+UNIT_FIGHTS_COLS = FIGHT_DIRECTIONS * PARITY_WEAPON_SLOTS * FIGHT_COLS              # 198
+UNIT_EXTRA_ROWS2 = PARITY_UNIT_EXTRA + UNIT_FACTS_COLS + UNIT_FIGHTS_COLS           # 328
+UNIT_FEAT_DIM_ROWS2 = UNIT_FEAT_DIM + UNIT_EXTRA_ROWS2                              # 341
+ROWS2_LEVEL_AT = UNIT_FEAT_DIM_PARITY                                               # 109
+ROWS2_STANDS_AT = ROWS2_LEVEL_AT + 1                                                # 110
+ROWS2_DEFENCE_AT = ROWS2_STANDS_AT + 1                                              # 111
+ROWS2_MOVE_AT = ROWS2_DEFENCE_AT + NUM_TERRAINS_PARITY                              # 127
+ROWS2_FIGHT_AT = ROWS2_MOVE_AT + NUM_TERRAINS_PARITY                                # 143
+UNIT_ROW_VERSIONS = (1, 2)
+
 
 @dataclass(frozen=True)
 class ObservationWidths:
@@ -343,6 +391,24 @@ LEGACY_WIDTHS = ObservationWidths(NUM_TERRAINS, NUM_HEX_DYNAMIC_FLAGS, UNIT_FEAT
 PARITY_WIDTHS = ObservationWidths(NUM_TERRAINS_PARITY, NUM_HEX_DYNAMIC_FLAGS_PARITY,
                                   UNIT_FEAT_DIM_PARITY, NUM_SIDE_CODES_PARITY,
                                   GLOBAL_FEAT_DIM_PARITY)
+# The parity observation's with the unit row of version 2.
+ROWS2_WIDTHS = ObservationWidths(NUM_TERRAINS_PARITY, NUM_HEX_DYNAMIC_FLAGS_PARITY,
+                                 UNIT_FEAT_DIM_ROWS2, NUM_SIDE_CODES_PARITY,
+                                 GLOBAL_FEAT_DIM_PARITY)
+
+
+def observation_widths(observation_parity: bool, unit_row_version: int = 1) -> ObservationWidths:
+    """The input widths of an observation: obs8's, the parity observation's,
+    or the parity observation's with the unit row of version 2 (which only
+    the parity observation has)."""
+    if unit_row_version not in UNIT_ROW_VERSIONS:
+        raise ValueError(f"unit_row_version {unit_row_version!r}: one of {UNIT_ROW_VERSIONS}")
+    if unit_row_version == 2:
+        if not observation_parity:
+            raise ValueError("unit_row_version 2 widens the parity observation's unit rows: it needs "
+                             "observation_parity")
+        return ROWS2_WIDTHS
+    return PARITY_WIDTHS if observation_parity else LEGACY_WIDTHS
 
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
@@ -590,6 +656,7 @@ class GameStateEncoder(nn.Module):
         terrain_multi_hot: bool = False,
         observation_parity: bool = False,
         relevant_set_version: int = 1,
+        unit_row_version: int = 1,
     ):
         super().__init__()
         self.d_model = d_model
@@ -599,7 +666,12 @@ class GameStateEncoder(nn.Module):
         # projection is obs8's. It rides the checkpoint like the terrain
         # view, and sizes parameters, so it is fixed at construction.
         self.observation_parity = bool(observation_parity)
-        self.widths = PARITY_WIDTHS if self.observation_parity else LEGACY_WIDTHS
+        # Which unit and recruit rows the network reads: 1, the observation's
+        # own; 2, the parity observation's with the sidebar's facts and the
+        # attack window's lines ("The unit row, version 2" above). Version 2
+        # adds `unit_feat_proj2` and rides the checkpoint (`unit_row_version`).
+        self.unit_row_version = int(unit_row_version)
+        self.widths = observation_widths(self.observation_parity, self.unit_row_version)
         # Which relevant set the hex stream holds when relevant_set_hexes
         # is on: 1, obs8's; 2, the parity recipe's (the neighbours of
         # every own unit and the unseen hexes near them added). Data
@@ -661,7 +733,11 @@ class GameStateEncoder(nn.Module):
 
         # --- unit embeddings ------------------------------------------
         self.unit_type_embed = nn.Embedding(MAX_UNIT_TYPES, d_model)
-        self.unit_feat_proj  = nn.Linear(widths.unit_feats, d_model)
+        # Version 1's columns of the unit row; version 2's added columns
+        # have a projection of their own (`unit_feat_proj2`, below).
+        self.unit_base_feats = (UNIT_FEAT_DIM_PARITY if self.unit_row_version == 2
+                                else widths.unit_feats)
+        self.unit_feat_proj  = nn.Linear(self.unit_base_feats, d_model)
         self.side_embed      = nn.Embedding(widths.side_codes, d_model)
 
         # --- global ---------------------------------------------------
@@ -687,6 +763,19 @@ class GameStateEncoder(nn.Module):
         # columns. Built last, so the tables above draw as without it.
         self.sight_feat_proj = (nn.Linear(SIGHT_FEAT_DIM, d_model)
                                 if self.observation_parity else None)
+
+        # --- the unit row's columns past version 1's --------------------
+        # Version 2's added columns (the sidebar's facts and the attack
+        # window's lines) are read by a projection of their own, without a
+        # bias and zero at the start. So a network widened from version 1
+        # computes exactly what it computed (its unit tokens gain a sum
+        # of zeros), and an optimizer meets the new weights as a new
+        # parameter, at its ordinary rate (tools/widen_unit_rows.py).
+        # Built last, so the modules above draw as without it.
+        self.unit_feat_proj2 = None
+        if self.unit_row_version == 2:
+            self.unit_feat_proj2 = nn.Linear(widths.unit_feats - self.unit_base_feats, d_model, bias=False)
+            nn.init.zeros_(self.unit_feat_proj2.weight)
 
     # ----- public API --------------------------------------------------
 
@@ -722,7 +811,17 @@ class GameStateEncoder(nn.Module):
             terrain_multi_hot=self.terrain_multi_hot,
             observation_parity=self.observation_parity,
             relevant_set_version=self.relevant_set_version,
+            unit_row_version=self.unit_row_version,
         )
+
+    def unit_row_tokens(self, feats: torch.Tensor) -> torch.Tensor:
+        """The unit row's term of a unit or recruit token: version 1's
+        columns through `unit_feat_proj`, and under unit row version 2 the
+        added columns through `unit_feat_proj2`."""
+        if self.unit_feat_proj2 is None:
+            return self.unit_feat_proj(feats)
+        n = self.unit_base_feats
+        return self.unit_feat_proj(feats[..., :n]) + self.unit_feat_proj2(feats[..., n:])
 
     def terrain_tokens(self, hex_terrain: torch.Tensor) -> torch.Tensor:
         """The terrain term of the hex tokens: under `terrain_multi_hot`
@@ -969,7 +1068,7 @@ class GameStateEncoder(nn.Module):
                 + self.side_embed(us_ids)
                 + self.pos_x_embed(ux)
                 + self.pos_y_embed(uy)
-                + self.unit_feat_proj(uf)
+                + self.unit_row_tokens(uf)
             ).unsqueeze(0)  # [1, U, d]
             unit_is_ours = _to_dev(raw.unit_is_ours).unsqueeze(0)
 
@@ -998,7 +1097,7 @@ class GameStateEncoder(nn.Module):
                 + self.side_embed(rs)
                 + self.pos_x_embed(rx)
                 + self.pos_y_embed(ry)
-                + self.unit_feat_proj(rf)
+                + self.unit_row_tokens(rf)
             ).unsqueeze(0)  # [1, R, d]
             recruit_is_ours = _to_dev(raw.recruit_is_ours).unsqueeze(0)
 
@@ -1144,7 +1243,7 @@ class GameStateEncoder(nn.Module):
         the actor head sees "would-be Fighter at our keep" the way it
         sees "Fighter standing here"."""
         return (self.unit_type_embed(type_ids) + self.side_embed(side_ids)
-                + self.pos_x_embed(xs) + self.pos_y_embed(ys) + self.unit_feat_proj(feats))
+                + self.pos_x_embed(xs) + self.pos_y_embed(ys) + self.unit_row_tokens(feats))
 
     def _sighting_embedding(self, type_ids, xs, ys, feats):
         """Sighting tokens: a unit token of side code SIGHT_SIDE_CODE, with
@@ -1553,6 +1652,7 @@ def encode_raw(
     observation_parity: bool = False,
     relevant_set_version: int = 1,
     masks: bool = False,
+    unit_row_version: int = 1,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab, by
     the Rust core that answers for the state (`game_core.core_for`: a
@@ -1564,6 +1664,8 @@ def encode_raw(
     view's own core: a state not bound to a core raises ValueError
     (encode a core's view; a deep copy is unbound,
     `game_core.snapshot_view` keeps the binding).
+    `unit_row_version`: 2 widens the parity observation's unit and recruit
+    rows ("The unit row, version 2" above).
 
     Self-contained: no torch, no nn modules, no GPU. The result is
     picklable, so workers can call this and ship results back to the
@@ -1593,7 +1695,7 @@ def encode_raw(
         type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant_set,
         fog_hides_enemy_villages=fog_hides_enemy_villages, terrain_multi_hot=terrain_multi_hot,
         observation_parity=observation_parity, relevant_set_version=relevant_set_version,
-        masks=masks)
+        masks=masks, unit_row_version=unit_row_version)
 
 
 # ---------------------------------------------------------------------
