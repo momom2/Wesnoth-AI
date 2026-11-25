@@ -1,0 +1,177 @@
+[
+ {
+  "round": 605,
+  "games_self": {
+   "games": 102,
+   "outcome_a": {
+    "loss": 57,
+    "win": 45
+   },
+   "turns_mean": 18.7,
+   "turns_median": 17,
+   "turns_max": 42,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 467,
+   "observation_epochs": [
+    12
+   ]
+  },
+  "games_past": {
+   "games": 26,
+   "outcome_a": {
+    "loss": 11,
+    "win": 15
+   },
+   "turns_mean": 22.7,
+   "turns_median": 22,
+   "turns_max": 46,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 581,
+   "observation_epochs": [
+    12
+   ]
+  }
+ },
+ {
+  "round": 606,
+  "games_self": {
+   "games": 102,
+   "outcome_a": {
+    "loss": 49,
+    "win": 53
+   },
+   "turns_mean": 20.9,
+   "turns_median": 19,
+   "turns_max": 70,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 561,
+   "observation_epochs": [
+    12
+   ]
+  },
+  "games_past": {
+   "games": 26,
+   "outcome_a": {
+    "loss": 11,
+    "win": 15
+   },
+   "turns_mean": 20.3,
+   "turns_median": 20,
+   "turns_max": 45,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 535,
+   "observation_epochs": [
+    12
+   ]
+  }
+ },
+ {
+  "round": 607,
+  "games_self": {
+   "games": 102,
+   "outcome_a": {
+    "loss": 42,
+    "win": 60
+   },
+   "turns_mean": 19.3,
+   "turns_median": 18,
+   "turns_max": 42,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 484,
+   "observation_epochs": [
+    12
+   ]
+  },
+  "games_past": {
+   "games": 26,
+   "outcome_a": {
+    "loss": 15,
+    "win": 11
+   },
+   "turns_mean": 16.8,
+   "turns_median": 17,
+   "turns_max": 29,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 407,
+   "observation_epochs": [
+    12
+   ]
+  }
+ },
+ {
+  "round": 608,
+  "games_self": {
+   "games": 102,
+   "outcome_a": {
+    "loss": 51,
+    "win": 51
+   },
+   "turns_mean": 18.5,
+   "turns_median": 18,
+   "turns_max": 44,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 503,
+   "observation_epochs": [
+    12
+   ]
+  },
+  "games_past": {
+   "games": 26,
+   "outcome_a": {
+    "loss": 9,
+    "win": 17
+   },
+   "turns_mean": 20.4,
+   "turns_median": 18,
+   "turns_max": 37,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 515,
+   "observation_epochs": [
+    12
+   ]
+  }
+ },
+ {
+  "round": 609,
+  "games_self": {
+   "games": 102,
+   "outcome_a": {
+    "loss": 52,
+    "win": 50
+   },
+   "turns_mean": 20.2,
+   "turns_median": 18,
+   "turns_max": 47,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 533,
+   "observation_epochs": [
+    14
+   ]
+  },
+  "games_past": {
+   "games": 26,
+   "outcome_a": {
+    "loss": 4,
+    "win": 22
+   },
+   "turns_mean": 21.9,
+   "turns_median": 20,
+   "turns_max": 42,
+   "forced_end_turns": 0,
+   "unplayed_side_turns": 0,
+   "forwards_per_game": 574,
+   "observation_epochs": [
+    14
+   ]
+  }
+ }
+]

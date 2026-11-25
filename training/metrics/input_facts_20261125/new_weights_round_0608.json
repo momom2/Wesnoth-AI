@@ -1,0 +1,99 @@
+[
+  {
+    "file": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0544\\pi.pt",
+    "round": 544,
+    "unit_row_version": 2,
+    "old_rms": 0.10427332748670018,
+    "new_rms": 0.0,
+    "new_max": 0.0,
+    "nonzero_share": 0.0,
+    "blocks": {
+      "level": {
+        "rms": 0.0,
+        "max": 0.0
+      },
+      "defence where it stands": {
+        "rms": 0.0,
+        "max": 0.0
+      },
+      "defence by terrain": {
+        "rms": 0.0,
+        "max": 0.0
+      },
+      "movement by terrain": {
+        "rms": 0.0,
+        "max": 0.0
+      },
+      "fights": {
+        "rms": 0.0,
+        "max": 0.0
+      }
+    }
+  },
+  {
+    "file": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0592\\pi.pt",
+    "round": 592,
+    "unit_row_version": 2,
+    "old_rms": 0.10427359103590435,
+    "new_rms": 7.448996905654631e-05,
+    "new_max": 0.0003070583916269243,
+    "nonzero_share": 0.9956896551724138,
+    "blocks": {
+      "level": {
+        "rms": 5.3803085297833744e-05,
+        "max": 0.00017105013830587268
+      },
+      "defence where it stands": {
+        "rms": 5.3500871361879535e-05,
+        "max": 0.00017880083760246634
+      },
+      "defence by terrain": {
+        "rms": 5.303582116256178e-05,
+        "max": 0.00017814124294091016
+      },
+      "movement by terrain": {
+        "rms": 5.5622467920242447e-05,
+        "max": 0.00023049145238474011
+      },
+      "fights": {
+        "rms": 7.742861300799334e-05,
+        "max": 0.0003070583916269243
+      }
+    },
+    "rounds_since_first": 48,
+    "mean_move_per_round_in_lr": 0.12394529163718
+  },
+  {
+    "file": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0608\\pi.nopointer.pt",
+    "round": 608,
+    "unit_row_version": 2,
+    "old_rms": 0.10427353543553429,
+    "new_rms": 8.287047703720059e-05,
+    "new_max": 0.00033301659277640283,
+    "nonzero_share": 0.9956896551724138,
+    "blocks": {
+      "level": {
+        "rms": 6.211186000248396e-05,
+        "max": 0.00021331149036996067
+      },
+      "defence where it stands": {
+        "rms": 6.155418066891872e-05,
+        "max": 0.00022514592274092138
+      },
+      "defence by terrain": {
+        "rms": 6.034946326194627e-05,
+        "max": 0.00025674671633169055
+      },
+      "movement by terrain": {
+        "rms": 6.482071976634388e-05,
+        "max": 0.0002760174102149904
+      },
+      "fights": {
+        "rms": 8.587389064142461e-05,
+        "max": 0.00033301659277640283
+      }
+    },
+    "rounds_since_first": 64,
+    "mean_move_per_round_in_lr": 0.1034026326493079
+  }
+]

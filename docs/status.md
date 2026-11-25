@@ -134,11 +134,10 @@ special learning rate [...] maybe we'll reconsider tomorrow if the
 night's training is clearly flawed or stalled."
 (`docs/input_facts_prereg_20261125.md`, departure 10 of the simple loop.)
 - **In `main` since 0.36.0** (merged 2026-11-25 on the user's word, "Yes,
-  merge", after 32 rounds on it). The run still executes from the
-  branch's worktree (`C:\Users\momom2\wesnoth_worktrees\input-facts`, at
-  2a523b56, the code that was merged): its branch is not to be switched
-  or deleted while the run lives. Both venvs hold the core of phase 40,
-  which is now `main`'s.
+  merge", after 32 rounds on it). The run executed from the branch's
+  worktree (`C:\Users\momom2\wesnoth_worktrees\input-facts`, at
+  2a523b56, the code that was merged) through round 608; `main`'s core is
+  that of phase 40.
 - **A unit attacks only an enemy on a hex that touches its own.** The
   simulator no longer moves a unit before its attack. The reference at
   its pinned decode ordered no such attack in 1,660, so the yardstick
@@ -149,8 +148,9 @@ night's training is clearly flawed or stalled."
   a hit, strikes, chance to hit, for both sides). They go through a
   projection of their own that starts at zero, so the network at the
   switch is round 544's network to the last bit.
-- **Not built:** the weapon's score reading the target (the design's
-  Part 3), which changes the output and has not been put to the user.
+- **The weapon's score reading the target** (the design's Part 3) was
+  not part of it. It is in the run since round 609 ("The audit's fixes"
+  below).
 - **The time of day** was already in the input, globally and per hex
   (the user asked on 2026-11-24): the registration lists where.
 - **The first 32 rounds** (545 to 576, to 2026-11-25 11:41): every
@@ -163,19 +163,48 @@ night's training is clearly flawed or stalled."
   read +173.6 ± 13.8 (585): the three average +170.1 ± 8.0, +2.5 ± 10.0
   against the baseline. Round 590's pass took 45 minutes instead of 15,
   slowed by a test run on the desktop and another job on the machine;
-  the suite runs in CI from here. The verdict was registered after the
-  match at round 672; the switch to the audit's fixes, planned at round
-  608, closes the reading early.
-- **The audit's fixes** (`docs/audit_fixes_prereg_20261125.md`; the
-  user's rulings of 2026-11-25): moves stop on a sighting, the enemy's
-  faction is known as a player knows it, the weapon's score reads its
-  target. Built on `feature/audit-fixes` (e2107544), which passed its
-  gate. A fourth, approved the same day: a unit that levels up on its
-  own side's turn with several types to become is the side's to choose,
-  among rows built like a recruit's; built on
-  `feature/advancement-choice` (bec71da6), green in CI. The switch to
-  the four at once is planned at the round boundary after the match at
-  round 608.
+  the suite runs in CI from here.
+- **The reading closed at round 608 with four matches of the eight: no
+  change read.** The match at round 608 read +161.7 ± 13.6 (574). The
+  four average +168.0 ± 6.9, +0.4 ± 9.2 against the baseline. The
+  verdict was registered after the match at round 672; the switch to the
+  audit's fixes at round 609 closed the reading early, as their
+  registration said it would.
+- **The audit's fixes are in the run since round 609** (2026-11-25
+  22:49; `docs/audit_fixes_prereg_20261125.md`, departure 11 of the
+  simple loop; the user's rulings of 2026-11-25). Four changes at once:
+  - a move under fog stops where it brings an enemy into view;
+  - a game is set up as two Random picks, so the enemy's faction starts
+    at the era's six and is narrowed by each unit seen;
+  - the weapon's score reads its target, through a pointer whose keys
+    started at zero;
+  - a unit that levels up on its own side's turn with several types to
+    become is the side's to choose, among rows built like a recruit's.
+
+  The run executes from the worktree of `feature/advancement-choice`
+  (`C:\Users\momom2\wesnoth_worktrees\advancement`, at bec71da6), whose
+  branch is not to be switched or deleted while the run lives. Both venvs
+  hold the core of phase 42. **Neither `feature/audit-fixes` nor
+  `feature/advancement-choice` is merged into `main`:** both are green in
+  CI, and the merge is the user's to approve.
+  - **The switch match:** round 608's network read +161.7 ± 13.6 on the
+    old code and +183.7 ± 14.0 on the new, so D0 = +22.0 ± 19.5 where
+    the kill criterion asked for under −60. The matches do not chain
+    across the switch: both players' rules changed.
+  - **The GPU checks passed:** a round of the real tools replays within
+    the exact check (6.9e-6); the inference server computes the pointer's
+    term (its logged probabilities match a recomputation with the term to
+    0.0007 and without it to 0.32, on a copy with keys far from zero);
+    Adam's state carries (the keys' first step moves each by 1e-5 and no
+    query).
+  - **Round 609 checks out:** exact check 7.3e-6; the games keep their
+    shape (20.2 turns, every game decided, no turn ended for a side);
+    125 advancements chosen in 128 games, 54% a type other than the
+    first. **The value head reads the new games worse:** cross-entropy
+    0.511 where rounds 545 to 608 read 0.33 to 0.48. One round; the next
+    ones say whether it comes back.
+  - **What decides:** after the eighth match from the switch (round
+    736), the mean of matches 5 to 8 less that of 1 to 4.
 - **The new weights move at the loop's ordinary pace.** After sixteen
   rounds the new projection's root mean square is 4.6e-5. That is about
   2,300 times under the old projection's size (0.104), but the size is
@@ -209,8 +238,11 @@ their findings were checked on the code and on the run's own games.
   columns' effect on the policy in full (1.02 ± 0.02 of it, over 2,206
   decisions). At round 576 that effect is 0.0035 in log probability,
   root mean square.
-- Nothing is changed. The order the audit would take them in is in its
-  last section and under "Open" below.
+- The user ruled on them the same day, and four are fixed in the run
+  since round 609 ("The audit's fixes" above): the weapon and its target,
+  the advancement, the sighting stop and the enemy's faction. The reach
+  is ruled no gap and the memory stands. What is left is under "Open"
+  below.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
@@ -546,10 +578,21 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
-- **Move the run back to the main checkout, at its next stop** (not
-  the user's to decide; a chore). It executes from the worktree of
-  `feature/input-facts`, whose code is `main`'s since 0.36.0. Once it
-  runs from the main checkout, the worktree and the branch can go.
+- **Merge the audit's fixes into `main`.** `feature/audit-fixes`
+  (e2107544) and `feature/advancement-choice` (bec71da6, which holds the
+  first) are green in CI and are the code the run executes since round
+  609. `main` still holds the rules of before.
+- **Move the run back to the main checkout, at a stop after that merge**
+  (not the user's to decide; a chore). It executes from the worktree of
+  `feature/advancement-choice`. Once it runs from the main checkout, the
+  worktrees `input-facts`, `audit-fixes` and `advancement` and their
+  branches can go.
+- **Zero or random for the pointer's new weights.** The user asked on
+  2026-11-25 whether to randomise them. The answer recorded in
+  `docs/audit_fixes_prereg_20261125.md` recommends zero (a weight's
+  gradient does not depend on its own value, and Adam's step does not
+  depend on the gradient's size), and the switch was made at zero, as
+  built. The user has not answered back.
 - **How the new weights are trained.** The user set it for discussion on
   2026-11-25, "if the night's training is clearly flawed or stalled". The
   design lists four options (`docs/input_facts_design_20261124.md`,
@@ -562,15 +605,18 @@ both sides, 3,200 decisive games on the same seeds:
   (`docs/input_facts_prereg_20261125.md`, "The yardstick"). Whether the
   network comes to use the new numbers is not yet read; the audit's
   counts on a later network would say.
-- **How the weapon comes to read the target** (the design's Part 3, not
-  yet put to the user). Today a unit's weapon is scored the same
-  whichever enemy it strikes.
-- **The audit's other gaps** (`docs/blindspot_audit_20261125.md`, "What
-  is the user's to decide"), one at a time: the advancement as the
-  network's choice; moves that stop on a sighting; whether the enemy's
-  faction is openly picked or Random; the board's missing hex tokens and
-  the enemy's reach; the bounced recruit's hex, which CLAUDE.md's
-  Principle 6 says the encoder shows and the code writes as 0.
+- **The audit's gaps that are left** (`docs/blindspot_audit_20261125.md`,
+  "After the rulings"), one at a time:
+  - the board's missing hex tokens, which the user was not sure how bad
+    it is: a run would measure what it costs;
+  - a check of the sighting stop against Wesnoth itself, which needs a
+    replay export under fog and the user's agreement to launch Wesnoth
+    (it is written from the engine's source and tested on hand-built
+    boards);
+  - letting the network plan an advancement for the enemy's turn, as the
+    Plan Unit Advance modification lets a player;
+  - the bounced recruit's hex, which CLAUDE.md's Principle 6 says the
+    encoder shows and the code writes as 0.
 - **Not the user's, a chore:** the stale comments the audit lists, and
   hand-computed tests of the fights' columns for the weapon specials.
 - **Resume the lean line, or leave it stopped.** It stopped in round 23's

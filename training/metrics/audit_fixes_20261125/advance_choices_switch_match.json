@@ -1,0 +1,26 @@
+{
+ "sets": [
+  {
+   "directory": "C:\\Users\\momom2\\wesnoth_runs\\audit_fixes_smoke\\match_step_0608_fixes\\games",
+   "games": 800,
+   "games_played_with_the_asking": 800,
+   "games_with_a_choice": 298,
+   "choices": 561,
+   "choices_per_game": 0.701,
+   "not_first": 311,
+   "share_not_first": 0.554,
+   "by_option_index": {
+    "0": 250,
+    "1": 272,
+    "2": 39
+   }
+  }
+ ],
+ "total": {
+  "games": 800,
+  "choices": 561,
+  "not_first": 311,
+  "choices_per_game": 0.701,
+  "share_not_first": 0.554
+ }
+}

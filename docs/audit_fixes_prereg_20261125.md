@@ -1,15 +1,14 @@
 # Three fixes from the blind-spot audit, and a fourth: pre-registration (2026-11-25)
 
-**Status: built on the branch `feature/audit-fixes` (e2107544), and with
-the fourth change on `feature/advancement-choice` (bec71da6); both pass
-their gates; not in the run. The switch is planned at the round boundary
-after the match at round 608 (2026-11-25, about 22:15), to
-`feature/advancement-choice` (departure 1 below).** The user answered the
-question of its time with "Otherwise, approved", on a message that
+**Status: switched. Round 609 is the first under the four changes**
+(2026-11-25 22:49, from the branch `feature/advancement-choice` at
+bec71da6; departure 1 below). **The GPU checks passed, and the switch
+match reads +22.0 ± 19.5 against the loop's own match of the same network:
+kill criterion 1 is not met** (Results). Neither branch is merged into
+`main`: that is the user's to approve. The user answered the question of
+the switch's time with "Otherwise, approved", on a message that
 recommended that evening; that reading was put back to them. It is
 departure 11 of the simple loop (`docs/simple_loop_prereg_20261117.md`).
-The GPU checks of "The switch" are made at the switch, with the run
-stopped.
 
 **The gate** (2026-11-25 15:17), at e2107544:
 - The full suite on the desktop, both tiers, against the branch's wheel:
@@ -227,4 +226,107 @@ closes it early, as the new inputs closed the lambda reading at round 544.
 
 ## Results
 
-None yet.
+**The loop's last match on the old code** (round 608, 2026-11-25 22:20):
++161.7 ± 13.6 (574 of 800). A STOP file placed during that match stopped
+the run at the round's boundary, at 22:20:10.
+
+**The GPU checks, from the branch's wheel read through an overlay folder
+(nothing installed yet)** (22:20 to 22:49, in
+`C:\Users\momom2\wesnoth_runs\audit_fixes_smoke`; the scripts are in
+`C:\Users\momom2\wesnoth_runs\tools\audit_fixes_switch`):
+
+- **One round of the real tools from round 608's network with the pointer
+  at zero** (16 games, 4 of them against a past self): every tool ran in
+  order, and the pass replayed the games within the exact check (6.9e-6
+  against the limit of 1e-4; the run's rounds 593 to 608 read 7.0e-6 to
+  8.0e-6).
+- **The advancement is chosen in those games.** The smoke run's 48 games
+  (its round and its two 16-game matches) hold 42 choices, 0.88 a game,
+  and 28 of them (67%) took a type other than the first.
+- **The server and the pass compute the pointer's term alike.** A copy of
+  the network had its keys drawn from a normal law of scale 0.5, so that
+  the term moves its weapon choices. It played a round on the GPU and its
+  pass replayed it within the exact check (6.4e-6). On 180 of its
+  attacks, the probability its player logged is the one recomputed on the
+  CPU with the pointer (mean difference 0.0007 in log probability) and
+  not the one without it (0.32). On 691 other decisions the two
+  recomputations are the same (0.0020 from the log). This check exists
+  because keys at zero hide a path that leaves the term out.
+- **Adam's state carries.** The smoke round cannot show it: a run's first
+  round steps from a fresh state (its update's norm reads 0.036). So a
+  step was made apart with the real tools (`carried_step.cmd`): the pass
+  over the smoke round's 4 games against a past self, then
+  `tools/pg_adam_step.py` from round 608's optimizer state with the
+  pointer's three parameters named in. It is step 609 for the old weights
+  and step 1 for the keys: each of the keys' 24,576 weights moved by
+  1e-5 and no query moved, as "What is known before the run" says. The
+  update's norm is 0.0157, on a gradient of norm 248.6 from 4 games (a
+  round of the run: 0.0068 on a gradient of 38 to 73).
+
+**Measurement 1, the switch match: kill criterion 1 is not met.**
+
+| Round 608's network | Elo | Wins of 800 | Read |
+|---|---|---|---|
+| before: the loop's match, on the old code (2a523b56) | +161.7 ± 13.6 | 574 | 2026-11-25 22:20 |
+| after: with the pointer at zero, on the branch's code (bec71da6) | +183.7 ± 14.0 | 594 | 2026-11-25 22:47 |
+
+D0 = +22.0 ± 19.5 Elo, 1.1 standard errors, where the criterion asks for
+under −60. It does not say the new rules favour the network: the two
+matches play the same seeds but not the same games, and the difference is
+within what two matches of one player give. In the 800 games after, 561
+advancements were chosen (0.70 a game, by either player), and 311 of them
+(55%) took a type other than the first
+(`training/metrics/audit_fixes_20261125/advance_choices_switch_match.json`).
+
+**The switch** (2026-11-25 22:49):
+- Both venvs hold the wheel of phase 42, built from the branch's source
+  (`tools/kernel_status.py` reads "current" in both).
+- `round_0608\pi.pt` is the checkpoint with the pointer (SHA-256
+  `fdfcd59a…`); the source is kept as `pi.nopointer.pt` (`9618cc13…`) and
+  the optimizer state as `adam.nopointer.pt`. Checked tensor by tensor:
+  the source's weights are untouched, the keys (64 by 384) are all zero,
+  and the checkpoint holds the same tensors as the network that played
+  the switch match. The optimizer state names the new checkpoint, holds
+  the source's moments under their new indices and none for the pointer.
+- `pool.json` holds the new file's hash for round 608, with the source's
+  beside it.
+- The run's records carry `code_version` 0.36.2, the version `main` had
+  when the branch was cut. The commit each tool ran from is in the
+  runner's log.
+- The run resumed at 22:49:57 from the worktree
+  `C:\Users\momom2\wesnoth_worktrees\advancement`, with the launch's
+  command and `--lam 0.99`; its tools log `code bec71da6`. It stood idle
+  for 30 minutes.
+- To go back (kill criterion 2): stop the run, copy `pi.nopointer.pt` and
+  `adam.nopointer.pt` over `pi.pt` and `adam.pt` of round 608, restore
+  `pool.json`'s hash, rebuild the wheel of phase 40 into both venvs from
+  the worktree `input-facts`, delete the rounds after 608 and their
+  markers, and start the launch's command from that worktree.
+
+**Round 609, the first under the four changes, checks out** (2026-11-25
+23:09:51). Kill criterion 2 is not met.
+- **The exact check:** 7.3e-6 against the limit of 1e-4.
+- **The round:** 230 game-sides, 62,540 decisions, no warning. Its games
+  took 200 s and its pass 991 s (192 s and 933 s in round 608).
+- **The games keep their shape**
+  (`training/metrics/audit_fixes_20261125/round_games_605_to_609.json`):
+  every game has a winner, the self games last 20.2 turns on average
+  (18.5 to 20.9 in rounds 605 to 608), and no side's turn was ended for
+  it or left unplayed.
+- **The kinds of network played each other.** The round's past self was
+  round 0's network, which reads the 109 columns and has no pointer. The
+  current network won 22 of the 26 games.
+- **Advancements chosen:** 125 in the 128 games (0.98 a game), 67 of them
+  (54%) a type other than the first.
+- **The value head reads the new games worse.** Its cross-entropy is
+  0.511, where rounds 545 to 608 read 0.328 to 0.476 (0.398 on average
+  over rounds 593 to 608). Its part of the gradient's norm is 103.9 of
+  110.7, against 13.9 of 37.9 in round 608. It is the kind of thing "the
+  first two changes are not neutral at the switch" announced: the head
+  has never met an enemy of unknown faction in self-play. It is one
+  round; whether the reading comes back is read in the next ones.
+- **The pointer's first step is the one registered**
+  (`pointer_weights_round_0609.json`): every one of the keys' 24,576
+  weights moved, by 1e-5, and no query moved. The update's norm is
+  0.0074 (0.0068 on average over rounds 593 to 608), of which the keys'
+  step is 0.0016.

@@ -275,6 +275,42 @@ These were settled while building, before the launch.
     - **The checks:** the same network plays the match of round 544 on
       both sides of the switch, and the first pass after it must replay
       its games within the exact check's 1e-4.
+11. **From round 609 the games follow four more of a player's rules and
+    the weapon's score reads its target** (registered 2026-11-25 in
+    `docs/audit_fixes_prereg_20261125.md`, before the switch; entered
+    here after it, the same evening). The user, 2026-11-25, on
+    `docs/blindspot_audit_20261125.md`: "Gap 3 absolutely needs to be
+    fixed.", "Stopping moves when an enemy comes into view: Do it.", "The
+    network shouldn't be told the enemy's faction from the first
+    decision", and on the advancement proposal, "Otherwise, approved."
+    That registration holds the deciding number and the kill criteria.
+    - **What changes:** a move under fog stops where it brings an enemy
+      into view; a game is set up as two Random picks, so the enemy's
+      faction is narrowed by the units seen; a unit that levels up on its
+      own side's turn with several types to become is the side's choice;
+      round 608's network gains the weapon pointer, its keys at zero, so
+      it scores as before at the switch. The first three hold for every
+      player of a game. The code is the branch
+      `feature/advancement-choice` in its own worktree
+      (`C:\Users\momom2\wesnoth_worktrees\advancement`), not merged into
+      `main`, on the core of phase 42; games are recorded as format 8 at
+      observation epoch 14.
+    - **What does not:** the learning rate and the optimizer (whose state
+      carries over), λ = 0.99, the number of games, the pool, the
+      matches' form, `config.json`, the run's directory, this document's
+      kill criteria.
+    - **The games already played** keep their rules: a record of format 6
+      rebuilds without the sighting stop and without the asking, which
+      are fields of the record from formats 7 and 8.
+    - **The matches do not chain across it:** both players' rules
+      changed. The network of round 608 read +161.7 ± 13.6 before and
+      +183.7 ± 14.0 after.
+    - **How:** a STOP file while the match at round 608 plays; the GPU
+      checks and the switch match from the branch's wheel in an overlay
+      folder; the wheel into both venvs; round 608's checkpoint and
+      optimizer state given the pointer in place, the originals kept
+      beside them as `pi.nopointer.pt` and `adam.nopointer.pt`; the
+      launch's command from the worktree, with `--lam 0.99`.
 
 ## The launch
 

@@ -1,6 +1,9 @@
 # The new inputs and the end of the attack from a distance: pre-registration (2026-11-25)
 
-**Status: switched. Round 545 is the first on the new inputs** (2026-11-25
+**Status: closed at round 608 with four matches of the eight, no change
+read (+0.4 ± 9.2 against the baseline); the audit's fixes switched in at
+round 609** (`docs/audit_fixes_prereg_20261125.md`). Round 545 was the
+first on the new inputs (2026-11-25
 01:36, from the branch `feature/input-facts` at 2a523b56). **Merged into
 `main` at 0.36.0 on 2026-11-25, on the user's word ("Yes, merge").** The
 simple loop (`docs/simple_loop_prereg_20261117.md`) stopped
@@ -288,6 +291,34 @@ same way (1e-5 a round) or turn back and forth: read at each match with
 | 560 | +157.4 ± 13.6 | 570 | 2026-11-25 06:29 |
 | 576 | +179.2 ± 13.9 | 590 | 2026-11-25 11:41 |
 | 592 | +173.6 ± 13.8 | 585 | 2026-11-25 17:11 |
+| 608 | +161.7 ± 13.6 | 574 | 2026-11-25 22:20 |
+
+**The reading closes at round 608, with four matches of the eight: no
+change read.** The four average +168.0 ± 6.9, which is +0.4 ± 9.2
+against the baseline. The verdict registered for after round 672 is not
+reached: the audit's fixes switched in at round 609
+(`docs/audit_fixes_prereg_20261125.md`), which changes both players'
+rules, so the matches from round 624 on do not join these. That
+registration said beforehand that it would close this reading early. What
+the four matches say is that, over 64 rounds, the new inputs and the end
+of the attack from a distance neither cost nor gained strength that
+800-game matches can read. Whether the new numbers come to be used is
+still open, and is read from the attacks themselves 128 rounds after the
+new switch.
+
+**Rounds 593 to 608** (17:11 to 22:07). Kill criterion 2 is not met in
+any of them.
+- **The exact check** reads 7.0e-6 to 8.0e-6, every gradient is finite,
+  and the console log holds no warning.
+- **Means over the sixteen rounds:** the gradient's norm 50.0 (37.9 to
+  73.4), the update's 0.0068, the value head's cross-entropy 0.398 (0.328
+  to 0.447). No pass took over 1.5 times its estimate.
+- **Measurement 3 at round 608**
+  (`training/metrics/input_facts_20261125/new_weights_round_0608.json`,
+  `weight_moves_544_to_608.json`): the new projection's root mean square
+  is 8.3e-5 (7.4e-5 at round 592), its largest weight 3.3e-4; the fights'
+  columns 8.6e-5, the level's 6.2e-5. Over rounds 593 to 608 it moved
+  3.1e-5, the old unit projection 1.8e-5 and the whole network 2.3e-5.
 
 **The match at round 592:** the three matches average +170.1 ± 8.0,
 +2.5 ± 10.0 against the baseline. No change is read.
