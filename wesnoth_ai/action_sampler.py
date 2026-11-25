@@ -496,7 +496,7 @@ def enumerate_legal_actions_with_priors(
         for a in unit_rows:
             attacker = by_id.get(encoded.unit_ids[a])
             n_attacks.append(len(attacker.attacks) if attacker else 0)
-        per_target = output.weapon_q is not None
+        per_target = getattr(output, "weapon_q", None) is not None
         if not per_target:
             W = output.weapon_logits.shape[-1]
             wl = output.weapon_logits[0].index_select(0, idx).clone()     # [n, W]
@@ -675,7 +675,7 @@ def _enumerate_legal_actions_reference(
 
         # Pre-compute weapon distribution once for this unit (used
         # for all ATTACK targets).
-        per_target = output.weapon_q is not None
+        per_target = getattr(output, "weapon_q", None) is not None
         weapon_p = None
         if num_attacks > 0 and not per_target:
             weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
@@ -829,7 +829,7 @@ def _masked_weapon_logits(
     """The actor's weapon scores, the slots past its attack count masked.
     A network whose weapon score reads the target needs `target_idx`, the
     hex token attacked (model_output.weapon_logits_for)."""
-    if output.weapon_q is not None:
+    if getattr(output, "weapon_q", None) is not None:
         if target_idx is None:
             raise ValueError("this network scores a weapon for a target: the caller must name the hex attacked")
         from wesnoth_ai.model_output import weapon_logits_for

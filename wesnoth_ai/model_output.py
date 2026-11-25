@@ -321,6 +321,12 @@ def weapon_slots(out) -> int:
     return int(base.shape[-1])
 
 
+def reads_target(out) -> bool:
+    """Whether the output is of a network whose weapon score reads the
+    target. An output built without the pointer's fields is not."""
+    return getattr(out, "weapon_q", None) is not None
+
+
 def weapon_logits_for(out, b: torch.Tensor, a: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
     """float32 [..., W]: the weapon scores of actor `a` of sample `b`
     attacking the hex token `h` (index tensors of one shape; an `h` below 0,
@@ -331,7 +337,7 @@ def weapon_logits_for(out, b: torch.Tensor, a: torch.Tensor, h: torch.Tensor) ->
         weapon_actor_logits[b, a, w] + q[b, a, w] . k[b, h] / sqrt(R)
 
     The other kind's scores are per actor, whatever the target."""
-    if out.weapon_q is None:
+    if not reads_target(out):
         return out.weapon_logits[b, a].float()
     q = out.weapon_q[b, a].float()                                   # [..., W, R]
     k = out.weapon_k[b, h.clamp_min(0)].float()                      # [..., R]

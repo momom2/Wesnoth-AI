@@ -38,7 +38,7 @@ import torch.nn.functional as F
 from wesnoth_ai.action_sampler import (
     _NEG_INF, LegalActionPrior, _build_legality_masks,
 )
-from wesnoth_ai.model_output import weapon_logits_for, weapon_slots
+from wesnoth_ai.model_output import reads_target, weapon_logits_for, weapon_slots
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout as _Layout
 
@@ -323,7 +323,7 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
     # A network whose weapon score reads the target has no weapon law per
     # actor: the law of each attack entry is computed once the entries are
     # compacted, from the entry's own actor and target.
-    per_target = padded.weapon_q is not None
+    per_target = reads_target(padded)
     with torch.no_grad():
         actor_ok = v["actor_mask"] != 0
         slot = v["slot_kind"]

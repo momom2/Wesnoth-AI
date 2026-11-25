@@ -139,7 +139,10 @@ def test_the_memory_carries_gradient_within_a_window_and_not_across():
     decision before inside a window and is cut at a window's edge."""
     import dataclasses
     policy = _policy()
-    _, _, exps = _play(policy)
+    # 12 decisions: the length at which side 1's last decision is a full
+    # search (the premise below). It was the default 14 until 2026-11-25,
+    # when moves began to stop on a sighting and the fixture's game changed.
+    _, _, exps = _play(policy, decisions=12)
     last = max((e for e in exps if e.side == 1 and e.label_kind == "game"), key=lambda e: e.side_step)
     quiet = dict(policy_weight=0.0, value_weight=0.0, game_weight=0.0, no_visible_unit=None)
     exps = [e if e is last else dataclasses.replace(e, **quiet) for e in exps]

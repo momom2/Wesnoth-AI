@@ -366,6 +366,16 @@ class WesnothSim:
         begin_turn: bool = True,
         sighting_stops: bool = True,
     ):
+        # A player's move under fog stops where it brings an enemy into
+        # view, with the movement it has left, as Wesnoth stops a player's
+        # (the core's `sighting_stops`, core_move.rs; user ruling
+        # 2026-11-25). Set on the state before the core is built from it.
+        # The game record carries the rule, so a record of a game played
+        # before it rebuilds with every move run to its end.
+        if sighting_stops:
+            initial_state.global_info._sighting_stops = True
+        else:
+            initial_state.global_info.__dict__.pop("_sighting_stops", None)
         self.gs = initial_state                # the core (CoreState) built from the state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
@@ -393,14 +403,6 @@ class WesnothSim:
             self.core.setup_scenario(scenario_id)
             self._refresh_view()
 
-        # A player's move under fog stops where it brings an enemy into
-        # view, with the movement it has left, as Wesnoth stops a player's
-        # (the core's `sighting_stops`, core_move.rs; user ruling
-        # 2026-11-25). The game record carries the rule, so a record of a
-        # game played before it rebuilds with every move run to its end.
-        if sighting_stops:
-            self.core.core.set_global_int("sighting_stops", 1)
-            self._set_view_attr("_sighting_stops", True)
 
         self.done:      bool = False
         self.winner:    int  = 0
