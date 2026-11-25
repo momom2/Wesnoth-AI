@@ -1,0 +1,11 @@
+{
+ "decisions": 2206,
+ "game_sides": 8,
+ "rms_effect": 0.003526806300717001,
+ "mean_abs_effect": 0.001544594819387585,
+ "largest_effect": 0.057842254638671875,
+ "rms_logged_minus_with": 0.0034860302054687685,
+ "rms_logged_minus_without": 0.005011038059063686,
+ "slope": 1.0208923459792114,
+ "slope_se": 0.021044964927674655
+}

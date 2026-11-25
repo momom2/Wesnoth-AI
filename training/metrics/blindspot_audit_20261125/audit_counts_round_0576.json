@@ -1,0 +1,28 @@
+{
+ "counts": {
+  "games": 40,
+  "moves": 13349,
+  "moves_revealing_an_enemy": 964,
+  "of_those_two_steps_or_more": 895,
+  "advancements": 111,
+  "advancements_with_a_choice": 42,
+  "choice_on_own_turn": 26,
+  "choice_on_enemy_turn": 16
+ },
+ "option_taken": {
+  "0": 42
+ },
+ "revealing_moves_by_steps": {
+  "1": 69,
+  "2": 65,
+  "3": 102,
+  "4": 180,
+  "5": 205,
+  "6": 343
+ },
+ "first_decision_faction_input_max": {
+  "n": 80,
+  "one_hot": 80,
+  "smallest_max": 1.0
+ }
+}

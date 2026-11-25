@@ -1,0 +1,240 @@
+{
+ "all": {
+  "decisions": 4397,
+  "board": 4530415,
+  "tokens": 1602521,
+  "seen": 2646180,
+  "seen_with_token": 1339555,
+  "units": 104608
+ },
+ "by_map": {
+  "Aethermaw": {
+   "decisions": 48,
+   "board": 94080,
+   "tokens": 19037,
+   "seen": 20537,
+   "seen_with_token": 10409,
+   "units": 536
+  },
+  "Arcanclave_Citadel": {
+   "decisions": 466,
+   "board": 1007492,
+   "tokens": 342857,
+   "seen": 597172,
+   "seen_with_token": 284333,
+   "units": 15055
+  },
+  "Basilisk": {
+   "decisions": 170,
+   "board": 167280,
+   "tokens": 58780,
+   "seen": 88235,
+   "seen_with_token": 43856,
+   "units": 6232
+  },
+  "Clearing_Gushes": {
+   "decisions": 204,
+   "board": 170748,
+   "tokens": 67018,
+   "seen": 108082,
+   "seen_with_token": 59045,
+   "units": 3410
+  },
+  "Den_of_Onis": {
+   "decisions": 190,
+   "board": 132240,
+   "tokens": 55932,
+   "seen": 73630,
+   "seen_with_token": 33920,
+   "units": 3214
+  },
+  "Fallenstar_Lake": {
+   "decisions": 363,
+   "board": 327426,
+   "tokens": 119424,
+   "seen": 199501,
+   "seen_with_token": 105872,
+   "units": 7816
+  },
+  "Hamlets": {
+   "decisions": 160,
+   "board": 120960,
+   "tokens": 49249,
+   "seen": 84966,
+   "seen_with_token": 46840,
+   "units": 2707
+  },
+  "Hellhole": {
+   "decisions": 255,
+   "board": 295800,
+   "tokens": 88933,
+   "seen": 163216,
+   "seen_with_token": 74323,
+   "units": 4340
+  },
+  "Howling_Ghost_Badlands": {
+   "decisions": 293,
+   "board": 348084,
+   "tokens": 95015,
+   "seen": 150511,
+   "seen_with_token": 73166,
+   "units": 5178
+  },
+  "Ruined_Passage": {
+   "decisions": 91,
+   "board": 106925,
+   "tokens": 27686,
+   "seen": 47093,
+   "seen_with_token": 22584,
+   "units": 1458
+  },
+  "Ruphus_Isle": {
+   "decisions": 160,
+   "board": 129600,
+   "tokens": 50074,
+   "seen": 80620,
+   "seen_with_token": 43171,
+   "units": 2784
+  },
+  "Sablestone_Delta": {
+   "decisions": 205,
+   "board": 120540,
+   "tokens": 47433,
+   "seen": 78159,
+   "seen_with_token": 40266,
+   "units": 3276
+  },
+  "Silverhead_Crossing": {
+   "decisions": 210,
+   "board": 182700,
+   "tokens": 64038,
+   "seen": 105389,
+   "seen_with_token": 48689,
+   "units": 4016
+  },
+  "Sullas_Ruins": {
+   "decisions": 214,
+   "board": 224700,
+   "tokens": 75126,
+   "seen": 125967,
+   "seen_with_token": 64143,
+   "units": 5512
+  },
+  "Swamp_of_Dread": {
+   "decisions": 129,
+   "board": 95976,
+   "tokens": 33600,
+   "seen": 58718,
+   "seen_with_token": 30023,
+   "units": 1939
+  },
+  "The_Freelands": {
+   "decisions": 170,
+   "board": 150960,
+   "tokens": 48177,
+   "seen": 83722,
+   "seen_with_token": 41200,
+   "units": 3010
+  },
+  "The_Walls_of_Pyrennis": {
+   "decisions": 214,
+   "board": 172484,
+   "tokens": 78705,
+   "seen": 119675,
+   "seen_with_token": 71762,
+   "units": 3882
+  },
+  "Tombs_of_Kesorak": {
+   "decisions": 262,
+   "board": 222962,
+   "tokens": 82760,
+   "seen": 144199,
+   "seen_with_token": 75161,
+   "units": 4594
+  },
+  "Weldyn_Channel": {
+   "decisions": 165,
+   "board": 105270,
+   "tokens": 47264,
+   "seen": 73945,
+   "seen_with_token": 40302,
+   "units": 2932
+  },
+  "elensefar_courtyard": {
+   "decisions": 208,
+   "board": 194688,
+   "tokens": 72076,
+   "seen": 119829,
+   "seen_with_token": 60386,
+   "units": 4182
+  },
+  "thousand_stings_garrison": {
+   "decisions": 220,
+   "board": 159500,
+   "tokens": 79337,
+   "seen": 123014,
+   "seen_with_token": 70104,
+   "units": 18535
+  }
+ },
+ "by_turn": {
+  "0": {
+   "decisions": 608,
+   "board": 603347,
+   "tokens": 164095,
+   "seen": 287747,
+   "seen_with_token": 131981,
+   "units": 10062
+  },
+  "5": {
+   "decisions": 1140,
+   "board": 1123483,
+   "tokens": 397434,
+   "seen": 670604,
+   "seen_with_token": 335941,
+   "units": 27741
+  },
+  "10": {
+   "decisions": 1084,
+   "board": 1066423,
+   "tokens": 400215,
+   "seen": 658247,
+   "seen_with_token": 336703,
+   "units": 27060
+  },
+  "15": {
+   "decisions": 814,
+   "board": 840098,
+   "tokens": 318047,
+   "seen": 512749,
+   "seen_with_token": 266415,
+   "units": 21216
+  },
+  "20": {
+   "decisions": 493,
+   "board": 567282,
+   "tokens": 209648,
+   "seen": 338535,
+   "seen_with_token": 175614,
+   "units": 12753
+  },
+  "25": {
+   "decisions": 191,
+   "board": 255028,
+   "tokens": 90799,
+   "seen": 143770,
+   "seen_with_token": 75249,
+   "units": 4568
+  },
+  "30": {
+   "decisions": 67,
+   "board": 74754,
+   "tokens": 22283,
+   "seen": 34528,
+   "seen_with_token": 17652,
+   "units": 1208
+  }
+ },
+ "games": 40,
+ "every": 5
+}

@@ -172,6 +172,31 @@ night's training is clearly flawed or stalled."
   fastest. Whether such moves make the network use the new numbers is
   read from the attacks, not from the weights.
 
+**The blind-spot audit** (2026-11-25, `docs/blindspot_audit_20261125.md`;
+the user asked for it once the new inputs were in). Seven agents read the
+inputs and the outputs against what a player sees and can order, and
+their findings were checked on the code and on the run's own games.
+- **No input holds a wrong number, and nothing is truncated** between the
+  input and the decision.
+- **Three large gaps:** about two thirds of the board has no hex token
+  (364 of 1,030 hexes a decision; 49% of the hexes the side sees have
+  none); a unit that levels up always takes the first type listed, in
+  training as in matches (42 of 42 advancements with a choice, 0.65 a
+  game on the unit's own turn); the weapon is scored without its target
+  (known).
+- **Four of medium weight:** a move does not stop when an enemy comes
+  into view (up to 22 moves a game); the reach the interface draws is
+  not in the input; the enemy's faction is certain from the first
+  decision (80 of 80 game-sides), which is a leak if the games stand for
+  Random picks; anything seen before the enemy's last turn rests on the
+  learned memory, whose content is not measured on the current network.
+- **Cleared by a run:** the half-precision serving carries the new unit
+  columns' effect on the policy in full (1.02 ± 0.02 of it, over 2,206
+  decisions). At round 576 that effect is 0.0035 in log probability,
+  root mean square.
+- Nothing is changed. The order the audit would take them in is in its
+  last section and under "Open" below.
+
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
 played 100 live games against Wesnoth's default AI at the reference's
@@ -525,6 +550,14 @@ both sides, 3,200 decisive games on the same seeds:
 - **How the weapon comes to read the target** (the design's Part 3, not
   yet put to the user). Today a unit's weapon is scored the same
   whichever enemy it strikes.
+- **The audit's other gaps** (`docs/blindspot_audit_20261125.md`, "What
+  is the user's to decide"), one at a time: the advancement as the
+  network's choice; moves that stop on a sighting; whether the enemy's
+  faction is openly picked or Random; the board's missing hex tokens and
+  the enemy's reach; the bounced recruit's hex, which CLAUDE.md's
+  Principle 6 says the encoder shows and the code writes as 0.
+- **Not the user's, a chore:** the stale comments the audit lists, and
+  hand-computed tests of the fights' columns for the weapon specials.
 - **Resume the lean line, or leave it stopped.** It stopped in round 23's
   games on 2026-11-10 ("The line is stopped", above). Rounds 23 and 24
   with round 24's claim and argmax match would give departures 43 and 44
