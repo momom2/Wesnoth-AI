@@ -317,7 +317,37 @@ short:
   need the GPU the training holds: the current network with its memory
   against itself without (gap 7), and the memory reset each turn.
 
-## What is the user's to decide
+## The user's rulings (2026-11-25, on reading this audit)
+
+In the user's words, by gap:
+- **Gap 3, the weapon and its target:** "Gap 3 absolutely needs to be
+  fixed."
+- **Gap 2, the advancement:** "Gap 2 is problematic, but I'm not sure how
+  to solve it."
+- **Gap 1, the board:** "Gap 1, I'm not sure how bad it is."
+- **Gap 4, moves and sightings:** "Stopping moves when an enemy comes
+  into view: Do it."
+- **Gap 5, the reach:** not a gap. "Displaying a selected unit's reach:
+  since the network does not select units, there's no room for it, and I
+  don't think it's a problem since reach can be inferred from terrain,
+  unit mp and move costs."
+- **Gap 6, the enemy's faction:** "The network shouldn't be told the
+  enemy's faction from the first decision, only from the first moment it
+  sees an enemy unit (more precisely, it should receive information
+  about which subset of factions the enemy might be, starting at all 6,
+  then being cut if not 1 each time it sees a new unit - possibly to 2 if
+  it sees a Mage, which is available to both Loyalists and Rebels, but
+  usually directly to 1)."
+- **Gap 7, the memory:** "Memory holding all previous turns: I think that
+  is fine, in principle?"
+
+So gaps 3, 4 and 6 are to be closed; gap 2 waits for a way to do it; gap
+1 waits for a measure of what it costs in play; gap 5 is closed as no
+gap; gap 7 stands as designed. One link between two of them: the reach
+can be worked out from terrain only where the terrain is in the input,
+and gap 1 leaves most of the board out.
+
+## What was the user's to decide (as the audit first listed it)
 
 One at a time, in the order this audit would take them:
 1. **The weapon reading its target** (gap 3): the design's Part 3.
