@@ -56,6 +56,35 @@ record format 7, checkpoint key `weapon_target`.
   (`tests/test_weapon_target.py`). Adam meets the two maps as parameters
   it has never stepped: the keys move by the learning rate at most at
   their first step, the queries only once the keys have moved.
+- **Zero or random for the new weights** (the user asked on 2026-11-25:
+  "might as well randomize the new parameters instead of setting them to
+  0. If they're to 0, they will receive very little gradient and take a
+  lot of time to train, won't they?").
+  - A weight's gradient does not depend on the weight's own value: it is
+    the input the weight multiplies times what reaches its output. Read
+    from Adam's state at round 588
+    (`training/metrics/input_facts_20261125/gradient_sizes.py`): the
+    gradient per weight is 0.0053 (root mean square) at the projection
+    that started at zero at round 544, 0.0098 at the old unit projection
+    and 0.017 over the whole network. About half the old projection's,
+    because the columns it reads are smaller and more often zero.
+  - Adam moves a weight by about the learning rate whatever its
+    gradient's size, so even that half does not slow it. The new
+    projection moved as far in its first 32 rounds as the old one did in
+    the loop's first 32 (`docs/input_facts_prereg_20261125.md`, "The
+    yardstick").
+  - The one place a zero does hold a gradient back is a product of two
+    new maps: the weapon pointer's queries get none while its keys are
+    zero. That is one step: the keys move at Adam's first step, and the
+    queries from the second.
+  - Random weights would move at the same pace, a learning rate a round.
+    What they change is the start: the network would play with noise in
+    every unit's token and in every weapon choice from the first game,
+    and the switch match could no longer tell that noise from the rule
+    changes.
+  - What would make the new weights count sooner is a larger step for
+    them, which is the one-learning-rate question the user set aside on
+    2026-11-24.
 - **Not checked against the engine by a replay:** the sighting stop is
   written from the engine's source and tested on hand-built boards. The
   replay export does not replay under fog, so a strict-sync replay cannot

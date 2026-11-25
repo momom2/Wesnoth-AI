@@ -393,6 +393,20 @@ On the branch `feature/audit-fixes`, registered in
   replay already stores the choice). About the size of the input change
   of 2026-11-25.
 
+- **The user, 2026-11-25, on this proposal:** "Advancement: I'm pretty
+  sure Wesnoth picks at random rather than always picking the first
+  choice; I'm certain it doesn't always pick the same advancement.
+  Otherwise, approved."
+  - Checked in the source: both hold, for different versions. Until 1.14
+    a player's unit levelling up on the enemy's turn drew its type at
+    random; from 1.16 on, 1.18 included, it takes the first type listed
+    (`docs/wesnoth_rules.md`, "Who chooses an advancement, and what an
+    unasked unit becomes", with both versions' lines). An AI side's
+    units still draw at random.
+  - Ladder games also run the Plan Unit Advance modification, with which
+    a player can set a unit's type in advance, for the enemy's turn too.
+    The proposal above does not give the network that plan.
+
 ### Gap 1: what is known of how bad it is
 
 - **One measurement exists.** In September two networks were trained

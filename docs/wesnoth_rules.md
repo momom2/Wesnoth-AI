@@ -2466,6 +2466,62 @@ runtime event-driven spawning, which `replay_extract` cannot
 materialize at extract time -- it has to be re-fired by our
 `scenario_events.py` interpreter at `_setup_scenario_events` time.
 
+### Who chooses an advancement, and what an unasked unit becomes
+
+`src/actions/advancement.cpp` (1.18.4), `unit_advancement_choice::query_user`,
+196-242. The choice is put to the client of the side whose turn it is
+(`advance_unit_at`, 295: `int side_for = resources::gamedata->has_current_player() ? 0: u->side();`),
+and that client decides in one of three ways:
+```cpp
+int res = 0;
+...
+bool is_mp = resources::controller->is_networked_mp();
+bool is_current_side = resources::controller->current_side() == side_num_;
+...
+if(!video::headless() && (force_dialog_ || (t.is_local_human() && !t.is_droid() && !t.is_idle() && (is_current_side || !is_mp))))
+{
+    res = advance_unit_dialog(loc_);
+}
+else if(is_current_side && (t.is_local_ai() || t.is_network_ai() || t.is_empty()))
+{
+    res = randomness::generator->get_random_int(0, nb_options_-1);
+    ...
+}
+else
+{
+    // we are in the situation, that the unit is owned by a human, but he's not allowed to do this decision.
+    // because it's a mp game and it's not his turn.
+    // default to the first unit listed in the unit's advancements
+}
+```
+- **A player's unit that levels up on its own side's turn:** the player
+  chooses in a dialog.
+- **A player's unit that levels up on the enemy's turn, in a networked
+  game:** the first type listed in its `advances_to`.
+- **An AI side's unit on its own turn:** a random type (or the AI's
+  configured advancement).
+
+**Why non-obvious:**
+- The middle rule changed between versions. In 1.14 the same branch drew
+  at random (`src/actions/advancement.cpp:201-207` at the 1.14.17 tag:
+  `res = randomness::generator->get_random_int(0, nb_options_-1);`). From
+  1.16 on it is the first listed (1.16.11, 235-240, the comment above). A
+  player who remembers defending units advancing at random remembers 1.14
+  and earlier, or the AI's units.
+- The Plan Unit Advance modification (next sections), which ladder games
+  run, lets a player set the type in advance, so their defending units
+  need not take the first type either. In its forced mode a unit left
+  with several options at its side's first move of a turn is given one at
+  random (`data/modifications/pick_advance/main.lua:214-220`:
+  `unit.advances_to = { unit.advances_to[rand] }`).
+
+**In the simulator:** a recorded `[choose]` when replaying; otherwise the
+first type listed, on either turn (`core_units.rs`, `advance_once`), unless
+the earlier self-play's uniform draw is switched on. So on the unit's own
+turn the simulator takes the first type where a player would choose
+(`docs/blindspot_audit_20261125.md`, gap 2), and on the enemy's turn it
+does what the engine does for a player who planned nothing.
+
 ### AMLA also emits `[choose] value=N`, must pop the queue
 
 `wesnoth_src/src/actions/advancement.cpp:296`:
