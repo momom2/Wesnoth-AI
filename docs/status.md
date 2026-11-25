@@ -170,9 +170,12 @@ night's training is clearly flawed or stalled."
   user's rulings of 2026-11-25): moves stop on a sighting, the enemy's
   faction is known as a player knows it, the weapon's score reads its
   target. Built on `feature/audit-fixes` (e2107544), which passed its
-  gate; the switch is planned at the round boundary after the match at
-  round 608. The advancement as the side's choice is built on
-  `feature/advancement-choice`, whose gate is CI.
+  gate. A fourth, approved the same day: a unit that levels up on its
+  own side's turn with several types to become is the side's to choose,
+  among rows built like a recruit's; built on
+  `feature/advancement-choice` (bec71da6), green in CI. The switch to
+  the four at once is planned at the round boundary after the match at
+  round 608.
 - **The new weights move at the loop's ordinary pace.** After sixteen
   rounds the new projection's root mean square is 4.6e-5. That is about
   2,300 times under the old projection's size (0.104), but the size is

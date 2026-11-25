@@ -1,13 +1,15 @@
-# Three fixes from the blind-spot audit: pre-registration (2026-11-25)
+# Three fixes from the blind-spot audit, and a fourth: pre-registration (2026-11-25)
 
-**Status: built on the branch `feature/audit-fixes` (e2107544), which
-passes its gate; not in the run. The switch is planned at the round
-boundary after the match at round 608 (2026-11-25, about 21:45).** The
-user answered the question of its time with "Otherwise, approved", on a
-message that recommended that evening; that reading was put back to them.
-It is departure 11 of the simple loop
-(`docs/simple_loop_prereg_20261117.md`). The GPU checks of "The switch"
-are made at the switch, with the run stopped.
+**Status: built on the branch `feature/audit-fixes` (e2107544), and with
+the fourth change on `feature/advancement-choice` (bec71da6); both pass
+their gates; not in the run. The switch is planned at the round boundary
+after the match at round 608 (2026-11-25, about 22:15), to
+`feature/advancement-choice` (departure 1 below).** The user answered the
+question of its time with "Otherwise, approved", on a message that
+recommended that evening; that reading was put back to them. It is
+departure 11 of the simple loop (`docs/simple_loop_prereg_20261117.md`).
+The GPU checks of "The switch" are made at the switch, with the run
+stopped.
 
 **The gate** (2026-11-25 15:17), at e2107544:
 - The full suite on the desktop, both tiers, against the branch's wheel:
@@ -58,6 +60,57 @@ The user, 2026-11-25, on `docs/blindspot_audit_20261125.md`:
 
 In the code: core phase 41, rules version 41, observation epoch 13, game
 record format 7, checkpoint key `weapon_target`.
+
+### Departure 1 (written 2026-11-25 17:30, before the switch): a fourth change joins it, if its gate passes
+
+The user approved the audit's proposal for gap 2 the same day ("Otherwise,
+approved."), and it was built on `feature/advancement-choice`, a branch cut
+from `feature/audit-fixes`. **If that branch is green in CI before the
+switch, the run switches to it and takes the four changes at once.** One
+switch breaks the match series once, where two would break it twice. If it
+is not green in time, the switch is to the three and this change waits for
+a later match.
+
+4. **The advancement is the side's choice on its own turn.** A unit that
+   levels up on its own side's turn with several types to become waits
+   after the fight. The side's recruit rows then hold those types, placed
+   on the unit's hex, and nothing else is legal; the network picks one
+   with the head that picks a recruit's type. On the enemy's turn the
+   unit takes the first type listed, as Wesnoth 1.18 gives a player
+   (`docs/wesnoth_rules.md`, "Who chooses an advancement, and what an
+   unasked unit becomes"). It holds for every player of a game. Until now
+   every such unit took the first type: 0.65 a game are now choices.
+
+In the code it adds: core phase 42, rules version 42, observation epoch
+14, game record format 8. No new head, token kind or column.
+
+What is known of it before the run:
+- The network has never scored such rows as recruits: they are types no
+  side recruits. What it picks at first is whatever its recruit head gives
+  them, so the first advancements are not chosen well. They are learned
+  like any other decision of a game.
+- Tested on a tiny network through the inference server and the pass, in
+  games at 10% experience: the choices are logged, the records rebuild,
+  and the pass reproduces every logged probability
+  (`tests/test_advancement_choice.py`).
+- The first full run of the suite on the branch found a match loop that
+  asked again without end (the check for a recruit bouncing off an
+  occupied hex took the choice for one); fixed and pinned before the push.
+
+Measured in addition, at each match: how many advancements the round's
+games held as choices, and the share that took a type other than the
+first.
+
+**Its gate passed** (2026-11-25 17:31), at bec71da6: CI is green on both
+tiers (run 45652084128) and ruff is clean. The run before it, on a5ae4eb0,
+failed 5 tests of 2,332, all of an advancement nobody is asked about: a
+game under the earlier self-play's uniform draw now asks no side, a
+scripted fight leaves no unit waiting, and one export test's simulator
+plays without the asking (commit bec71da6; no assertion changed). The full
+suite was not run again on the desktop after those fixes: the earlier run
+there had slowed the training (`docs/input_facts_prereg_20261125.md`,
+round 590). **So the switch is to `feature/advancement-choice`, with the
+four changes.**
 
 ## What is known before the run
 
