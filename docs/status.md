@@ -159,8 +159,20 @@ night's training is clearly flawed or stalled."
   (570 and 590 of 800). They average +168.3 ± 9.7 against the baseline
   of +167.6 ± 6.1: no change read, and the "clearly flawed" criterion
   is not met and is spent. Rounds 561 to 576 took 7% longer than the
-  sixteen before (18.8 minutes), not explained. The verdict is after
-  the match at round 672.
+  sixteen before (18.8 minutes), not explained. The match at round 592
+  read +173.6 ± 13.8 (585): the three average +170.1 ± 8.0, +2.5 ± 10.0
+  against the baseline. Round 590's pass took 45 minutes instead of 15,
+  slowed by a test run on the desktop and another job on the machine;
+  the suite runs in CI from here. The verdict was registered after the
+  match at round 672; the switch to the audit's fixes, planned at round
+  608, closes the reading early.
+- **The audit's fixes** (`docs/audit_fixes_prereg_20261125.md`; the
+  user's rulings of 2026-11-25): moves stop on a sighting, the enemy's
+  faction is known as a player knows it, the weapon's score reads its
+  target. Built on `feature/audit-fixes` (e2107544), which passed its
+  gate; the switch is planned at the round boundary after the match at
+  round 608. The advancement as the side's choice is built on
+  `feature/advancement-choice`, whose gate is CI.
 - **The new weights move at the loop's ordinary pace.** After sixteen
   rounds the new projection's root mean square is 4.6e-5. That is about
   2,300 times under the old projection's size (0.104), but the size is

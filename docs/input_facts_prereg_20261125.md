@@ -287,6 +287,37 @@ same way (1e-5 a round) or turn back and forth: read at each match with
 |---|---|---|---|
 | 560 | +157.4 ± 13.6 | 570 | 2026-11-25 06:29 |
 | 576 | +179.2 ± 13.9 | 590 | 2026-11-25 11:41 |
+| 592 | +173.6 ± 13.8 | 585 | 2026-11-25 17:11 |
+
+**The match at round 592:** the three matches average +170.1 ± 8.0,
++2.5 ± 10.0 against the baseline. No change is read.
+
+**Rounds 577 to 592** (11:41 to 16:58). Kill criterion 2 is not met in
+any of them.
+- **The exact check** reads 7.0e-6 to 7.7e-6, every gradient is finite,
+  and the console log holds no warning.
+- **Means over the sixteen rounds:** the gradient's norm 51.3 (36.7 to
+  78.9), the update's 0.0066, the value head's cross-entropy 0.394 (0.343
+  to 0.451).
+- **Round 590's pass took 2,707 s, where the other fifteen average
+  883 s.** This is the loop's own kill criterion, "a round past 1.5 times
+  its estimate". It was inspected and the run was left going: the cause
+  was outside the run and had ended. A full run of the test suite was
+  going on the desktop at Idle priority (15:30 to 16:17), on a branch
+  whose match loop asked again without end in some test games
+  (`feature/advancement-choice`, fixed in a5ae4eb0), and a transcription
+  job that is not this project's ran from 15:54. The pass's rate fell to
+  6 decisions a second in its second group and was back at 51 in its
+  fourth; rounds 591 and 592 took 853 s and 886 s. The round's exact
+  check holds (7.1e-6). Earlier runs of the suite that day cost a round a
+  few minutes each (rounds 584 and 589: 1,044 s and 1,123 s). From here
+  the suite runs in CI, not beside the run.
+- **Measurement 3 at round 592**
+  (`training/metrics/input_facts_20261125/new_weights_round_0592.json`,
+  `weight_moves_544_to_592.json`): the new projection's root mean square
+  is 7.5e-5 (6.2e-5 at round 576), its largest weight 3.1e-4; the fights'
+  columns 7.7e-5, the level's 5.4e-5. Over rounds 577 to 592 it moved
+  3.0e-5, the old unit projection 1.8e-5 and the whole network 2.2e-5.
 
 **The match at round 560: kill criterion 3's first half is not met.** It
 reads 10.2 under the baseline, 0.7 of the difference's standard error
