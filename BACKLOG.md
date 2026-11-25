@@ -4,6 +4,33 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
+## Open after the input change (2026-11-25)
+
+The branch `feature/input-facts` (the unit row of version 2 and the end of
+the attack from a distance; `docs/input_facts_prereg_20261125.md`). Small
+items it leaves, none blocking the run:
+
+- **The earlier self-play's actors do not carry `unit_row_version`**
+  (`tools/actor_pool.py`, `tools/actor_worker.py`, `tools/turn_gap.py`,
+  `tools/net2net.py`). They build their encoders at version 1, so a
+  checkpoint of version 2 is refused there by the row-width check. They
+  are unused for training; thread the key through if one is revived.
+- **The planted readout's test stands on a favourable seed**
+  (`tests/helpers/pg_run.py`, base 450). Under the new rule a tiny random
+  network's games hold fewer decisive results in 8 turns: over 68 seed
+  bases the readout's resolution has a median of 3.4 standard errors where
+  the test asks for 5, and nine bases reach it. The tool belongs to the
+  stopped policy-iteration line. If that line resumes, give the fixture
+  more games instead of a chosen seed.
+- **Rounds before 545 cannot be passed again.** Their records (format 5)
+  hold attacks ordered from a distance, which the masks no longer offer;
+  `tools/pg_positions.py` refuses such a decision and names the format.
+  The records still rebuild command by command. Analyses that only read
+  the decision logs are unaffected.
+- **`tools/game_record.note_search_outcomes` still accepts a move followed
+  by an attack** as one decision's commands. Only the search wrote those,
+  and the simulator no longer makes them.
+
 ## Open (2026-11-10)
 
 - **Rework the memory system** (the user, 2026-11-10: "I have an idea for

@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-24.
+Last updated 2026-11-25.
 
 ## In one paragraph
 
@@ -106,13 +106,13 @@ is no gain read. The early-loss criterion, first read at round 528, is
 not met. The value estimate, read again on rounds 497 to 528, is as
 before the switch: optimistic by +0.032 ± 0.003 over all decisions
 (+0.030 in rounds 433 to 464), with a rise of +0.019 over a side's own
-turn that the enemy's turn takes back. What decides: the fifteen
-matches of rounds 480 to 704 against the fifteen of rounds 240 to 464
-(+152.5 ± 3.5); λ = 0.99 is rejected if it reads more than 2 standard
-errors lower, and stays otherwise. A gain would not show that λ caused
-it, since no run at λ = 1 plays beside it. Read by hand at each match
-meanwhile: the λ matches' mean more than 3 standard errors under that
-block sends the run back to λ = 1.
+turn that the enemy's turn takes back. The match at round 544 read
++179.2 ± 13.9, and the reading closes there, since the inputs and the
+legal actions change at round 545 (next paragraphs): the five matches
+average +167.6 ± 6.1, +15.1 ± 7.1 against the fifteen of rounds 240 to
+464 (+152.5 ± 3.5), 2.1 standard errors above. The registered verdict
+asked for fifteen matches and cannot be read. No run at λ = 1 played
+beside it, so the 15 Elo are not shown to come from λ. λ stays at 0.99.
 
 **What the network is not shown of a unit and of a fight** (2026-11-24,
 `docs/input_facts_design_20261124.md`). The user watched a game of round
@@ -126,9 +126,34 @@ of the attacks by a two-weapon unit, and 3.6% of attacks go into a
 resistance of 40% or more. The user ruled: "for sure the network needs
 that information". The design adds what the sidebar and the attack dialog
 show as columns of the unit's row, every new weight starting at zero.
-The user has not approved it (see "Open").
-Nothing is built, and how the new weights are trained is to be discussed:
-at the loop's rate they would take thousands of rounds to count.
+
+**The user approved it on 2026-11-24, with the attack from a distance
+removed** ("Alright, remove attack from a distance. For the rest
+approved."), and asked for training to go on with it at once: "No
+special learning rate [...] maybe we'll reconsider tomorrow if the
+night's training is clearly flawed or stalled."
+(`docs/input_facts_prereg_20261125.md`, departure 10 of the simple loop.)
+- **Built on the branch `feature/input-facts`, not merged into `main`:**
+  the merge is the user's to decide. The run plays from the branch's
+  worktree meanwhile.
+- **A unit attacks only an enemy on a hex that touches its own.** The
+  simulator no longer moves a unit before its attack. The reference at
+  its pinned decode ordered no such attack in 1,660, so the yardstick
+  plays as before.
+- **The network reads 232 more numbers of each unit:** its level, its
+  defence where it stands and by terrain, its movement costs, and for a
+  unit that can attack the numbers of each fight it can start (damage of
+  a hit, strikes, chance to hit, for both sides). They go through a
+  projection of their own that starts at zero, so the network at the
+  switch is round 544's network to the last bit.
+- **Not built:** the weapon's score reading the target (the design's
+  Part 3), which changes the output and has not been put to the user.
+- **The time of day** was already in the input, globally and per hex
+  (the user asked on 2026-11-24): the registration lists where.
+- **The pace is the open point.** At the loop's rate a new weight moves
+  at most 1e-5 a round, against 0.07 for the weights that read the old
+  columns. One night shows that nothing broke and how fast the new
+  weights move, not a gain.
 
 **The first reading against an outside opponent** (2026-11-19,
 `docs/rca_games_prereg_20261119.md`). The loop's network after round 128
@@ -464,15 +489,18 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
-- **The input additions** (`docs/input_facts_design_20261124.md`,
-  2026-11-24). The user read the first version and did not approve it:
-  its wording was unclear. Ruled the same day: the fight's numbers are
-  columns of the attacker's row, not tokens of their own, and no outcome
-  of a fight is worked out for the network ("that's for the network to
-  learn"). Still open: the design as reworded, whether the attack from a
-  distance stays (the simulator picks its hex by a fixed rule; removal is
-  recommended), how the weapon comes to read the target, and how the new
-  weights are trained.
+- **Merge `feature/input-facts` into `main`** (the new inputs and the
+  removal of the attack from a distance, approved 2026-11-24). The run
+  plays from the branch's worktree since round 545; `main` still holds
+  the code of rounds 1 to 544.
+- **How the new weights are trained.** The user set it for discussion on
+  2026-11-25, "if the night's training is clearly flawed or stalled". The
+  design lists four options (`docs/input_facts_design_20261124.md`,
+  "Training the new weights"); the night's readings of the new weights'
+  pace are in `docs/input_facts_prereg_20261125.md`.
+- **How the weapon comes to read the target** (the design's Part 3, not
+  yet put to the user). Today a unit's weapon is scored the same
+  whichever enemy it strikes.
 - **Resume the lean line, or leave it stopped.** It stopped in round 23's
   games on 2026-11-10 ("The line is stopped", above). Rounds 23 and 24
   with round 24's claim and argmax match would give departures 43 and 44

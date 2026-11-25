@@ -245,6 +245,36 @@ These were settled while building, before the launch.
      document's kill criteria, `config.json`.
    - **How:** a STOP file while the match at round 464 plays; the
      launch's command again with `--lam 0.99`.
+10. **From round 545 a unit attacks only an enemy on a hex that touches
+    its own, and the network reads 232 more numbers of each unit**
+    (written 2026-11-25 00:30, before the switch). The user, 2026-11-24,
+    on `docs/input_facts_design_20261124.md`: "Alright, remove attack
+    from a distance. For the rest approved." and "Continue training after
+    the network has gotten its improved visibility. [...] No special
+    learning rate". It has its own registration, with its deciding
+    numbers and kill criteria: `docs/input_facts_prereg_20261125.md`.
+    - **What changes:** the legal actions hold no attack on an enemy the
+      unit is not next to, for every player; round 544's network gains a
+      projection of the new numbers, at zero, so it is the same player at
+      the switch; the code is the branch `feature/input-facts` in its own
+      worktree (`C:\Users\momom2\wesnoth_worktrees\input-facts`), not
+      merged into `main`, on the core of phase 40; games are recorded as
+      format 6 at observation epoch 12.
+    - **What does not:** the learning rate and the optimizer (whose state
+      carries over), λ = 0.99, the games, the pool, the matches,
+      `config.json`, the run's directory, this document's kill criteria.
+    - **The games already played** keep their rule: a record of format 5
+      rebuilds as it was played. Its attacks ordered from a distance are
+      not legal under today's masks, so the pass no longer replays a
+      round before 545 (`tools/pg_positions.py`).
+    - **How:** a STOP file while the match at round 544 plays; the
+      branch's wheel into both venvs; round 544's checkpoint and
+      optimizer state widened in place, the originals kept beside them
+      as `pi.rows1.pt` and `adam.rows1.pt`; the launch's command from the
+      worktree, with `--lam 0.99`.
+    - **The checks:** the same network plays the match of round 544 on
+      both sides of the switch, and the first pass after it must replay
+      its games within the exact check's 1e-4.
 
 ## The launch
 

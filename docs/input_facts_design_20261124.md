@@ -1,6 +1,28 @@
 # Level, defence and the fight's numbers in the network's input: design (2026-11-24)
 
-**Status: a design, not approved. Nothing is built.**
+**Status: approved on 2026-11-24 and built, but for Part 3. The run takes
+it from round 545** (`docs/input_facts_prereg_20261125.md`).
+- The user, on the version below: "Alright, remove attack from a
+  distance. For the rest approved." And on the training of the new
+  weights: "No special learning rate [...] maybe we'll reconsider
+  tomorrow if the night's training is clearly flawed or stalled."
+- **Built as written:** Part 1, Part 2, and the removal of the attack
+  from a distance (decision 2), on the branch `feature/input-facts`.
+- **Built otherwise than written, in one place.** The new columns are not
+  appended to `unit_feat_proj.weight`. They are read by a projection of
+  their own, `unit_feat_proj2`, at zero. Zero columns appended to the old
+  weight and to Adam's averages of it would have moved two to four times
+  the learning rate for some hundred rounds, because Adam corrects its
+  averages by a parameter's step count. A new parameter gets Adam's
+  ordinary step, which is what "no special learning rate" asks. The
+  widened network is then also the old one to the last bit.
+- **Not built:** Part 3 (the weapon's score reading the target, decision
+  3). It changes the output and has not been put to the user.
+- **The time of day,** which the user asked about the same evening
+  ("make sure the network has ToD visibility like a human: globally and
+  per hex"), was already in the input; the registration lists where.
+
+The history of this document:
 - The user ruled on 2026-11-24, after watching a game of the simple loop's
   network: "for sure the network needs that information".
 - The user read the first version the same day, did not approve it, and
@@ -14,10 +36,10 @@
 - The first version's wording was unclear to the user: "six neighbouring
   hexes holding an enemy", "the dialog", "the predicted outcome". This
   version says each in plain terms.
-- How the new weights are trained is not decided: "We'll discuss how to
-  train it". The last section holds what is known and the options.
-- Waiting for the user: the design as a whole, and two points of it
-  ("Decisions this design raises").
+- How the new weights are trained was not decided then: "We'll discuss how
+  to train it". The last section holds what was known and the options.
+- It then waited for the user: the design as a whole, and two points of
+  it ("Decisions this design raises").
 
 ## In short
 

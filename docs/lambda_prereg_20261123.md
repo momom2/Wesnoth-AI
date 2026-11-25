@@ -1,10 +1,15 @@
 # A weight with λ = 0.99: pre-registration (2026-11-23)
 
-**Status: switched. Round 465 is the first at λ = 0.99** (2026-11-23
-23:58:47), and it checked out (Results). The simple loop
-(`docs/simple_loop_prereg_20261117.md`) ran at λ = 1 to its match at
-round 464. The deciding number is read after the match at round 704.
-Kill criterion 2 was first read at round 528 and is not met (Results).
+**Status: the reading closes at round 544, with five matches; the
+registered verdict cannot be read. λ stays at 0.99.** Round 465 was the
+first at λ = 0.99 (2026-11-23 23:58:47), and it checked out (Results).
+The simple loop (`docs/simple_loop_prereg_20261117.md`) ran at λ = 1 to
+its match at round 464. The deciding number was to be read after the
+match at round 704. From round 545 the network's inputs and the legal
+actions change, on the user's order of 2026-11-24
+(`docs/input_facts_prereg_20261125.md`, departure 1 below), so no later
+match is a match of λ alone. Kill criterion 2 was read at rounds 528 and
+544 and is not met (Results).
 
 The user proposed it on 2026-11-23 ("How about we continue with
 λ = 0.99?"), was shown the readings taken on the logged games
@@ -263,6 +268,7 @@ kill criterion 3).
 | 496 | +178.1 ± 13.9 | 589 | 2026-11-24 09:36 |
 | 512 | +164.9 ± 13.7 | 577 | 2026-11-24 14:39 |
 | 528 | +175.8 ± 13.9 | 587 | 2026-11-24 19:21 |
+| 544 | +179.2 ± 13.9 | 590 | 2026-11-25 00:12 |
 
 **To round 500** (2026-11-24 10:48). Nothing here decides.
 - The two matches average +158.9 ± 9.6: +6.4 ± 10.2 against the fifteen
@@ -369,3 +375,24 @@ document holds.
     (+0.10) and Loyalists (+0.09) and too low for Northerners (−0.09),
     each ± 0.02, as in the earlier windows.
 - None of it is a verdict: the matches decide.
+
+**Departure 1: the reading closes at round 544** (written 2026-11-25
+00:30, before round 545).
+- **Why:** on 2026-11-24 the user approved the new inputs, ordered the
+  attack from a distance removed, and said: "Continue training after the
+  network has gotten its improved visibility." Both take effect at round
+  545 (`docs/input_facts_prereg_20261125.md`). A match after that round
+  reads λ = 0.99 together with them.
+- **What is read instead:** the five matches of rounds 480 to 544. They
+  average +167.6 ± 6.1 Elo (scatter 16.5). That is +15.1 ± 7.1 against
+  the fifteen before the switch (+152.5 ± 3.5): 2.1 standard errors
+  above.
+- **Kill criterion 2 at round 544: not met.** Its line is +131.3 with
+  these five matches' standard errors.
+- **What it says:** in 80 rounds at λ = 0.99 the loop did not lose
+  strength, and it read 15 Elo higher. As registered, that is not shown
+  to come from λ: no run at λ = 1 played beside it, and five matches are
+  a third of the fifteen the verdict asked for.
+- **What follows:** λ stays at 0.99. The user said "Continue training";
+  nothing in the readings asks for a return to λ = 1. The five matches
+  are the baseline of the next registration.
