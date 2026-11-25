@@ -330,3 +330,11 @@ advancements were chosen (0.70 a game, by either player), and 311 of them
   weights moved, by 1e-5, and no query moved. The update's norm is
   0.0074 (0.0068 on average over rounds 593 to 608), of which the keys'
   step is 0.0016.
+
+**Round 610** (23:34:00): the value head's cross-entropy is back at 0.385,
+inside the range of the rounds before the switch, and its part of the
+gradient's norm is 29.2 of 45.7. So round 609's reading is not a new
+level; one Adam step cannot have mended a head, so it was that round's
+games. The exact check reads 8.0e-6. The pass took 1,236 s, under the 1.5
+times that asks for an inspection: its first group ran at 16.6 decisions
+a second where round 609's ran at 45.6, cause not established.

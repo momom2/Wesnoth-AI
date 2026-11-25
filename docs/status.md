@@ -200,9 +200,9 @@ night's training is clearly flawed or stalled."
   - **Round 609 checks out:** exact check 7.3e-6; the games keep their
     shape (20.2 turns, every game decided, no turn ended for a side);
     125 advancements chosen in 128 games, 54% a type other than the
-    first. **The value head reads the new games worse:** cross-entropy
-    0.511 where rounds 545 to 608 read 0.33 to 0.48. One round; the next
-    ones say whether it comes back.
+    first. The value head read that round's games worse (cross-entropy
+    0.511 where rounds 545 to 608 read 0.33 to 0.48), and round 610 is
+    back at 0.385: not a new level.
   - **What decides:** after the eighth match from the switch (round
     736), the mean of matches 5 to 8 less that of 1 to 4.
 - **The new weights move at the loop's ordinary pace.** After sixteen
