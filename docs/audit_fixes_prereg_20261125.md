@@ -1,10 +1,27 @@
 # Three fixes from the blind-spot audit: pre-registration (2026-11-25)
 
-**Status: built on the branch `feature/audit-fixes` (a897c7f3, c782e361),
-where its own 17 tests pass; the full suite, CI and the GPU checks of
-"The switch" are still to go. Not in the run. When the run switches to it
-is the user's to say.** It would be departure 11 of the simple loop
-(`docs/simple_loop_prereg_20261117.md`).
+**Status: built on the branch `feature/audit-fixes` (e2107544), which
+passes its gate; not in the run. The switch is planned at the round
+boundary after the match at round 608 (2026-11-25, about 21:45).** The
+user answered the question of its time with "Otherwise, approved", on a
+message that recommended that evening; that reading was put back to them.
+It is departure 11 of the simple loop
+(`docs/simple_loop_prereg_20261117.md`). The GPU checks of "The switch"
+are made at the switch, with the run stopped.
+
+**The gate** (2026-11-25 15:17), at e2107544:
+- The full suite on the desktop, both tiers, against the branch's wheel:
+  2,301 passed, 139 skipped, none failed, in 959 s. Ruff is clean.
+- CI is green on the same commit (run 45629475998).
+- The run before it failed 7 tests in four places: two faults of the new
+  code (an output built by hand has no pointer fields; the simulator set
+  the stop rule after its core was built), fixed, and two fixtures of
+  played games that change with the rule, re-recorded or re-sized with no
+  assertion changed (commit e2107544 says how).
+- The tool that gives a checkpoint the pointer was run on a copy of round
+  588's checkpoint and optimizer state: it names the 3 new parameters
+  after the model's others and re-indexes the encoder's moments, checked
+  against the network it builds.
 
 The user, 2026-11-25, on `docs/blindspot_audit_20261125.md`:
 - "Gap 3 absolutely needs to be fixed."
