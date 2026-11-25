@@ -187,6 +187,15 @@ class ModelOutput:
     # slots). None otherwise.
     belief_logits: Optional[torch.Tensor] = None  # [1, H] or None
     memory:        Optional[torch.Tensor] = None  # [k, d] float32 or None
+    # A network whose weapon score reads the target (model.py,
+    # `weapon_target`): the per-actor scores [1, A, W], a query per weapon
+    # slot from each actor's token [1, A, W, R] and a key from each hex
+    # token [1, H, R]. Its `weapon_logits` is None, so a reader of the
+    # per-actor scores alone fails instead of leaving the target out; the
+    # scores are `weapon_logits_for`'s. None for a network without it.
+    weapon_actor_logits: Optional[torch.Tensor] = None
+    weapon_q: Optional[torch.Tensor] = None
+    weapon_k: Optional[torch.Tensor] = None
 
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
@@ -237,10 +246,17 @@ class PaddedOutput:
     # rows past a sample's count hold no state. `memory` lists the states.
     memory_padded: Optional[torch.Tensor] = None
     memory_counts: Optional[List[int]] = None
+    # A network whose weapon score reads the target (ModelOutput's fields
+    # of the same names): [B, A_max, W], [B, A_max, W, R] and [B, H_max, R],
+    # with `weapon_logits` None.
+    weapon_actor_logits: Optional[torch.Tensor] = None
+    weapon_q: Optional[torch.Tensor] = None
+    weapon_k: Optional[torch.Tensor] = None
 
     _TENSOR_FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits",
                       "value", "value_logits", "cliffness", "moves_left",
-                      "unit_ctx", "hex_ctx", "global_ctx", "belief_logits", "memory_padded")
+                      "unit_ctx", "hex_ctx", "global_ctx", "belief_logits", "memory_padded",
+                      "weapon_actor_logits", "weapon_q", "weapon_k")
     _PLAIN_FIELDS = ("actor_kind", "sizes", "memory_counts")
 
     @property
@@ -276,7 +292,7 @@ class PaddedOutput:
             actor_kind=self.actor_kind[b:b + 1, :A_b].to(self.actor_logits.device),
             type_logits=self.type_logits[b:b + 1, :A_b],
             target_logits=self.target_logits[b:b + 1, :A_b, :H_b],
-            weapon_logits=self.weapon_logits[b:b + 1, :A_b],
+            weapon_logits=self.weapon_logits[b:b + 1, :A_b] if self.weapon_logits is not None else None,
             value=self.value[b:b + 1] if self.value is not None else None,
             value_logits=self.value_logits[b:b + 1] if self.value_logits is not None else None,
             cliffness=self.cliffness[b:b + 1] if self.cliffness is not None else None,
@@ -288,7 +304,35 @@ class PaddedOutput:
             belief_logits=(self.belief_logits[b:b + 1, :H_b]
                            if self.belief_logits is not None else None),
             memory=(self.memory_padded[b, :self.memory_counts[b]]
-                    if self.memory_padded is not None else None))
+                    if self.memory_padded is not None else None),
+            weapon_actor_logits=(self.weapon_actor_logits[b:b + 1, :A_b]
+                                 if self.weapon_actor_logits is not None else None),
+            weapon_q=self.weapon_q[b:b + 1, :A_b] if self.weapon_q is not None else None,
+            weapon_k=self.weapon_k[b:b + 1, :H_b] if self.weapon_k is not None else None)
 
     def samples(self) -> List[ModelOutput]:
         return [self.sample(b) for b in range(len(self.sizes))]
+
+
+
+def weapon_slots(out) -> int:
+    """W: the weapon slots a ModelOutput or PaddedOutput scores."""
+    base = out.weapon_logits if out.weapon_logits is not None else out.weapon_actor_logits
+    return int(base.shape[-1])
+
+
+def weapon_logits_for(out, b: torch.Tensor, a: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+    """float32 [..., W]: the weapon scores of actor `a` of sample `b`
+    attacking the hex token `h` (index tensors of one shape; an `h` below 0,
+    an entry that is no attack, reads token 0 and is the caller's to
+    ignore). A network whose weapon score reads the target adds its
+    pointer's term to the per-actor scores:
+
+        weapon_actor_logits[b, a, w] + q[b, a, w] . k[b, h] / sqrt(R)
+
+    The other kind's scores are per actor, whatever the target."""
+    if out.weapon_q is None:
+        return out.weapon_logits[b, a].float()
+    q = out.weapon_q[b, a].float()                                   # [..., W, R]
+    k = out.weapon_k[b, h.clamp_min(0)].float()                      # [..., R]
+    return out.weapon_actor_logits[b, a].float() + (q * k.unsqueeze(-2)).sum(dim=-1) / (k.shape[-1] ** 0.5)

@@ -236,6 +236,15 @@ ERA_FACTIONS = {
 #        view (the core's `sighting_stops`).
 OBSERVATION_EPOCH = 13
 
+# The width of the pointer by which a weapon's score reads its target
+# (model.py `weapon_q_proj` and `weapon_k_proj`; the checkpoint key
+# `weapon_target` holds the width a network was built with, 0 for none):
+# one query of this width per weapon slot from the attacker's token against
+# one key from the target hex's token. 64 keeps the inference server's
+# gather, one query per weapon slot for each legal entry of a batch, in
+# tens of megabytes (server_priors.priors_outputs).
+WEAPON_TARGET_RANK = 64
+
 
 # ----------------------------------------------------------------------
 # Holdout cross-entropy formula

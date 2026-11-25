@@ -21,7 +21,9 @@ PARAM_GROUPS = (
     ("actor_head",     lambda n: n.startswith("model.actor_head")),
     ("type_head",      lambda n: n.startswith("model.type_head")),
     ("target_proj",    lambda n: n.startswith("model.target_")),
-    ("weapon_head",    lambda n: n.startswith("model.weapon_head")),
+    # The weapon's per-actor head and its pointer at the target
+    # (model.weapon_q_proj, model.weapon_k_proj).
+    ("weapon_head",    lambda n: n.startswith("model.weapon_")),
     ("gbc_heads",      lambda n: n.startswith("model.gbc_heads")),
     ("moves_left_head", lambda n: n.startswith("model.moves_left_head")),
     ("belief_head",    lambda n: n.startswith("model.belief_head")),

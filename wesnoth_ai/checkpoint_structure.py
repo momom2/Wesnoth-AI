@@ -12,8 +12,12 @@ Four top-level keys, beside `relevant_set_hexes` and the other flags:
 - `unit_row_version` (int): which unit and recruit rows the encoder reads
   (encoder.py, "The unit row, version 2"; docs/input_facts_design_20261124.md).
   Version 2 adds a parameter (`unit_feat_proj2`).
+- `weapon_target` (int): the width of the pointer by which a weapon's score
+  reads its target (model.py `weapon_q_proj`, `weapon_k_proj`), 0 for a
+  network that scores a weapon from the attacker's token alone. Sizes
+  parameters.
 
-A checkpoint without them is obs8's lineage: False, 0, 1 and 1.
+A checkpoint without them is obs8's lineage: False, 0, 1, 1 and 0.
 
 Older checkpoints also carry the weights of the auxiliary margin head
 (`aux_score_head`), which the network does not have: `model_state_of`
@@ -28,6 +32,7 @@ STRUCTURE_DEFAULTS: Dict[str, object] = {
     "memory_slots": 0,
     "relevant_set_version": 1,
     "unit_row_version": 1,
+    "weapon_target": 0,
 }
 
 # The auxiliary margin head's weights, present in the checkpoints that were
@@ -49,7 +54,8 @@ def checkpoint_structure(model, encoder) -> Dict[str, object]:
     return {"observation_parity": bool(encoder.observation_parity),
             "memory_slots": int(model.memory_slots),
             "relevant_set_version": int(encoder.relevant_set_version),
-            "unit_row_version": int(encoder.unit_row_version)}
+            "unit_row_version": int(encoder.unit_row_version),
+            "weapon_target": int(model.weapon_target)}
 
 
 def saved_structure(ckpt: Dict) -> Dict[str, object]:
@@ -65,7 +71,7 @@ def refuse_other_structure(ckpt: Dict, model, encoder, name: str) -> None:
     tools/eval_players.peek_checkpoint_arch does)."""
     saved = saved_structure(ckpt)
     built = checkpoint_structure(model, encoder)
-    for key in ("observation_parity", "memory_slots", "unit_row_version"):
+    for key in ("observation_parity", "memory_slots", "unit_row_version", "weapon_target"):
         if saved[key] != built[key]:
             raise RuntimeError(f"{name} was trained with {key}={saved[key]!r}; this policy is "
                                f"built with {built[key]!r}. Rebuild it with the checkpoint's own.")

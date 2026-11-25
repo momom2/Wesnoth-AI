@@ -284,7 +284,7 @@ def sample_action(
             target_idx=None, weapon_idx=None,
             value_est=value_est,
         )
-    weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
+    weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks, target_idx)
     weapon_idx = _sample_from_logits(weapon_logits)
     return SampledAction(
         action={
@@ -388,7 +388,7 @@ def reforward_logprob_entropy(
         # bail with current log_prob/entropy rather than failing loudly.
         return log_prob, entropy
 
-    weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
+    weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks, target_idx)
     lp_w, ent_w = _logprob_entropy_1d(weapon_logits, weapon_idx)
     log_prob = log_prob + lp_w
     entropy = entropy + ent_w
@@ -496,12 +496,14 @@ def enumerate_legal_actions_with_priors(
         for a in unit_rows:
             attacker = by_id.get(encoded.unit_ids[a])
             n_attacks.append(len(attacker.attacks) if attacker else 0)
-        W = output.weapon_logits.shape[-1]
-        wl = output.weapon_logits[0].index_select(0, idx).clone()     # [n, W]
-        slot = torch.arange(W, device=wl.device).unsqueeze(0)
-        n_att_t = torch.as_tensor(n_attacks, device=wl.device).unsqueeze(1)
-        wl = wl.masked_fill(slot >= n_att_t, _NEG_INF)
-        weapon_p = F.softmax(wl, dim=-1).detach().cpu().numpy().astype(np.float64)
+        per_target = output.weapon_q is not None
+        if not per_target:
+            W = output.weapon_logits.shape[-1]
+            wl = output.weapon_logits[0].index_select(0, idx).clone()     # [n, W]
+            slot = torch.arange(W, device=wl.device).unsqueeze(0)
+            n_att_t = torch.as_tensor(n_attacks, device=wl.device).unsqueeze(1)
+            wl = wl.masked_fill(slot >= n_att_t, _NEG_INF)
+            weapon_p = F.softmax(wl, dim=-1).detach().cpu().numpy().astype(np.float64)
 
         for r, a in enumerate(unit_rows):
             pa = p_actor[a]
@@ -510,11 +512,18 @@ def enumerate_legal_actions_with_priors(
             n_att = n_attacks[r]
             if p_attack > 0.0 and n_att > 0:
                 base = pa * p_attack
-                wp = weapon_p[r, :n_att]
-                w_idx = np.nonzero(wp > 0.0)[0]
+                if not per_target:
+                    wp = weapon_p[r, :n_att]
+                    w_idx = np.nonzero(wp > 0.0)[0]
                 for h in np.nonzero(atk_p[r] > 0.0)[0]:
                     target_pos = hex_positions[h]
                     joint = base * atk_p[r, h]
+                    if per_target:
+                        # The weapon's law for this target; every slot the
+                        # unit has is an entry (server_priors.priors_outputs).
+                        wp = F.softmax(_masked_weapon_logits(output, a, n_att, int(h)), dim=-1
+                                       ).detach().cpu().numpy().astype(np.float64)[:n_att]
+                        w_idx = range(n_att)
                     for w in w_idx:
                         out.append(LegalActionPrior(
                             action={"type": "attack", "start_hex": unit_pos,
@@ -666,8 +675,9 @@ def _enumerate_legal_actions_reference(
 
         # Pre-compute weapon distribution once for this unit (used
         # for all ATTACK targets).
+        per_target = output.weapon_q is not None
         weapon_p = None
-        if num_attacks > 0:
+        if num_attacks > 0 and not per_target:
             weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
             weapon_p = F.softmax(weapon_logits, dim=-1).tolist()
 
@@ -683,9 +693,12 @@ def _enumerate_legal_actions_reference(
                         continue
                     target_pos = encoded.hex_positions[target_idx]
                     joint_atype = p_actor * p_attack * p_t
+                    if per_target:
+                        weapon_p = F.softmax(_masked_weapon_logits(
+                            output, actor_idx, num_attacks, target_idx), dim=-1).tolist()
                     for weapon_idx in range(num_attacks):
                         p_w = weapon_p[weapon_idx]
-                        if p_w <= 0.0:
+                        if p_w <= 0.0 and not per_target:
                             continue
                         out.append(LegalActionPrior(
                             action={
@@ -811,9 +824,20 @@ def _masked_target_logits(
 
 
 def _masked_weapon_logits(
-    output: ModelOutput, actor_idx: int, num_attacks: int,
+    output: ModelOutput, actor_idx: int, num_attacks: int, target_idx: Optional[int] = None,
 ) -> torch.Tensor:
-    weapons = output.weapon_logits[0, actor_idx].clone()
+    """The actor's weapon scores, the slots past its attack count masked.
+    A network whose weapon score reads the target needs `target_idx`, the
+    hex token attacked (model_output.weapon_logits_for)."""
+    if output.weapon_q is not None:
+        if target_idx is None:
+            raise ValueError("this network scores a weapon for a target: the caller must name the hex attacked")
+        from wesnoth_ai.model_output import weapon_logits_for
+        device = output.weapon_q.device
+        at = [torch.tensor(v, device=device) for v in (0, actor_idx, target_idx)]
+        weapons = weapon_logits_for(output, *at).to(output.weapon_actor_logits.dtype).clone()
+    else:
+        weapons = output.weapon_logits[0, actor_idx].clone()
     if num_attacks < weapons.shape[0]:
         weapons[num_attacks:] = _NEG_INF
     return weapons

@@ -32,6 +32,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from wesnoth_ai.model_output import weapon_logits_for, weapon_slots
 from wesnoth_ai.packed_trunk import FlatLayout
 from wesnoth_ai.sequence_records import OwnTarget
 from wesnoth_ai.server_priors import (KIND_ATTACK, KIND_END_TURN, KIND_MOVE, KIND_RECRUIT,
@@ -224,8 +225,10 @@ def legal_log_probs(padded, batch: OwnBatch) -> torch.Tensor:
     lp = lp + torch.where(has_target, log_target.gather(2, batch.target.unsqueeze(2)).squeeze(2),
                           torch.zeros_like(lp))
 
-    W = padded.weapon_logits.shape[2]
-    weapon_rows = padded.weapon_logits.float()[rows][b, a]                               # [n, K, W]
+    # The weapon's law given the actor and, for a network whose weapon
+    # score reads it, the target (model_output.weapon_logits_for).
+    W = weapon_slots(padded)
+    weapon_rows = weapon_logits_for(padded, rows.unsqueeze(1).expand(n, K), a, batch.target)   # [n, K, W]
     w_ok = torch.arange(W, device=a.device).view(1, 1, W) < v["n_attacks"][b, a].long().unsqueeze(2)
     log_weapon = _log_softmax_masked(weapon_rows, w_ok)
     return lp + torch.where(kind == KIND_ATTACK, log_weapon.gather(2, batch.weapon.unsqueeze(2)).squeeze(2),
