@@ -293,6 +293,7 @@ impl GameCore {
     fn apply_attack<'py>(&mut self, py: Python<'py>, ax: i64, ay: i64, dx: i64, dy: i64, a_weapon: i64,
                          d_weapon: i64, seed: u32, has_seed: bool, choices: Vec<i64>)
         -> PyResult<Option<Bound<'py, PyDict>>> {
+        self.advance_pending(None);
         self.advance_choices.extend(choices);
         let (a, d) = match (self.unit_at(ax, ay), self.unit_at(dx, dy)) {
             (Some(a), Some(d)) => (a, d),
@@ -457,7 +458,15 @@ impl GameCore {
         }
         if a_alive && att_advances {
             let i = self.unit_pos(&att_id).expect("the attacker lives");
-            self.advance_unit(i);
+            let ask = self.asks_advance(i);
+            let (_, waits) = self.advance_unit_asking(i, ask);
+            if waits {
+                // The attacker's side chooses before anything else happens,
+                // and the defender advances after the attacker.
+                let after = (d_alive && dfd_advances).then(|| dfd_id.to_string());
+                self.pending_advance = Some((att_id.to_string(), after));
+                return Ok(r);
+            }
         }
         if d_alive && dfd_advances {
             let i = self.unit_pos(&dfd_id).expect("the defender lives");

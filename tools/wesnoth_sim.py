@@ -33,6 +33,8 @@ What's faithful to Wesnoth:
     do not call it and take advances_to[0].
   - A player's move under fog stops where it brings an enemy into view
     (`sighting_stops`, on by default).
+  - A unit that levels up on its own side's turn with several types to
+    become waits for the side's choice (`ask_advance`, on by default).
   - Random rolls. Every attack and recruit takes its seed from
     _next_seed(): a hash of the request counter, salted by _seed_salt
     when one is set (per-game luck in eval and self-play, independent
@@ -297,8 +299,10 @@ class RecordedCommand:
     """One entry in the simulator's command history -- enough to
     reconstruct a Wesnoth-loadable replay.
 
-    `kind` is one of "init_side" | "move" | "attack" | "recruit" |
-    "recall" | "end_turn". `cmd` is the raw command list as the core
+    `kind` is one of "init_side" | "move" | "attack" | "advance" |
+    "recruit" | "recall" | "end_turn". An "advance" is ["advance", choice]:
+    the type a side chose for its unit that waited to advance after the
+    attack before it. `cmd` is the raw command list as the core
     applies it (`CoreState.apply_command`). `side` is the side that
     acted (0 for system events that don't have a clear actor; in
     practice init_side and end_turn carry the relevant side index).
@@ -365,6 +369,7 @@ class WesnothSim:
         no_progress_turns: int = 0,
         begin_turn: bool = True,
         sighting_stops: bool = True,
+        ask_advance: bool = True,
     ):
         # A player's move under fog stops where it brings an enemy into
         # view, with the movement it has left, as Wesnoth stops a player's
@@ -376,6 +381,16 @@ class WesnothSim:
             initial_state.global_info._sighting_stops = True
         else:
             initial_state.global_info.__dict__.pop("_sighting_stops", None)
+        # A unit that levels up on its own side's turn with several types
+        # to become waits for the side's choice, as Wesnoth asks a player
+        # (the core's `ask_advance`, core_units.rs; the user's approval of
+        # 2026-11-25). The policy gives the choice as a recruit of one of
+        # the options, which stand in the recruit rows while the unit waits
+        # (`_action_to_command`). The game record carries the rule.
+        if ask_advance:
+            initial_state.global_info._ask_advance = True
+        else:
+            initial_state.global_info.__dict__.pop("_ask_advance", None)
         self.gs = initial_state                # the core (CoreState) built from the state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
@@ -826,7 +841,7 @@ class WesnothSim:
                     # export writes the route up to it (sim_to_replay.py).
                     route = list(zip(cmd[1], cmd[2]))
                     extras["sighted_stop"] = route.index(tuple(walk["landed"]))
-        if cmd[0] == "attack":
+        if cmd[0] in ("attack", "advance"):
             # Advancement [choose] events, one per advancement step
             # (AMLA and multi-advance chain links included,
             # attacker-first order preserved -- matches
@@ -1288,6 +1303,16 @@ class WesnothSim:
         from tools.abilities import hex_neighbors
 
         atype = action.get("type")
+        waits = self.core.core.advance_options(int(self.current_side))
+        if waits is not None:
+            # A unit of the side waits for the type it becomes: the one
+            # order is the choice, given as a recruit of one of its
+            # options. Anything else is refused and decided again; the
+            # masks offer nothing else.
+            options = list(waits[3])
+            if atype == "recruit" and action.get("unit_type") in options:
+                return ["advance", options.index(action["unit_type"])], None
+            return ["__reject_action__"], None
         if atype == "end_turn":
             return ["end_turn"], None
         if atype == "move":

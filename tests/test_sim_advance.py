@@ -76,6 +76,13 @@ def fresh_sim():
     assert sim.gs.map.size_x > 22 and sim.gs.map.size_y > 21, (
         "fixture map too small for the surgery coordinates")
     sim.gs.map.units.clear()
+    # These tests are of the advancement nobody is asked about (the core's
+    # default: the first type, or the uniform draw): their attackers level
+    # up on their own turn, where the simulator has asked the side since
+    # 2026-11-25 (`ask_advance`; tests/test_advancement_choice.py tests
+    # that). The fixture's simulator plays without the asking, set on the
+    # view the tests then commit.
+    sim.gs.global_info.__dict__.pop("_ask_advance", None)
     return sim
 
 

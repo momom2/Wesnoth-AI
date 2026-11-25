@@ -368,6 +368,7 @@ impl GameCore {
             if xs.is_empty() || xs.len() != ys.len() {
                 return Err(pyo3::exceptions::PyValueError::new_err("empty or uneven path"));
             }
+            self.advance_pending(None);
             self.move_along(&xs, &ys, from_side, enforce_budget, next)?;
             self.note_sightings();
             Ok(())

@@ -51,7 +51,8 @@ MODELED_GLOBALS = (
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
     "_shroud_delayed", "_pending_vision", "_plan_unit_advance", "_pa_fresh_turn",
-    "_skip_first_turn_resting", "_keep_removed_uncovered", "_sighting_stops",
+    "_skip_first_turn_resting", "_keep_removed_uncovered", "_sighting_stops", "_ask_advance",
+    "_pending_advance",
 )
 # The unit underscore attributes the state comparison checks; the core
 # also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
@@ -92,8 +93,11 @@ _RECORD_SIDES = (1, 2)
 # (`keep_removed_uncovered` keeps the earlier list for records of format 4
 # and earlier), 40 offers an attack only on an enemy on a hex that touches
 # the unit's own and takes `unit_row_version`, 41 stops a player's move
-# under fog where it brings an enemy into view, under `sighting_stops`.
-_CORE_PHASE = 41
+# under fog where it brings an enemy into view, under `sighting_stops`, 42
+# makes a player's unit that levels up on its own side's turn with several
+# types to become wait for the side's choice, under `ask_advance`
+# (`advance_options`, `apply_advance`).
+_CORE_PHASE = 42
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
@@ -608,6 +612,11 @@ class CoreState:
             gi._keep_removed_uncovered = True
         if g["sighting_stops"]:
             gi._sighting_stops = True
+        if g["ask_advance"]:
+            gi._ask_advance = True
+        waits = core.pending_advance_export()
+        if waits is not None:
+            gi._pending_advance = (waits[0], waits[1] or None)
         gi._tod_start_offset = g["tod_start_offset"]
         gi._experience_modifier = g["experience_modifier"]
         gi._next_uid_counter = g["next_uid_counter"]
@@ -741,6 +750,11 @@ class CoreState:
             return "rust"
         if kind == "attack":
             self._apply_attack(cmd)
+            return "rust"
+        if kind == "advance":
+            # ["advance", choice]: the type the side to move chose for its
+            # unit that waits to advance (core_units.rs `apply_advance`).
+            self.core.apply_advance(int(cmd[1]))
             return "rust"
         if kind == "recruit":
             seed = cmd[4] if len(cmd) > 4 else ""
@@ -903,6 +917,13 @@ class CoreState:
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
+        # While a unit of the side waits for the type it becomes, the
+        # recruit rows hold its options instead, in the order a choice
+        # indexes; the core places them on the unit's hex and its masks
+        # offer nothing else (core_masks.rs).
+        waits = core.advance_options(side)
+        if waits is not None:
+            own_recruits = list(waits[3])
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
         recruit_costs = None
         if masks:
@@ -1038,6 +1059,7 @@ class CoreState:
             "skip_first_turn_resting": bool(getattr(gi, "_skip_first_turn_resting", False)),
             "keep_removed_uncovered": bool(getattr(gi, "_keep_removed_uncovered", False)),
             "sighting_stops": bool(getattr(gi, "_sighting_stops", False)),
+            "ask_advance": bool(getattr(gi, "_ask_advance", False)),
             "game_over": bool(gs.game_over), "winner": -1 if gs.winner is None else int(gs.winner),
         })
         owner = getattr(gi, "_village_owner", None) or {}
@@ -1049,6 +1071,8 @@ class CoreState:
             [int(c) if isinstance(c, int) else -1 for c in (getattr(gi, "_advance_choices", None) or [])],
             [(int(side), str(t), [str(x) for x in lst]) for (side, t), lst in pick.items()],
             [(int(a), int(b)) for a, b in (getattr(gi, "_last_advance_events", None) or [])])
+        waits = getattr(gi, "_pending_advance", None)
+        core.set_pending_advance((str(waits[0]), str(waits[1] or "")) if waits else None)
         walk = getattr(gi, "_last_move_walk", None)
         core.set_last_move_walk((int(walk["ordered"][0]), int(walk["ordered"][1]),
                                  int(walk["landed"][0]), int(walk["landed"][1]),

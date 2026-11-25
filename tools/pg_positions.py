@@ -67,7 +67,10 @@ RECORD_SUFFIX = ".game.jsonl.gz"
 # to, and its decision sits at the simulator's approach move: the masks no
 # longer offer that attack, so such a decision is refused as not legal
 # (`_position`).
-KIND_COMMANDS = {KIND_ATTACK: ("attack",), 1: ("move",), KIND_RECRUIT: ("recruit",),
+# A recruit-kind decision emits a recruit, or the advancement a unit waited
+# for: its options stand in the recruit rows while it waits
+# (tools/game_record.py, format 8).
+KIND_COMMANDS = {KIND_ATTACK: ("attack",), 1: ("move",), KIND_RECRUIT: ("recruit", "advance"),
                  KIND_END_TURN: ("end_turn",)}
 # The first game record format played with a unit attacking only an enemy
 # on a hex that touches its own (tools/game_record.py, "Formats").

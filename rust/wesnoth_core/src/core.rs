@@ -148,6 +148,13 @@ pub struct GlobalRec {
     /// format 6 and earlier were played with every move run to its end.
     /// The simulator sets it for the games it plays.
     pub sighting_stops: bool,
+    /// A player's unit that levels up on its own side's turn with several
+    /// types to become waits for the side's choice, as the engine asks a
+    /// player (`pending_advance`, core_units.rs). Off by default: a replay's
+    /// attack carries its choices, and game records of format 7 and
+    /// earlier were played with the first type taken. The simulator sets
+    /// it for the games it plays.
+    pub ask_advance: bool,
 }
 
 /// Per (unit type, slowed, defense table) and per map: the pathfinder's
@@ -233,6 +240,10 @@ pub struct GameCore {
     pub advance_choices: Vec<i64>,
     pub pickadvance_game: Vec<(i64, String, Vec<String>)>,
     pub last_advance_events: Vec<(i64, i64)>,
+    /// An attacker that waits for its side to choose what it becomes (its
+    /// id), and the defender whose advancement follows it, if any
+    /// (`ask_advance`; core_units.rs `advance_pending`).
+    pub pending_advance: Option<(String, Option<String>)>,
     pub last_move_walk: Option<(i64, i64, i64, i64, String)>,   // ordered, landed, reason
     pub last_checkup_strikes: Vec<i64>,                          // (chance, hits, damage, dies) per strike
     pub game_over: bool,
@@ -576,6 +587,7 @@ impl GameCore {
             advance_choices: Vec::new(),
             pickadvance_game: Vec::new(),
             last_advance_events: Vec::new(),
+            pending_advance: None,
             last_move_walk: None,
             last_checkup_strikes: Vec::new(),
             game_over: false,
@@ -778,6 +790,7 @@ impl GameCore {
             skip_first_turn_resting: get_or(g, "skip_first_turn_resting", false)?,
             keep_removed_uncovered: get_or(g, "keep_removed_uncovered", false)?,
             sighting_stops: get_or(g, "sighting_stops", false)?,
+            ask_advance: get_or(g, "ask_advance", false)?,
         };
         self.game_over = get_or(g, "game_over", false)?;
         self.winner = get_or(g, "winner", -1)?;
@@ -787,7 +800,7 @@ impl GameCore {
     /// One integer global by name: next_uid_counter, advance_counter,
     /// rng_request_counter (what the Python builders advance),
     /// advance_uniform (0/1), current_side, the two rules of older game
-    /// records (0/1) and sighting_stops (0/1).
+    /// records (0/1), sighting_stops and ask_advance (0/1).
     fn set_global_int(&mut self, name: &str, value: i64) -> PyResult<()> {
         match name {
             "next_uid_counter" => self.global.next_uid_counter = value,
@@ -798,6 +811,7 @@ impl GameCore {
             "skip_first_turn_resting" => self.global.skip_first_turn_resting = value != 0,
             "keep_removed_uncovered" => self.global.keep_removed_uncovered = value != 0,
             "sighting_stops" => self.global.sighting_stops = value != 0,
+            "ask_advance" => self.global.ask_advance = value != 0,
             _ => return Err(pyo3::exceptions::PyKeyError::new_err(name.to_string())),
         }
         Ok(())
@@ -824,6 +838,7 @@ impl GameCore {
         d.set_item("skip_first_turn_resting", g.skip_first_turn_resting)?;
         d.set_item("keep_removed_uncovered", g.keep_removed_uncovered)?;
         d.set_item("sighting_stops", g.sighting_stops)?;
+        d.set_item("ask_advance", g.ask_advance)?;
         d.set_item("game_over", self.game_over)?;
         d.set_item("winner", self.winner)?;
         Ok(d)
@@ -876,6 +891,27 @@ impl GameCore {
 
     fn advance_state_export(&self) -> (Vec<i64>, Vec<(i64, String, Vec<String>)>, Vec<(i64, i64)>) {
         (self.advance_choices.clone(), self.pickadvance_game.clone(), self.last_advance_events.clone())
+    }
+
+    /// The advancement that waits for its side's choice: (the attacker's
+    /// id, the id of the defender whose advancement follows, "" for none).
+    fn pending_advance_export(&self) -> Option<(String, String)> {
+        self.pending_advance.as_ref().map(|(a, d)| (a.clone(), d.clone().unwrap_or_default()))
+    }
+
+    /// Replace it (a core built from a view).
+    #[pyo3(signature = (pending=None))]
+    fn set_pending_advance(&mut self, pending: Option<(String, String)>) {
+        self.pending_advance = pending.map(|(a, d)| (a, (!d.is_empty()).then_some(d)));
+    }
+
+    /// For `side`, the unit whose advancement waits for its choice: (its
+    /// id, x, y, the types it may become, in the order a choice indexes).
+    /// None when nothing waits on `side`.
+    fn advance_options(&self, side: i64) -> Option<(String, i64, i64, Vec<String>)> {
+        let (i, targets) = self.pending_choice(side)?;
+        let u = &self.units[i];
+        Some((u.id.clone(), u.x, u.y, targets))
     }
 
     #[pyo3(signature = (walk=None))]

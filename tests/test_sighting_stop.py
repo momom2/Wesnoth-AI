@@ -197,7 +197,8 @@ def test_the_simulator_plays_under_the_rule_and_its_record_says_so():
                 sim.step(action)
         stopped += sum(1 for rc in sim.command_history if rc.extras.get("sighted_stop") is not None)
         rec = game_record.game_record(sim, setup, game_label=f"g{seed}")
-        assert rec["format"] == game_record.FORMAT == 7 and rec["sighting_stops"] is True
+        # Format 7 is the first that carries the rule (tools/game_record.py, "Formats").
+        assert rec["format"] == game_record.FORMAT >= 7 and rec["sighting_stops"] is True
         game_record.rebuild(json_round_trip(rec))                 # verifies every turn's fingerprint
         try:
             game_record.rebuild(dict(json_round_trip(rec), sighting_stops=False))

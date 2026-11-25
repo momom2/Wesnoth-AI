@@ -689,7 +689,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 41: under `sighting_stops` a player's move under fog stops where it
     // brings an enemy into view (core_move.rs `walk_move_path`); off by
     // default, the simulator sets it.
-    m.add("__phase__", 41)?;
+    // 42: under `ask_advance` a player's unit that levels up on its own
+    // side's turn with several types to become waits for the side's choice
+    // (`pending_advance`, apply_advance); while it waits the recruit rows
+    // and the masks hold its options. Off by default, the simulator sets it.
+    m.add("__phase__", 42)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

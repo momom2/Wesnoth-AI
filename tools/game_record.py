@@ -67,6 +67,12 @@ setup's `random_factions`. A record holds a move's route as ordered and
 the rebuild walks it under the record's own rule: `sighting_stops` is a
 field of the record, absent and off in formats 6 and earlier, whose moves
 ran to their end.
+8 marks the game played with a unit that levels up on its own side's turn
+with several types to become waiting for the side's choice (`ask_advance`,
+core_units.rs): the attack is followed by an `["advance", choice]` command,
+and the decision log holds the choice as a recruit-kind decision among the
+options. `ask_advance` is a field of the record, absent and off in formats
+7 and earlier, where such a unit took the first type listed.
 """
 from __future__ import annotations
 
@@ -89,7 +95,7 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 7
+FORMAT = 8
 # The core's rules of earlier records: (the global that keeps the rule, the
 # last format played under it). See "Formats" above.
 OLD_RULES = (("skip_first_turn_resting", 3), ("keep_removed_uncovered", 4))
@@ -139,6 +145,7 @@ def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] 
         "seed_salt": sim._seed_salt,
         "uniform_advancement": bool(getattr(gi, "_advance_uniform", False)),
         "sighting_stops": bool(getattr(gi, "_sighting_stops", False)),
+        "ask_advance": bool(getattr(gi, "_ask_advance", False)),
         "players": dict(players or {}),
         "winner": int(sim.winner),
         "ended_by": sim.ended_by,
@@ -423,6 +430,8 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
         cs.setup_scenario(rec["scenario_id"])
     if rec.get("sighting_stops"):
         cs.core.set_global_int("sighting_stops", 1)
+    if rec.get("ask_advance"):
+        cs.core.set_global_int("ask_advance", 1)
     if rec.get("uniform_advancement"):
         cs.core.set_global_int("advance_uniform", 1)
         cs.core.set_global_int("advance_counter", 0)
