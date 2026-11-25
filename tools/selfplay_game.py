@@ -199,11 +199,20 @@ def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
     vacant castle hex left is not refused: the simulator places the
     recruit there, as the engine does (`wesnoth_sim.nearest_vacant_castle`).
     Checked in the harness BEFORE calling sim.step, so a refused order
-    is re-decided without consuming the side's turn."""
+    is re-decided without consuming the side's turn.
+
+    Never while a unit of the side waits for the type it becomes: its
+    options stand in the recruit rows on its own hex, the policy gives its
+    choice as a recruit of one of them (`WesnothSim._action_to_command`),
+    and that order recruits nothing. Read as a recruit it would bounce on
+    the unit's own hex, and the harness would ask again without end."""
     if action.get("type") != "recruit":
         return False
     tgt = action.get("target_hex")
     if tgt is None:
+        return False
+    from wesnoth_ai.game_core import core_for
+    if core_for(gs).core.advance_options(int(gs.global_info.current_side)) is not None:
         return False
     if not any(u.position.x == tgt.x and u.position.y == tgt.y for u in gs.map.units):
         return False

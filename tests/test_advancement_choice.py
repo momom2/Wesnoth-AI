@@ -232,3 +232,70 @@ def test_the_choice_is_a_legal_decision_of_the_recruit_kind():
         assert action_is_legal(masks, (U + r, KIND_RECRUIT, here, -1))
     assert not action_is_legal(masks, (U + R, KIND_END_TURN, -1, -1))
     assert "advance" in KIND_COMMANDS[KIND_RECRUIT]
+
+
+def test_whole_games_with_choices_play_through_the_server_and_the_pass(tmp_path):
+    """At 10% experience units level up within a few fights. A tiny network
+    plays such games through the inference server, sampling: its
+    advancement choices are recruit-kind decisions among the options, the
+    records rebuild, and the gradient pass reproduces every probability the
+    players logged, the choices' included (its exact check)."""
+    import json
+    from unittest import mock
+    import tools.elo_eval_game as eg
+    import tools.pg_game_pass as gp
+    import wesnoth_ai.rules.scenario_pool as pool
+    from helpers.pg_games import save_network, selfplay_games, tiny_network
+    from tools.game_record import read_records, rebuild
+    from tools.pg_positions import KIND_RECRUIT
+
+    real = pool.build_scenario_gamestate
+
+    def quick(setup, **kw):
+        return real(setup, **{"experience_modifier": 10, **kw})
+
+    vocab, encoder, model = tiny_network()
+    checkpoint = save_network(tmp_path / "pi.pt", vocab, encoder, model)
+    games = tmp_path / "games"
+    with mock.patch.object(pool, "build_scenario_gamestate", quick), \
+            mock.patch.object(eg, "build_scenario_gamestate", quick):
+        records = selfplay_games(checkpoint, games, [(1, 13), (2, 7), (1, 47), (2, 52)], max_turns=14)
+        choices = types = 0
+        for path in records.values():
+            [rec] = list(read_records(path))
+            assert rec["ask_advance"] is True
+            rebuild(rec)                                   # every turn's fingerprint
+            commands = rec["commands"]
+            for d in rec["decisions"]:
+                if d.get("refused") or commands[d["cmd"]][0] != "advance":
+                    continue
+                choices += 1
+                types += int(commands[d["cmd"]][1] > 0)
+                assert commands[d["cmd"] - 1][0] == "attack", "a choice follows the attack that earned it"
+                assert int(d["action"][1]) == KIND_RECRUIT, "the choice is logged as a recruit-kind decision"
+        assert choices >= 3, f"only {choices} advancement choices in four games: the fixture tests nothing"
+        assert types >= 1, "no choice took a type other than the first"
+        grad = tmp_path / "grad.pt"
+        assert gp.main(["--checkpoint", str(checkpoint), "--games", str(games), "--out", str(grad),
+                        "--device", "cpu", "--workers", "0"]) == 0
+    replay = json.loads(grad.with_suffix(".json").read_text(encoding="utf-8"))["replay"]
+    assert replay["half_mean_square"] < 1e-9, replay
+
+
+def test_the_match_loops_bounce_check_lets_the_choice_through():
+    """A match loop asks, before each recruit, whether the engine would
+    refuse it for an occupied hex with no vacant castle hex left
+    (`_would_recruit_bounce`), and decides again if so. The choice is given
+    as a recruit on the waiting unit's own hex: read as a recruit it would
+    bounce every time and the loop would never end. The premise is shown on
+    the same board without the wait."""
+    from tools.selfplay_game import _would_recruit_bounce
+    order = {"type": "recruit", "unit_type": "Deathblade", "target_hex": AT}
+    plain = _sim(attacker_exp=22, defender_hp=1, ask=False)
+    _attack(plain)
+    assert _would_recruit_bounce(order, plain.gs), "the premise: a recruit on that hex would bounce"
+    sim = _sim(attacker_exp=22, defender_hp=1)
+    _attack(sim)
+    assert not _would_recruit_bounce(order, sim.gs)
+    sim.step(order)
+    assert _unit_at(sim, AT).name == "Deathblade"
