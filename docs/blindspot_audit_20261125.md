@@ -347,6 +347,66 @@ gap; gap 7 stands as designed. One link between two of them: the reach
 can be worked out from terrain only where the terrain is in the input,
 and gap 1 leaves most of the board out.
 
+## After the rulings
+
+### Built: gaps 3, 4 and 6
+
+On the branch `feature/audit-fixes`, registered in
+`docs/audit_fixes_prereg_20261125.md`, not yet in the run:
+- **Gap 4:** a player's move under fog stops where it brings an enemy
+  into view, as Wesnoth stops it (the simulator's rule, with the engine's
+  source quoted in `docs/wesnoth_rules.md`).
+- **Gap 6:** a game set up by a random draw is a game of two Random
+  picks, so the faction input starts at all six factions and is cut by
+  each unit type seen. The input was already built that way; only the
+  games' setup changed.
+- **Gap 3:** the weapon's score gains a term that reads the target: one
+  query per weapon slot from the attacker's token against one key from
+  the target hex's token, the form the target's own score has. It starts
+  at zero. Of the design's two forms
+  (`docs/input_facts_design_20261124.md`, decision 3) this is the second:
+  everything the network knows of the fight comes through its tokens, and
+  no input column is wired to an output.
+
+### Gap 2: a way to do it (proposed, not built)
+
+- **When the choice arises:** only when a unit with several advancements
+  levels up on its own side's turn, 0.65 times a game. Wesnoth asks at
+  once, before the turn goes on.
+- **The proposal: one more decision of the kind the network already makes
+  for recruits.**
+  - A recruit is chosen among rows, one per type the side can recruit.
+    Each row is a token built from the type's own numbers: hit points,
+    weapons, resistances, defences, cost.
+  - At an advancement the simulator pauses after the fight. The network
+    is given the board as it stands, and one row per type the unit can
+    become, built the same way and placed on the unit's hex. It picks
+    one, with the head that picks a recruit's type. Nothing else is legal
+    at that decision.
+  - On the enemy's turn the first type is taken, as Wesnoth does.
+- **What is new:** one input column marking a row as an advancement, with
+  its weights at zero, so the network starts by scoring the options as it
+  scores types today. No new head, no new kind of token, no hand-set
+  rule.
+- **What it touches:** the simulator's step (a choice pending), the legal
+  actions, the row builder, the game record and the replay export (a
+  replay already stores the choice). About the size of the input change
+  of 2026-11-25.
+
+### Gap 1: what is known of how bad it is
+
+- **One measurement exists.** In September two networks were trained
+  alike but for the board: the one without the far hexes read +56 ± 12
+  Elo over the one with the whole board, after one pass of imitation.
+  The far hexes did not help then. That says nothing of what self-play
+  would learn from them.
+- **Only games can say more:** a run that is shown more of the board,
+  against the present one. The cheapest form adds every hex the side
+  sees, at 1.8 times the tokens.
+- **It bears on gap 5's ruling:** the enemy's reach can be worked out
+  from terrain only where the terrain is in the input.
+- **Suggested order:** after the three fixes are in the run and read.
+
 ## What was the user's to decide (as the audit first listed it)
 
 One at a time, in the order this audit would take them:
