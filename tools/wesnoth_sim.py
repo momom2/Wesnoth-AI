@@ -778,7 +778,11 @@ class WesnothSim:
         replay reconstruction / diff_replay keep the deterministic path
         ([choose] queue, else targets[0]). The channel takes the
         current `_seed_salt` at once, as a game record's rebuild does
-        (tools/game_record.start_core)."""
+        (tools/game_record.start_core).
+
+        A game under this draw asks no side what its unit becomes
+        (`ask_advance`, the core's `asks_advance`): the draw decides on
+        either turn, as it did before the asking existed."""
         self.core.core.set_global_int("advance_uniform", 1)
         self._refresh_view()
         self._set_advance_salt(self._seed_salt)

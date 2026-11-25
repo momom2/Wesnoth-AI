@@ -364,8 +364,14 @@ impl GameCore {
             (Some(a), Some(d)) => (a, d),
             _ => return Ok(None),
         };
+        // A scripted fight is an enumeration, not a command played: its
+        // advancements are the queue's or the core's own, and no unit is
+        // left waiting for a side's choice.
+        let asked = std::mem::replace(&mut self.global.ask_advance, false);
         let mut rng = ScriptedRng::new(prefix);
-        self.attack(py, a, d, a_weapon, d_weapon, &mut rng)?;
+        let fought = self.attack(py, a, d, a_weapon, d_weapon, &mut rng);
+        self.global.ask_advance = asked;
+        fought?;
         self.note_sightings();
         Ok(Some(rng.calls()))
     }

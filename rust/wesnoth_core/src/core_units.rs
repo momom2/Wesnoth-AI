@@ -213,9 +213,12 @@ impl GameCore {
     /// player only then (advancement.cpp:205-207, 1.18.4:
     /// `t.is_local_human() && ... (is_current_side || !is_mp)`); on the
     /// enemy's turn a player's unit takes the first type listed (:232-237).
+    /// Nobody is asked in a game that draws its advancements uniformly
+    /// (`advance_uniform`, the earlier self-play's rule): the draw decides.
     pub(crate) fn asks_advance(&self, i: usize) -> bool {
         let side = self.units[i].side;
         self.global.ask_advance
+            && !self.global.advance_uniform
             && side == self.global.current_side
             && side >= 1
             && side as usize <= crate::core_sight::RECORD_SIDES
