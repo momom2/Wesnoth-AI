@@ -203,6 +203,23 @@ night's training is clearly flawed or stalled."
     first. The value head read that round's games worse (cross-entropy
     0.511 where rounds 545 to 608 read 0.33 to 0.48), and round 610 is
     back at 0.385: not a new level.
+  - **The first match from the switch, after round 624: +161.7 ± 13.6**
+    (574 of 800, 2026-11-26 04:10). It is one match of the eight; nothing
+    decides yet. The count is round 608's by coincidence (another
+    network, other games, checked seed by seed).
+  - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no
+    warning. The value head's cross-entropy over rounds 610 to 624 is
+    0.406 ± 0.008 against 0.398 ± 0.008 over the sixteen rounds before
+    the switch: no change read. The update is 14% larger than before
+    (0.0077 against 0.0068) on a gradient of the same norm, from the
+    pointer's new weights, the value head and the encoder; the value
+    head's part (0.0041 against 0.0032) is not explained. The pointer's
+    keys stand at 4.4e-5, the loop's ordinary pace.
+  - **Two matches on the same seeds are not independent:** a seed fixes
+    the map, the sides and the factions, and the outcomes of a seed
+    correlate 0.24 to 0.29. A difference between two matches has about
+    0.85 of the standard error independent games would give. The
+    registered figures stand as written.
   - **What decides:** after the eighth match from the switch (round
     736), the mean of matches 5 to 8 less that of 1 to 4.
 - **The new weights move at the loop's ordinary pace.** After sixteen

@@ -4,8 +4,10 @@
 (2026-11-25 22:49, from the branch `feature/advancement-choice` at
 bec71da6; departure 1 below). **The GPU checks passed, and the switch
 match reads +22.0 ± 19.5 against the loop's own match of the same network:
-kill criterion 1 is not met** (Results). Neither branch is merged into
-`main`: that is the user's to approve. The user answered the question of
+kill criterion 1 is not met** (Results). **The first match from the
+switch, after round 624, reads +161.7 ± 13.6; rounds 609 to 624 check
+out.** Seven matches are left before the registered verdict (round 736).
+Neither branch is merged into `main`: that is the user's to approve. The user answered the question of
 the switch's time with "Otherwise, approved", on a message that
 recommended that evening; that reading was put back to them. It is
 departure 11 of the simple loop (`docs/simple_loop_prereg_20261117.md`).
@@ -338,3 +340,91 @@ level; one Adam step cannot have mended a head, so it was that round's
 games. The exact check reads 8.0e-6. The pass took 1,236 s, under the 1.5
 times that asks for an inspection: its first group ran at 16.6 decisions
 a second where round 609's ran at 45.6, cause not established.
+
+### The matches from the switch
+
+Each is the loop's own match: the round's network sampling at
+temperature 1 against the reference at its pinned decode, 800 decisive
+games from seed 900000, fp16 serving, on the branch's code. They are read
+against each other, never against the matches before round 609.
+
+| Match | Round | Elo | Wins of 800 | Read |
+|---|---|---|---|---|
+| 1 | 624 | +161.7 ± 13.6 | 574 | 2026-11-26 04:10 |
+
+**Match 1 (round 624): nothing decides yet, and no kill criterion is
+met.** Against the switch match (round 608's network on the same code,
++183.7 ± 14.0) it is −22.0 ± 19.5, 1.1 standard errors; one match is not
+a reading, and the registered one is after round 736.
+
+- **The count is the one of round 608's match on the old code (574), by
+  coincidence, not by a copy**
+  (`training/metrics/audit_fixes_20261125/match_pairs_0608_0624.json`).
+  Seed by seed, the two matches have the same map, sides and factions on
+  all 800 games, a different candidate on all 800 (round 624's network,
+  `c1b40984…`, at observation epoch 14, against round 608's, `9618cc13…`,
+  at epoch 12), the same outcome on 554 and the same number of turns
+  on 54.
+- **Two matches on the same seeds are not independent.** A seed fixes the
+  map, the sides and the factions, so the two outcomes of a seed
+  correlate: 0.24 between rounds 608 and 624, 0.29 between the switch
+  match and round 624 (`match_pairs_switch_0624.json`). The standard
+  error of a difference between two matches is then about 0.85 of the
+  figure for independent games (19.5 becomes about 17), and the same
+  factor holds for the registered difference of two means of four. The
+  registered figure (about 9.8) stands as written; it is the wider one,
+  so the criterion as registered asks for a larger drop (19.6 Elo) than
+  the corrected one would (about 17).
+
+**Rounds 609 to 624 check out** (measurement 2;
+`round_checks_593_to_624.json`, from `round_checks.py`). They took 5 h 07
+min, 19.2 minutes a round.
+
+| | Rounds 593 to 608 | Round 609 | Rounds 610 to 624 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 7.3e-6 | 7.6e-6 (7.2e-6 to 8.0e-6) |
+| Gradient's norm | 50.0 | 110.7 | 50.9 (39.0 to 83.3) |
+| of which the value head | 35.2 | 103.9 | 34.7 (10.2 to 73.7) |
+| Update's norm | 0.0068 | 0.0074 | 0.0077 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.511 | 0.406 ± 0.008 (0.351 to 0.468) |
+| Decisions in the pass | 58,180 | 62,540 | 59,780 |
+| Pass, seconds | 912 | 981 | 943 |
+
+- **The value head reads the new games as it read the old ones.** Its
+  cross-entropy over rounds 610 to 624 is 0.406 ± 0.008 against 0.398 ±
+  0.008 over the sixteen rounds before the switch; round 609's 0.511
+  stands alone. Its part of the gradient is unchanged on average.
+- **The update is 14% larger than before the switch,** on a gradient of
+  the same norm. By group, on average over rounds 610 to 624 against
+  rounds 593 to 608:
+  - the weapon head, 0.0016 against 0.0007: the pointer's new weights,
+    which Adam moves by about the learning rate each while they are new;
+  - the value head, 0.0041 against 0.0032, with its gradient's norm
+    unchanged. Its step was already growing before the switch (0.0026
+    over rounds 545 to 560, 0.0028 over 577 to 592). With Adam, a larger
+    step on an unchanged gradient means gradients that agree more from
+    round to round, or recent ones larger than the long average on the
+    weights concerned (rounds 609 and 620 read 103.9 and 73.7). Which of
+    the two is not established;
+  - the encoder, 0.0013 against 0.0010, on a gradient of 4.0 against
+    3.2 (it read 0.0014 over rounds 545 to 560, after the new inputs);
+  - the trunk, 0.0060 against 0.0057.
+- **The pass's time follows the decisions:** 3% longer for 3% more
+  decisions (the table's seconds are the sum of the pass's groups, some
+  10 s under the console's figure). Two passes ran over 1,200 s on the
+  console (rounds 610 and 616), none over 1.5 times the usual.
+- **No warning, no refusal:** the console holds none since the relaunch.
+
+**The pointer's weights at round 624** (measurement 3;
+`pointer_weights_round_0624.json`): the keys' root mean square is 4.4e-5
+after sixteen steps, every one of the 24,576 away from zero; the queries
+have moved 4.2e-5 (weights) and 5.5e-5 (bias) from the switch's. That is
+the loop's ordinary pace: the new inputs' projection stood at 4.6e-5
+sixteen rounds after its own switch, and the old unit projection at
+4.3e-5 after the loop's first sixteen rounds.
+
+**Advancements chosen:** 95 in round 624's 128 games (0.74 a game), 48 of
+them (51%) a type other than the first
+(`advance_choices_round_0624.json`); 544 in the match's 800 games (0.68 a
+game, by either player), 302 of them (56%) another type than the first
+(`advance_choices_match_0624.json`; the switch match read 561 and 55%).
