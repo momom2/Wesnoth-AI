@@ -76,6 +76,14 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # no corpus position changes. The positions of a game the simulator
     # plays do.
     41: 41,
+    # A player's unit that levels up on its own side's turn with several
+    # types to become waits for the side's choice (feature/advancement-
+    # choice; the user's approval of 2026-11-25). Behind the core's
+    # `ask_advance`, which the simulator sets and reconstruction leaves off:
+    # a replay's attack carries its choices. While a unit waits, the recruit
+    # rows and the masks of a position hold its options, so the positions of
+    # a game the simulator plays change; no corpus position does.
+    42: 42,
 }
 
 

@@ -234,7 +234,12 @@ ERA_FACTIONS = {
 #        first decision (`ScenarioSetup.random_factions`);
 #      - a player's move under fog stops where it brings an enemy into
 #        view (the core's `sighting_stops`).
-OBSERVATION_EPOCH = 13
+#  14  (2026-11-25) a unit that levels up on its own side's turn with
+#      several types to become is the side's to choose
+#      (docs/blindspot_audit_20261125.md, gap 2; the core's `ask_advance`).
+#      While it waits, the recruit rows hold its options on its hex and
+#      nothing else is legal. The encoding's columns are unchanged.
+OBSERVATION_EPOCH = 14
 
 # The width of the pointer by which a weapon's score reads its target
 # (model.py `weapon_q_proj` and `weapon_k_proj`; the checkpoint key

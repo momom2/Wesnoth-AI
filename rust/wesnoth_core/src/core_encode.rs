@@ -413,6 +413,13 @@ impl GameCore {
             lx = l.x;
             ly = l.y;
         }
+        // While a unit of the side waits for the type it becomes, the
+        // recruit rows hold its options (`parity_recruit_names`), and they
+        // stand on its hex.
+        if let Some((i, _)) = self.pending_choice(side) {
+            lx = self.units[i].x;
+            ly = self.units[i].y;
+        }
         // Global values: turn, side, gold, income, our and their
         // villages (the other player's count, or under the fog gate the
         // enemy villages among the hexes it sees). The other player is
@@ -544,7 +551,9 @@ impl GameCore {
 
     /// The side's recruit list, which the passed recruit ids follow.
     fn parity_recruit_names(&self, side: i64, n_ids: usize) -> PyResult<Vec<String>> {
-        let names = if side >= 1 && side as usize <= self.sides.len() {
+        let names = if let Some((_, targets)) = self.pending_choice(side) {
+            targets
+        } else if side >= 1 && side as usize <= self.sides.len() {
             self.sides[side as usize - 1].recruits.clone()
         } else {
             Vec::new()

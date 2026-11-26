@@ -323,12 +323,18 @@ impl GameCore {
     /// `init_side_now`. It touches no Python object: the process's other
     /// threads run while it plays (a worker's game threads).
     fn apply_init_side(&mut self, py: Python<'_>, side: i64) -> PyResult<()> {
-        py.allow_threads(|| self.init_side_now(side))
+        py.allow_threads(|| {
+            self.advance_pending(None);
+            self.init_side_now(side)
+        })
     }
 
     /// `end_turn_now`, without the GIL as `apply_init_side`.
     fn apply_end_turn(&mut self, py: Python<'_>) -> PyResult<()> {
-        py.allow_threads(|| self.end_turn_now())
+        py.allow_threads(|| {
+            self.advance_pending(None);
+            self.end_turn_now()
+        })
     }
 
     /// The last init_side's engagement telemetry: (kind, side, a, b, c)

@@ -78,6 +78,24 @@ impl GameCore {
         for (s, &i) in vis.iter().enumerate() {
             out.n_attacks[s] = self.units[i].attacks.len().min(MAX_ATTACKS) as i8;
         }
+        if let Some((i, targets)) = self.pending_choice(side) {
+            // A unit of the side waits for the type it becomes: the side's
+            // legal orders are its options alone, which stand in the
+            // recruit rows (core_encode.rs), each on the unit's own hex.
+            // No unit acts and the turn does not end before the choice.
+            out.actor_mask[a - 1] = 0;
+            let t = if self.units[i].hex >= 0 { tok_of_hex[self.units[i].hex as usize] } else { -1 };
+            if t < 0 || targets.len() != nr {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "the unit that waits to advance has no hex token, or {} options for {nr} rows", targets.len())));
+            }
+            for r in 0..nr {
+                let slot = nu + r;
+                set_bit(&mut out.union_bits[slot * hb..(slot + 1) * hb], t as usize);
+                out.actor_mask[slot] = 1;
+            }
+            return Ok(out);
+        }
         if ht == 0 {
             return Ok(out);
         }

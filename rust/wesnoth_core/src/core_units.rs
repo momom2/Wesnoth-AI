@@ -177,14 +177,27 @@ impl GameCore {
     /// of a side that delays its shroud updates (the `can_delay` check,
     /// vision.cpp:467-469). Returns whether it advanced.
     pub fn advance_unit(&mut self, i: usize) -> bool {
+        self.advance_unit_asking(i, false).0
+    }
+
+    /// `advance_unit`, stopping with `ask` before an advancement that has
+    /// several types to offer and no recorded choice: (whether the unit
+    /// advanced, whether it waits for a choice). The advancements made
+    /// before the stop are in place.
+    pub fn advance_unit_asking(&mut self, i: usize, ask: bool) -> (bool, bool) {
         let mut u = self.units[i].clone();
         let mut advanced = false;
+        let mut waits = false;
         while u.current_exp >= u.max_exp {
+            if ask && self.advance_choices.is_empty() && self.advance_targets(&u).len() > 1 {
+                waits = true;
+                break;
+            }
             self.advance_once(&mut u);
             advanced = true;
         }
         if !advanced {
-            return false;
+            return (false, waits);
         }
         self.place_unit_facts(&mut u);
         self.units[i] = u;
@@ -192,7 +205,57 @@ impl GameCore {
         if hex >= 0 && !self.vision_delayed(self.units[i].side) {
             self.clear_fog_from(i, &[hex as usize]);
         }
-        true
+        (true, waits)
+    }
+
+    /// Whether unit `i`'s side is asked what the unit becomes: the rule is
+    /// on, the side is a player's and it is its turn. The engine asks a
+    /// player only then (advancement.cpp:205-207, 1.18.4:
+    /// `t.is_local_human() && ... (is_current_side || !is_mp)`); on the
+    /// enemy's turn a player's unit takes the first type listed (:232-237).
+    /// Nobody is asked in a game that draws its advancements uniformly
+    /// (`advance_uniform`, the earlier self-play's rule): the draw decides.
+    pub(crate) fn asks_advance(&self, i: usize) -> bool {
+        let side = self.units[i].side;
+        self.global.ask_advance
+            && !self.global.advance_uniform
+            && side == self.global.current_side
+            && side >= 1
+            && side as usize <= crate::core_sight::RECORD_SIDES
+    }
+
+    /// For `side`, the unit whose advancement waits for its choice and the
+    /// types it may become.
+    pub(crate) fn pending_choice(&self, side: i64) -> Option<(usize, Vec<String>)> {
+        let (attacker, _) = self.pending_advance.as_ref()?;
+        let i = self.unit_pos(attacker)?;
+        (self.units[i].side == side).then(|| (i, self.advance_targets(&self.units[i])))
+    }
+
+    /// Settle the advancement that waits. `choice` is the type its side
+    /// chose, an index into `advance_targets`; None takes the type the core
+    /// takes unasked (a command that came instead of the choice: the
+    /// engine would not have let it). Returns whether an advancement still
+    /// waits: a unit that gained two levels' experience at once is asked
+    /// again for the second. The defender's advancement, which the engine
+    /// makes after the attacker's (attack.cpp:1556-1567), follows.
+    pub(crate) fn advance_pending(&mut self, choice: Option<i64>) -> bool {
+        let Some((attacker, defender)) = self.pending_advance.take() else { return false };
+        if let Some(i) = self.unit_pos(&attacker) {
+            if let Some(c) = choice {
+                self.advance_choices.insert(0, c);
+            }
+            let ask = choice.is_some() && self.asks_advance(i);
+            let (_, waits) = self.advance_unit_asking(i, ask);
+            if waits {
+                self.pending_advance = Some((attacker, defender));
+                return true;
+            }
+        }
+        if let Some(d) = defender.and_then(|id| self.unit_pos(&id)) {
+            self.advance_unit(d);
+        }
+        false
     }
 
     /// The corpse a plague kill of `dead_name` raises for `side` on
@@ -261,6 +324,7 @@ impl GameCore {
     fn apply_recruit(&mut self, py: Python<'_>, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
         // No Python object is touched: the process's other threads run meanwhile.
         py.allow_threads(|| {
+            self.advance_pending(None);
             if seed.is_empty() {
                 return self.recruit_with(unit_type, x, y, None);
             }
@@ -317,6 +381,28 @@ impl GameCore {
 
     /// `_maybe_advance_unit` on a unit of this core (the differential
     /// tests' handle). Returns whether it advanced.
+    /// `_apply_command(["advance", choice])`: the advancement that waits
+    /// on its side's choice (`advance_options`), made with the type at
+    /// index `choice` of its options; then what each side sees is
+    /// recorded. Returns whether an advancement still waits. An error
+    /// when nothing waits or the index names no option.
+    fn apply_advance(&mut self, py: Python<'_>, choice: i64) -> PyResult<bool> {
+        py.allow_threads(|| {
+            let side = self.global.current_side;
+            let Some((_, targets)) = self.pending_choice(side) else {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "an advance command with no advancement waiting on the side to move"));
+            };
+            if choice < 0 || choice as usize >= targets.len() {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "advancement choice {choice} is outside the {} options", targets.len())));
+            }
+            let waits = self.advance_pending(Some(choice));
+            self.note_sightings();
+            Ok(waits)
+        })
+    }
+
     fn advance_unit_id(&mut self, id: &str) -> PyResult<bool> {
         let i = self.unit_pos(id).ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(id.to_string()))?;
         Ok(self.advance_unit(i))

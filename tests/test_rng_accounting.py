@@ -165,6 +165,13 @@ def test_advancement_pins_choice_in_history_and_export():
     # Survival surgery: the counter-attack must not kill the
     # attacker before XP is awarded (dead units don't advance).
     att.current_hp = 80
+    # This test is of an advancement nobody is asked about, whose choice
+    # the attack's own command carries. Since 2026-11-25 the simulator asks
+    # the side when its unit levels up on its own turn (`ask_advance`), and
+    # the choice then has a command of its own
+    # (tests/test_advancement_choice.py tests that and its export). The
+    # fixture's simulator plays without the asking.
+    sim.gs.global_info.__dict__.pop("_ask_advance", None)
     commit_view(sim)
 
     sim.step({"type": "attack", "start_hex": att.position,

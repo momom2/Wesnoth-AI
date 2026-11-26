@@ -312,6 +312,12 @@ def _wml_for_command(rc: RecordedCommand,
             "\t[/command]\n"
         )
 
+    if rc.kind == "advance":
+        # ["advance", choice]: the choice a side made for its unit that
+        # waited to advance. It has no command of its own in a replay: the
+        # caller writes its [choose] follow-ups, as it does an attack's.
+        return ""
+
     log.warning(f"sim_to_replay: skipping unknown command kind: {rc.kind!r}")
     return ""
 
@@ -584,7 +590,10 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
         # advancement draws targets[idx] and records that idx; we emit it verbatim
         # below (do NOT hardcode value=0 -- that would advance the wrong
         # type on Wesnoth playback and desync strict-sync export).
-        if rc.kind == "attack":
+        if rc.kind in ("attack", "advance"):
+            # An attack whose attacker waited for its side's choice wrote no
+            # [choose] of its own: the "advance" command after it holds the
+            # attacker's, then the defender's, in the engine's order.
             # from_side = the ATTACK's side, not the advancing
             # unit's owner (see _wml_choose_command; the recorded
             # (side, idx) tuple's side is kept for ordering/debug).
