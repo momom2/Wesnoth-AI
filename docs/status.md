@@ -207,6 +207,14 @@ night's training is clearly flawed or stalled."
     (574 of 800, 2026-11-26 04:10). It is one match of the eight; nothing
     decides yet. The count is round 608's by coincidence (another
     network, other games, checked seed by seed).
+  - **The second, after round 640: +212.0 ± 14.6** (618 of 800,
+    2026-11-26 09:29), the highest of the run's 42 matches. It is one
+    match: with the first it reads +186.9 ± 10.0, which is the switch
+    match's reading of round 608's network (+183.7 ± 14.0). Sixteen
+    rounds are not expected to add 50 Elo, so it is read as one match low
+    and one high until the next ones say otherwise. Rounds 625 to 640
+    check out (exact check 7.4e-6 to 8.3e-6; value head's cross-entropy
+    0.403 ± 0.004).
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no
     warning. The value head's cross-entropy over rounds 610 to 624 is
     0.406 ± 0.008 against 0.398 ± 0.008 over the sixteen rounds before

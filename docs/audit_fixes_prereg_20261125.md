@@ -4,9 +4,10 @@
 (2026-11-25 22:49, from the branch `feature/advancement-choice` at
 bec71da6; departure 1 below). **The GPU checks passed, and the switch
 match reads +22.0 ± 19.5 against the loop's own match of the same network:
-kill criterion 1 is not met** (Results). **The first match from the
-switch, after round 624, reads +161.7 ± 13.6; rounds 609 to 624 check
-out.** Seven matches are left before the registered verdict (round 736).
+kill criterion 1 is not met** (Results). **The first two matches from
+the switch read +161.7 ± 13.6 (round 624) and +212.0 ± 14.6 (round 640),
++186.9 ± 10.0 together; rounds 609 to 640 check out.** Six matches are
+left before the registered verdict (round 736).
 Neither branch is merged into `main`: that is the user's to approve. The user answered the question of
 the switch's time with "Otherwise, approved", on a message that
 recommended that evening; that reading was put back to them. It is
@@ -351,6 +352,29 @@ against each other, never against the matches before round 609.
 | Match | Round | Elo | Wins of 800 | Read |
 |---|---|---|---|---|
 | 1 | 624 | +161.7 ± 13.6 | 574 | 2026-11-26 04:10 |
+| 2 | 640 | +212.0 ± 14.6 | 618 | 2026-11-26 09:29 |
+
+**Match 2 (round 640) is the highest of the run's 42 matches, and it is
+one match.** Nothing decides before round 736.
+
+- **The two matches together read +186.9 ± 10.0,** which is the switch
+  match's reading of round 608's network (+183.7 ± 14.0): +3.2 ± 17.2.
+  Read that way, the first 32 rounds on the new rules show no change.
+- **Match 2 against match 1 is +50.3 ± 20.0,** 2.5 standard errors with
+  the games taken as independent. Seed by seed
+  (`training/metrics/audit_fixes_20261125/match_pairs_0624_0640.json`)
+  the two share the outcome on 602 games; of the 198 others, round 640's
+  network won 121 and round 624's 77. The outcomes of a seed correlate
+  0.36 here, which puts the difference's standard error at about 16.
+- **It is not taken as a gain of 50 Elo in sixteen rounds.** The loop
+  made about 130 Elo in its first 544 rounds, and sixteen steps cannot
+  be expected to add 50. The plainer reading is one match on the low side
+  and one on the high side of the same strength: the nine matches of
+  rounds 480 to 608 ranged from +139.8 to +179.2 around +168. The next
+  matches say which.
+- **The match's games are ordinary:** 800 decided by a leader's death,
+  no turn ended for a side or left unplayed, round 640's own checkpoint
+  (`fd046e90…`) on the same code, seeds and reference as match 1.
 
 **Match 1 (round 624): nothing decides yet, and no kill criterion is
 met.** Against the switch match (round 608's network on the same code,
@@ -380,15 +404,18 @@ a reading, and the registered one is after round 736.
 `round_checks_593_to_624.json`, from `round_checks.py`). They took 5 h 07
 min, 19.2 minutes a round.
 
-| | Rounds 593 to 608 | Round 609 | Rounds 610 to 624 |
-|---|---|---|---|
-| Exact check (limit 1e-4) | 7.4e-6 | 7.3e-6 | 7.6e-6 (7.2e-6 to 8.0e-6) |
-| Gradient's norm | 50.0 | 110.7 | 50.9 (39.0 to 83.3) |
-| of which the value head | 35.2 | 103.9 | 34.7 (10.2 to 73.7) |
-| Update's norm | 0.0068 | 0.0074 | 0.0077 |
-| Value head's cross-entropy | 0.398 ± 0.008 | 0.511 | 0.406 ± 0.008 (0.351 to 0.468) |
-| Decisions in the pass | 58,180 | 62,540 | 59,780 |
-| Pass, seconds | 912 | 981 | 943 |
+| | Rounds 593 to 608 | Round 609 | Rounds 610 to 624 | Rounds 625 to 640 |
+|---|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 7.3e-6 | 7.6e-6 (7.2e-6 to 8.0e-6) | 7.8e-6 (7.4e-6 to 8.3e-6) |
+| Gradient's norm | 50.0 | 110.7 | 50.9 (39.0 to 83.3) | 46.7 (39.9 to 55.2) |
+| of which the value head | 35.2 | 103.9 | 34.7 (10.2 to 73.7) | 28.9 (16.8 to 40.1) |
+| Update's norm | 0.0068 | 0.0074 | 0.0077 | 0.0078 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.511 | 0.406 ± 0.008 (0.351 to 0.468) | 0.403 ± 0.004 (0.371 to 0.432) |
+| Decisions in the pass | 58,180 | 62,540 | 59,780 | 61,580 |
+| Pass, seconds | 912 | 981 | 943 | 935 |
+
+The last column was added with match 2 (`round_checks_609_to_640.json`);
+what it shows is under "Rounds 625 to 640" below.
 
 - **The value head reads the new games as it read the old ones.** Its
   cross-entropy over rounds 610 to 624 is 0.406 ± 0.008 against 0.398 ±
@@ -428,3 +455,28 @@ them (51%) a type other than the first
 (`advance_choices_round_0624.json`); 544 in the match's 800 games (0.68 a
 game, by either player), 302 of them (56%) another type than the first
 (`advance_choices_match_0624.json`; the switch match read 561 and 55%).
+
+**Rounds 625 to 640 check out** (2026-11-26 04:10 to 09:16, 19.2 minutes
+a round; the table above).
+
+- **The exact check holds** (7.4e-6 to 8.3e-6), every gradient is finite,
+  and the console holds no warning.
+- **The value head:** its cross-entropy is 0.403 ± 0.004, as before the
+  switch (0.398 ± 0.008), and steadier from round to round (0.371 to
+  0.432). Its part of the gradient is lower, 28.9 against 35, with no
+  round over 40.1 where six of the sixteen rounds 593 to 608 and six of
+  rounds 609 to 624 were. Its step stays at 0.0041, the level it took
+  after the switch.
+- **The update stays 16% over the level before the switch** (0.0078
+  against 0.0068). The weapon head's step is coming down as the pointer's
+  weights age (0.0012, from 0.0016 over rounds 610 to 624 and 0.0007
+  before the switch); the trunk's is at 0.0063 (0.0057 before).
+- **The pointer's weights at round 640**
+  (`pointer_weights_round_0640.json`): the keys' root mean square is
+  5.7e-5 (4.4e-5 at round 624), and the queries have moved 5.7e-5
+  (weights) and 6.6e-5 (bias) from the switch's.
+- **Advancements chosen:** 95 in round 640's 128 games (0.74 a game), 59
+  of them (62%) a type other than the first
+  (`advance_choices_round_0640.json`); 548 in the match's 800 games (0.69
+  a game), 327 of them (60%) another type than the first
+  (`advance_choices_match_0640.json`).

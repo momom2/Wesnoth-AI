@@ -26,5 +26,10 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_match_0624.json` | The 800 games of the match after round 624. |
 | `match_pairs_0608_0624.json` | The loop's match at round 608 (old code) against the match at round 624: the same count of wins, 574, by coincidence. |
 | `match_pairs_switch_0624.json` | The switch match (round 608's network on the new code) against the match at round 624. |
+| `round_checks_609_to_640.json` | Rounds 593 to 608, 610 to 624 and 625 to 640, side by side. |
+| `pointer_weights_round_0640.json` | The pointer at rounds 624 and 640. |
+| `advance_choices_round_0640.json` | Round 640's 128 games. |
+| `advance_choices_match_0640.json` | The 800 games of the match after round 640. |
+| `match_pairs_0624_0640.json` | The matches at rounds 624 and 640 (574 and 618 wins), seed by seed. |
 
 All were run beside the training at Idle priority, on at most 2 threads.
