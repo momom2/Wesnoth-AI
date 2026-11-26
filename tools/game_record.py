@@ -61,6 +61,12 @@ reach that turn: the simulator moved the unit first, so the commands hold
 that move and the attack, and the decision log holds one decision at the
 move (tools/approach_hex.py). Such a record rebuilds as before; its
 distant attacks are not legal under today's masks (tools/pg_positions.py).
+7 marks the game played with a player's move under fog stopping where it
+brings an enemy into view (`sighting_stops`, core_move.rs), and with the
+setup's `random_factions`. A record holds a move's route as ordered and
+the rebuild walks it under the record's own rule: `sighting_stops` is a
+field of the record, absent and off in formats 6 and earlier, whose moves
+ran to their end.
 """
 from __future__ import annotations
 
@@ -83,7 +89,7 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 6
+FORMAT = 7
 # The core's rules of earlier records: (the global that keeps the rule, the
 # last format played under it). See "Formats" above.
 OLD_RULES = (("skip_first_turn_resting", 3), ("keep_removed_uncovered", 4))
@@ -132,6 +138,7 @@ def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] 
         "max_turns": int(sim.max_turns),
         "seed_salt": sim._seed_salt,
         "uniform_advancement": bool(getattr(gi, "_advance_uniform", False)),
+        "sighting_stops": bool(getattr(gi, "_sighting_stops", False)),
         "players": dict(players or {}),
         "winner": int(sim.winner),
         "ended_by": sim.ended_by,
@@ -414,6 +421,8 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
         for name in old_rules:
             cs.core.set_global_int(name, 1)
         cs.setup_scenario(rec["scenario_id"])
+    if rec.get("sighting_stops"):
+        cs.core.set_global_int("sighting_stops", 1)
     if rec.get("uniform_advancement"):
         cs.core.set_global_int("advance_uniform", 1)
         cs.core.set_global_int("advance_counter", 0)

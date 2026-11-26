@@ -38,6 +38,7 @@ import torch.nn.functional as F
 from wesnoth_ai.action_sampler import (
     _NEG_INF, LegalActionPrior, _build_legality_masks,
 )
+from wesnoth_ai.model_output import reads_target, weapon_logits_for, weapon_slots
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout as _Layout
 
@@ -297,7 +298,7 @@ def start_priors(padded, packs: List[PackedMasks],
     device = padded.actor_logits.device
     pin = device.type == "cuda"
     A_max, T = padded.type_logits.shape[1], padded.type_logits.shape[2]
-    H_max, W = padded.target_logits.shape[2], padded.weapon_logits.shape[2]
+    H_max, W = padded.target_logits.shape[2], weapon_slots(padded)
     layout, host, capacity = _stage_masks(packs, A_max, H_max, T, W, pin)
     with torch.no_grad():
         v = layout.torch_views(host.to(device, non_blocking=True))
@@ -317,8 +318,12 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
     sizes, `capacity` and the extras, so with those fixed the whole
     chain is static: graphed_serve captures it in a CUDA graph."""
     B, A_max, T = padded.type_logits.shape
-    H_max, W = padded.target_logits.shape[2], padded.weapon_logits.shape[2]
+    H_max, W = padded.target_logits.shape[2], weapon_slots(padded)
     device = padded.actor_logits.device
+    # A network whose weapon score reads the target has no weapon law per
+    # actor: the law of each attack entry is computed once the entries are
+    # compacted, from the entry's own actor and target.
+    per_target = reads_target(padded)
     with torch.no_grad():
         actor_ok = v["actor_mask"] != 0
         slot = v["slot_kind"]
@@ -328,7 +333,13 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
         p_type = F.softmax(padded.type_logits.masked_fill(v["type_valid"] == 0, _NEG_INF), dim=-1)  # [B, A, T]
         n_att = v["n_attacks"]
         w_ok = torch.arange(W, device=device).view(1, 1, W) < n_att.unsqueeze(-1)
-        p_wpn = F.softmax(padded.weapon_logits.masked_fill(~w_ok, _NEG_INF), dim=-1)
+        if per_target:
+            # A weapon slot the unit has is an entry: its probability under
+            # the masked softmax is positive.
+            wpn_live = w_ok
+        else:
+            p_wpn = F.softmax(padded.weapon_logits.masked_fill(~w_ok, _NEG_INF), dim=-1)
+            wpn_live = p_wpn > 0
         tg = padded.target_logits
         p_atk = F.softmax(tg.masked_fill(~_unpack_bits(v["attack_bits"], H_max), _NEG_INF), dim=-1)
         p_mv = F.softmax(tg.masked_fill(~_unpack_bits(v["move_bits"], H_max), _NEG_INF), dim=-1)
@@ -339,7 +350,7 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
         atk_ok = unit_live & (p_type[:, :, UnitActionType.ATTACK] > 0) & (n_att > 0)
         mv_ok = unit_live & (p_type[:, :, UnitActionType.MOVE] > 0)
         m_att = (atk_ok[:, :, None, None] & (p_atk > 0)[:, :, :, None]
-                 & (p_wpn > 0)[:, :, None, :])                                # [B, A, H, W]
+                 & wpn_live[:, :, None, :])                                   # [B, A, H, W]
         m_mv = mv_ok[:, :, None] & (p_mv > 0)
         m_rec = (live & (slot == _SLOT_RECRUIT))[:, :, None] & (p_rec > 0)
         m_end = live & (slot == _SLOT_END)
@@ -380,8 +391,15 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
                 is_mv, p_mv[bb, aa, hi], torch.where(is_rec, p_rec[bb, aa, hi], 1.0)))
         else:
             f_target = torch.ones_like(f_actor)
-        f_weapon = (torch.where(is_atk, p_wpn[bb, aa, ww.clamp_min(0)], 1.0) if W
-                    else torch.ones_like(f_actor))
+        if not W or (per_target and not H_max):
+            f_weapon = torch.ones_like(f_actor)
+        elif per_target:
+            ok = w_ok[bb, aa]
+            ok = ok | ~ok.any(dim=-1, keepdim=True)          # an entry that is no attack: read whole, unused
+            p_entry = F.softmax(weapon_logits_for(padded, bb, aa, hi).masked_fill(~ok, _NEG_INF), dim=-1)
+            f_weapon = torch.where(is_atk, p_entry.gather(1, ww.clamp_min(0).long().unsqueeze(1)).squeeze(1), 1.0)
+        else:
+            f_weapon = torch.where(is_atk, p_wpn[bb, aa, ww.clamp_min(0)], 1.0)
         prior = ((f_actor.double() * f_type.double()) * f_target.double()) * f_weapon.double()
         outs: Dict[str, torch.Tensor] = {
             "ends": ends, "actor": aa.to(torch.int32), "kind": kind.to(torch.int8),

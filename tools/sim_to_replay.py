@@ -189,9 +189,15 @@ def _wml_for_command(rc: RecordedCommand,
         # playback re-truncates on hidden blockers identically to
         # the core's move). skip_sighted="all" disables the
         # sighted-move interrupt on playback
-        # (synced_commands.cpp:305-314) -- the sim doesn't model
-        # sighting interrupts, so exports must not re-check them.
+        # (synced_commands.cpp:305-314): the export does not ask
+        # Wesnoth to re-check sightings. A move the simulator stopped
+        # on a sighting (core_move.rs, `sighting_stops`) is written
+        # with its route up to the hex the unit stopped on, which
+        # playback then walks to its end.
         xs, ys = rc.cmd[1], rc.cmd[2]
+        stop = rc.extras.get("sighted_stop")
+        if stop is not None:
+            xs, ys = xs[:int(stop) + 1], ys[:int(stop) + 1]
         # Convert to 1-indexed.
         xs1 = ",".join(str(v + 1) for v in xs)
         ys1 = ",".join(str(v + 1) for v in ys)
@@ -941,6 +947,7 @@ def _render_side_block(
     pre_placed_villages: List[Tuple[int, int]] = (),
     pre_placed_units: List[Tuple[str, int, int]] = (),
     income_offset: int = 0,
+    chose_random: bool = False,
 ) -> str:
     """Render one `[side]...[/side]` block. Mirrors what Wesnoth emits
     for a fresh-game save: a top-level type= for the leader (Wesnoth
@@ -953,7 +960,7 @@ def _render_side_block(
         '\tallow_changes="yes"',
         '\tallow_player="yes"',
         '\tcanrecruit="yes"',
-        '\tchose_random="no"',
+        f'\tchose_random="{"yes" if chose_random else "no"}"',
         f'\tcolor="{color}"',
         '\tcontroller="human"',
         f'\tcurrent_player="Sim Player {side_num}"',
@@ -1280,6 +1287,7 @@ def build_save_wml(
             user_team_name=user_team_name,
             pre_placed_villages=village_map.get(i, []),
             pre_placed_units=unit_map.get(i, []),
+            chose_random=bool(getattr(side_info, "chose_random", False)),
         ))
 
     # ---- pin the ToD start slot the sim actually played ----

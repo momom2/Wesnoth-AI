@@ -36,9 +36,14 @@ MP + (defense_pct + ally_occupied)/10000 per entered hex, ZoC entry
 charging all remaining MP. Residual exact ties are unspecified in the
 engine (heap order) and broken deterministically by the core.
 
-Sighted-move interrupts are deliberately NOT modelled: exported
-[move] WML carries skip_sighted="all", which replay playback honours
-(synced_commands.cpp:305-314), so sim, export and playback agree.
+Sighted-move interrupts are not modelled HERE: this module is the Python
+twin of the core's walk for corpus replays, whose routes the extractor
+already cut where the engine stopped the unit. The core stops a player's
+move on a sighting in the games the simulator plays
+(rust/wesnoth_core/src/core_move.rs, `sighting_stops`). An exported [move]
+carries skip_sighted="all", which replay playback honours
+(synced_commands.cpp:305-314), and a move stopped on a sighting is exported
+with its route cut at the stop, so sim, export and playback agree.
 """
 
 from __future__ import annotations

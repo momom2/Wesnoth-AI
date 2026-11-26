@@ -246,8 +246,9 @@ CHECKPOINT_STRUCT_FLAGS = ("moves_left",
 # The same for the integer keys (wesnoth_ai/checkpoint_structure.py): the
 # memory's slot count sizes parameters; the relevant set's version selects
 # the hex stream the encoder builds; the unit row's version decides whether
-# the encoder has the projection of version 2's added columns.
-CHECKPOINT_STRUCT_INTS = ("memory_slots", "relevant_set_version", "unit_row_version")
+# the encoder has the projection of version 2's added columns; the weapon
+# pointer's width decides whether the network has it.
+CHECKPOINT_STRUCT_INTS = ("memory_slots", "relevant_set_version", "unit_row_version", "weapon_target")
 
 
 def peek_checkpoint_arch(

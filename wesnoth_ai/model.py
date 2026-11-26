@@ -121,6 +121,10 @@ class WesnothModel(nn.Module):
         # (0 = none).
         observation_parity: bool = False,
         memory_slots: int = 0,
+        # The weapon's score reads the target: the width of its pointer
+        # (constants.WEAPON_TARGET_RANK), 0 for a network that scores a
+        # weapon from the attacker's token alone.
+        weapon_target: int = 0,
     ):
         super().__init__()
         self.d_model     = d_model
@@ -296,6 +300,26 @@ class WesnothModel(nn.Module):
         # The learned memory (wesnoth_ai/memory.py). Built last, so the
         # parameters before it draw from the generator as without it.
         self.slot_memory = SlotMemory(d_model, self.memory_slots) if self.memory_slots else None
+        # The weapon's score reads the target (docs/blindspot_audit_20261125.md,
+        # gap 3; user ruling 2026-11-25). Without it a unit's weapon is
+        # scored from its own token, the same whichever enemy it strikes:
+        #     P(unit u attacks hex h with weapon w)
+        #         = P(u) P(attack | u) P(h | u, attack) P(w | u)
+        # With it the last factor is P(w | u, h): the per-unit score gains a
+        # pointer's term, the form the target's own score has, one query per
+        # weapon slot from the attacker's token against one key from the
+        # target hex's token:
+        #     weapon_head(u)[w] + q_w(u) . k(h) / sqrt(R)
+        # The key's map starts at zero, so the term is zero and a network
+        # given these two maps plays as its source does until they train.
+        # Built after everything else, so the parameters before them draw
+        # from the generator as without them.
+        self.weapon_target = int(weapon_target)
+        self.weapon_q_proj = self.weapon_k_proj = None
+        if self.weapon_target:
+            self.weapon_q_proj = nn.Linear(d_model, max_attacks * self.weapon_target)
+            self.weapon_k_proj = nn.Linear(d_model, self.weapon_target, bias=False)
+            nn.init.zeros_(self.weapon_k_proj.weight)
 
     @property
     def extended_streams(self) -> bool:
@@ -308,6 +332,19 @@ class WesnothModel(nn.Module):
         if self.slot_memory is None:
             raise ValueError("this model has no memory (memory_slots=0)")
         return self.slot_memory.initial_state(k)
+
+    def _weapon_pointer(self, weapon_logits: torch.Tensor, actor_ctx: torch.Tensor, hex_ctx: torch.Tensor):
+        """(weapon_actor_logits, weapon_logits, weapon_q, weapon_k) of the
+        outputs: for a network whose weapon score reads the target, the
+        per-actor scores under their own name, None in `weapon_logits`'s
+        place, the queries [B, A, W, R] and the keys [B, H, R]
+        (model_output.weapon_logits_for); otherwise the scores as they
+        are."""
+        if self.weapon_q_proj is None:
+            return None, weapon_logits, None, None
+        B, A = actor_ctx.shape[0], actor_ctx.shape[1]
+        q = self.weapon_q_proj(actor_ctx).view(B, A, self.max_attacks, self.weapon_target)
+        return weapon_logits, None, q, self.weapon_k_proj(hex_ctx)
 
     def _value_input(self, g: torch.Tensor, material: Optional[torch.Tensor]) -> torch.Tensor:
         """The value head's input: the global context, plus the
@@ -421,6 +458,8 @@ class WesnothModel(nn.Module):
             target_logits = (q @ k.transpose(-1, -2)) / (d ** 0.5)  # [1, A, H]
 
         weapon_logits = self.weapon_head(actor_ctx)  # [1, A, max_attacks]
+        weapon_actor_logits, weapon_logits, weapon_q, weapon_k = self._weapon_pointer(
+            weapon_logits, actor_ctx, hex_ctx)
 
         # Distributional value head: read the contextualized global
         # token, emit K logits over the bin support, derive scalar
@@ -455,6 +494,7 @@ class WesnothModel(nn.Module):
             type_logits=type_logits,
             target_logits=target_logits,
             weapon_logits=weapon_logits,
+            weapon_actor_logits=weapon_actor_logits, weapon_q=weapon_q, weapon_k=weapon_k,
             value=value,
             value_logits=value_logits,
             cliffness=cliffness,
@@ -1172,6 +1212,8 @@ class WesnothModel(nn.Module):
         actor_logits = self.actor_head(actor_ctx).squeeze(-1)           # [B, A_max]
         type_logits = self.type_head(actor_ctx)                          # [B, A_max, T]
         weapon_logits = self.weapon_head(actor_ctx)                      # [B, A_max, W]
+        weapon_actor_logits, weapon_logits, weapon_q, weapon_k = self._weapon_pointer(
+            weapon_logits, actor_ctx, hex_ctx)
         if H_max == 0:
             target_logits = torch.zeros(B, A_max, 0, device=device, dtype=dtype)
         else:
@@ -1198,6 +1240,7 @@ class WesnothModel(nn.Module):
             actor_logits=actor_logits, actor_kind=actor_kind, type_logits=type_logits,
             target_logits=target_logits, weapon_logits=weapon_logits, value=value,
             value_logits=value_logits, cliffness=cliffness, moves_left=moves_left,
+            weapon_actor_logits=weapon_actor_logits, weapon_q=weapon_q, weapon_k=weapon_k,
             sizes=[tuple(s) for s in sizes],
             unit_ctx=unit_ctx,
             hex_ctx=hex_ctx if self.has_gbc else None,

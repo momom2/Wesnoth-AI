@@ -184,16 +184,18 @@ def game_facts(dataset: Path, games: Dict[str, Dict[str, int]]) -> Tuple[Dict[st
 
 def build_modules(unit_type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                   device: torch.device, arch: Dict[str, int],
-                  unit_row_version: int = 1) -> Tuple[GameStateEncoder, WesnothModel]:
+                  unit_row_version: int = 1, weapon_target: int = 0) -> Tuple[GameStateEncoder, WesnothModel]:
     """The parity-memory recipe's encoder and network; `unit_row_version`
-    is the checkpoint's own (encoder.py, "The unit row, version 2")."""
+    (encoder.py, "The unit row, version 2") and `weapon_target` (model.py,
+    the weapon pointer's width) are the checkpoint's own."""
     encoder = GameStateEncoder(d_model=arch["d_model"], relevant_set_hexes=True,
                                fog_hides_enemy_villages=True, terrain_multi_hot=True,
                                observation_parity=True, relevant_set_version=2,
                                unit_row_version=unit_row_version,
                                unit_type_to_id=unit_type_to_id, faction_to_id=faction_to_id).to(device)
     encoder.freeze_vocab()
-    model = WesnothModel(observation_parity=True, memory_slots=MEMORY_SLOTS, **arch).to(device)
+    model = WesnothModel(observation_parity=True, memory_slots=MEMORY_SLOTS, weapon_target=weapon_target,
+                         **arch).to(device)
     return encoder, model
 
 

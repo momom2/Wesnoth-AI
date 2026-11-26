@@ -161,8 +161,10 @@ def load_network(path: Path, device: torch.device):
     from wesnoth_ai.checkpoint_structure import saved_structure
     ck = torch.load(path, map_location="cpu", weights_only=True)
     arch = {k: int(ck["arch"][k]) for k in ARCH}
+    structure = saved_structure(ck)
     encoder, model = build_modules(ck["unit_type_to_id"], ck["faction_to_id"], device, arch,
-                                   unit_row_version=saved_structure(ck)["unit_row_version"])
+                                   unit_row_version=structure["unit_row_version"],
+                                   weapon_target=structure["weapon_target"])
     model.load_state_dict(ck["model_state"])
     encoder.load_state_dict(ck["encoder_state"])
     model.fold_biases = False

@@ -96,6 +96,7 @@ class TransformerPolicy:
         memory_slots: int = 0,
         relevant_set_version: int = 1,
         unit_row_version: int = 1,
+        weapon_target: int = 0,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -158,6 +159,9 @@ class TransformerPolicy:
         # loads only into a policy built with its own (load_checkpoint
         # refuses another).
         self._unit_row_version = int(unit_row_version)
+        # The width of the pointer by which a weapon's score reads its
+        # target (model.py), 0 for none: a parameter, like the row version.
+        self._weapon_target = int(weapon_target)
         self._encoder = GameStateEncoder(
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
@@ -176,6 +180,7 @@ class TransformerPolicy:
             value_material=self._value_material,
             observation_parity=self._observation_parity,
             memory_slots=self._memory_slots,
+            weapon_target=self._weapon_target,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -227,6 +232,7 @@ class TransformerPolicy:
             gbc=self._gbc,
             observation_parity=self._observation_parity,
             memory_slots=self._memory_slots,
+            weapon_target=self._weapon_target,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())

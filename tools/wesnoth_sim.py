@@ -27,8 +27,12 @@ What's faithful to Wesnoth:
   - Village capture on entry.
   - Slow-status drop at end_turn.
   - Unit advancement at max experience, AMLA included: a replay's
-    [choose] when present, else advances_to[0]; self-play draws
-    uniformly over the targets after enable_uniform_advancement().
+    [choose] when present, else advances_to[0]. The earlier self-play
+    (tools/selfplay_game.py) drew uniformly over the targets, after
+    enable_uniform_advancement(); the simple loop's games and the matches
+    do not call it and take advances_to[0].
+  - A player's move under fog stops where it brings an enemy into view
+    (`sighting_stops`, on by default).
   - Random rolls. Every attack and recruit takes its seed from
     _next_seed(): a hash of the request counter, salted by _seed_salt
     when one is set (per-game luck in eval and self-play, independent
@@ -360,7 +364,18 @@ class WesnothSim:
         begin_side: int = 1,
         no_progress_turns: int = 0,
         begin_turn: bool = True,
+        sighting_stops: bool = True,
     ):
+        # A player's move under fog stops where it brings an enemy into
+        # view, with the movement it has left, as Wesnoth stops a player's
+        # (the core's `sighting_stops`, core_move.rs; user ruling
+        # 2026-11-25). Set on the state before the core is built from it.
+        # The game record carries the rule, so a record of a game played
+        # before it rebuilds with every move run to its end.
+        if sighting_stops:
+            initial_state.global_info._sighting_stops = True
+        else:
+            initial_state.global_info.__dict__.pop("_sighting_stops", None)
         self.gs = initial_state                # the core (CoreState) built from the state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
@@ -387,6 +402,7 @@ class WesnothSim:
         if apply_scenario_events:
             self.core.setup_scenario(scenario_id)
             self._refresh_view()
+
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -805,6 +821,11 @@ class WesnothSim:
                 extras["attempted"] = (
                     f"move ordered to {walk['ordered']}, stopped "
                     f"at {walk['landed']} ({walk['stop_reason']})")
+                if walk["stop_reason"] == "sighted":
+                    # The route's index the unit stopped on: the replay
+                    # export writes the route up to it (sim_to_replay.py).
+                    route = list(zip(cmd[1], cmd[2]))
+                    extras["sighted_stop"] = route.index(tuple(walk["landed"]))
         if cmd[0] == "attack":
             # Advancement [choose] events, one per advancement step
             # (AMLA and multi-advance chain links included,
