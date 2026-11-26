@@ -218,6 +218,16 @@ night's training is clearly flawed or stalled."
     and one high until the next ones say otherwise. Rounds 625 to 640
     check out (exact check 7.4e-6 to 8.3e-6; value head's cross-entropy
     0.403 ± 0.004).
+  - **The third, after round 656: +207.1 ± 14.5** (614 of 800,
+    2026-11-26 14:59). It stands with the second, not between the first
+    two. The three read +193.6 ± 8.2, +9.9 ± 16.2 over the switch match:
+    no change read by that comparison. The second and third average
+    +209.6 ± 10.3, 1.5 standard errors over the switch match; no match
+    of the run had read over +184 before round 640. Rounds 641 to 656
+    check out (exact check 7.5e-6 to 9.0e-6; value head's cross-entropy
+    0.397 ± 0.007).
+  - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
+    `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no
     warning. The value head's cross-entropy over rounds 610 to 624 is
     0.406 ± 0.008 against 0.398 ± 0.008 over the sixteen rounds before

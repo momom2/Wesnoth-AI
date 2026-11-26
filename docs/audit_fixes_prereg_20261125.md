@@ -4,10 +4,11 @@
 (2026-11-25 22:49, from the branch `feature/advancement-choice` at
 bec71da6; departure 1 below). **The GPU checks passed, and the switch
 match reads +22.0 ± 19.5 against the loop's own match of the same network:
-kill criterion 1 is not met** (Results). **The first two matches from
-the switch read +161.7 ± 13.6 (round 624) and +212.0 ± 14.6 (round 640),
-+186.9 ± 10.0 together; rounds 609 to 640 check out.** Six matches are
-left before the registered verdict (round 736).
+kill criterion 1 is not met** (Results). **The first three matches from
+the switch read +161.7 ± 13.6 (round 624), +212.0 ± 14.6 (round 640) and
++207.1 ± 14.5 (round 656), +193.6 ± 8.2 together; rounds 609 to 656
+check out.** Five matches are left before the registered verdict (round
+736).
 Both branches are in `main` since 2026-11-26, merged on the user's word
 ("Commit, merge and push."): `feature/audit-fixes` at 0.37.0 and
 `feature/advancement-choice` at 0.38.0. The user answered the question of
@@ -355,6 +356,7 @@ against each other, never against the matches before round 609.
 |---|---|---|---|---|
 | 1 | 624 | +161.7 ± 13.6 | 574 | 2026-11-26 04:10 |
 | 2 | 640 | +212.0 ± 14.6 | 618 | 2026-11-26 09:29 |
+| 3 | 656 | +207.1 ± 14.5 | 614 | 2026-11-26 14:59 |
 
 **Match 2 (round 640) is the highest of the run's 42 matches, and it is
 one match.** Nothing decides before round 736.
@@ -377,6 +379,31 @@ one match.** Nothing decides before round 736.
 - **The match's games are ordinary:** 800 decided by a leader's death,
   no turn ended for a side or left unplayed, round 640's own checkpoint
   (`fd046e90…`) on the same code, seeds and reference as match 1.
+
+**Match 3 (round 656): +207.1 ± 14.5 (614 of 800, 2026-11-26 14:59). It
+stands with match 2, not between the first two.** Nothing decides before
+round 736.
+
+- **The three together read +193.6 ± 8.2,** which is +9.9 ± 16.2 over
+  the switch match's reading of round 608's network (+183.7 ± 14.0). By
+  that comparison no change is read yet.
+- **Matches 2 and 3 agree** (−4.9 ± 20.6 between them) and average
+  +209.6 ± 10.3, +25.9 ± 17.4 over the switch match: 1.5 standard
+  errors. Before round 640 no match of the run had read over +184 (the
+  loop's own highest was +179.2, the switch match +183.7); two in a row
+  now read over +200.
+- **What was written at match 2 is neither confirmed nor refuted.** "One
+  match low and one high around the same strength" put the next one near
+  +187; it read 20 higher, 1.1 standard errors of that difference. The
+  other reading, that round 624's match was the low one and the level
+  has risen, fits as well. Match 3 against match 1 is +45.4 ± 19.9;
+  seed by seed they share 576 outcomes, and of the 224 others round
+  656's network won 132 and round 624's 92
+  (`match_pairs_0624_0656.json`; `match_pairs_0640_0656.json` holds the
+  pair of rounds 640 and 656: 614 outcomes shared, correlation 0.34).
+- **The match's games are ordinary:** 800 decided by a leader's death,
+  no turn ended for a side or left unplayed, round 656's own checkpoint
+  (`e552c020…`) on the same code, seeds and reference.
 
 **Match 1 (round 624): nothing decides yet, and no kill criterion is
 met.** Against the switch match (round 608's network on the same code,
@@ -482,3 +509,42 @@ a round; the table above).
   (`advance_choices_round_0640.json`); 548 in the match's 800 games (0.69
   a game), 327 of them (60%) another type than the first
   (`advance_choices_match_0640.json`).
+
+**Rounds 641 to 656 check out** (2026-11-26 09:29 to 14:46, 19.8 minutes
+a round; `round_checks_609_to_656.json`).
+
+| | Rounds 593 to 608 | Rounds 625 to 640 | Rounds 641 to 656 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 7.8e-6 | 7.9e-6 (7.5e-6 to 9.0e-6) |
+| Gradient's norm | 50.0 | 46.7 | 56.2 (39.8 to 86.7) |
+| of which the value head | 35.2 | 28.9 | 42.1 (15.4 to 78.3) |
+| Update's norm | 0.0068 | 0.0078 | 0.0076 |
+| of which the value head | 0.0032 | 0.0041 | 0.0037 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.403 ± 0.004 | 0.397 ± 0.007 (0.332 to 0.442) |
+| Decisions in the pass | 58,180 | 61,580 | 60,960 |
+| Pass, seconds | 912 | 935 | 977 |
+
+- **The exact check holds,** every gradient is finite, and the console
+  holds no warning. Its largest reading, 9.0e-6, is the highest since the
+  switch and eleven times under the limit.
+- **The value head reads its games as before the switch** (0.397 ±
+  0.007). Its part of the gradient is back up (42.1, with six rounds
+  over 40.1 as in the rounds before round 625), so the lower level of
+  rounds 625 to 640 was sixteen quiet rounds and not a change. Its step
+  is at 0.0037, between the level before the switch (0.0032) and the one
+  after it (0.0041).
+- **The pass:** one ran 1,301 s (round 646, on 69,376 decisions, the
+  most of any round since the switch), under 1.5 times the usual.
+- **The pointer's weights at round 656**
+  (`pointer_weights_round_0656.json`): the keys' root mean square is
+  6.4e-5 (5.7e-5 at round 640), and the queries have moved 7.2e-5
+  (weights) and 8.2e-5 (bias) from the switch's.
+- **Advancements chosen:** 118 in round 656's 128 games (0.92 a game),
+  58 of them (49%) a type other than the first
+  (`advance_choices_round_0656.json`); 564 in the match's 800 games (0.71
+  a game), 328 of them (58%) another type than the first
+  (`advance_choices_match_0656.json`).
+
+**`main` holds the run's code since 2026-11-26** (0.37.0 and 0.38.0, on
+the user's word), and CI is green on it at 0.38.1 (14657e7e, both tiers).
+The run still executes from the branch's worktree.
