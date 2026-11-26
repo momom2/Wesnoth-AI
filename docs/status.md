@@ -226,6 +226,17 @@ night's training is clearly flawed or stalled."
     of the run had read over +184 before round 640. Rounds 641 to 656
     check out (exact check 7.5e-6 to 9.0e-6; value head's cross-entropy
     0.397 ± 0.007).
+  - **The fourth, after round 672: +199.9 ± 14.4** (608 of 800,
+    2026-11-26 20:26). The four average +195.2 ± 7.1, the first half of
+    the registered comparison: the verdict asks whether matches 5 to 8
+    read more than 19.6 under it. The last three read +206.4 ± 8.4,
+    +22.7 ± 16.3 over the switch match (1.4 standard errors): it leans
+    to a gain since the switch and does not establish one, and the
+    switch match's own standard error is what limits it. Rounds 657 to
+    672 check out (exact check 7.5e-6 to 8.4e-6; value head's
+    cross-entropy 0.399 ± 0.007). The weapon head's group, which holds
+    the pointer, takes larger steps than before (0.0018 against 0.0013),
+    and the pointer's keys stand at 8.2e-5.
   - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
     `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no

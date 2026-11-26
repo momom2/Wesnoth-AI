@@ -37,5 +37,10 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_match_0656.json` | The 800 games of the match after round 656. |
 | `match_pairs_0640_0656.json` | The matches at rounds 640 and 656 (618 and 614 wins), seed by seed. |
 | `match_pairs_0624_0656.json` | The matches at rounds 624 and 656 (574 and 614 wins), seed by seed. |
+| `round_checks_609_to_672.json` | Rounds 593 to 608 and the four spans of sixteen rounds from 610 to 672, side by side. |
+| `pointer_weights_round_0672.json` | The pointer at rounds 656 and 672. |
+| `advance_choices_round_0672.json` | Round 672's 128 games. |
+| `advance_choices_match_0672.json` | The 800 games of the match after round 672. |
+| `match_pairs_0656_0672.json` | The matches at rounds 656 and 672 (614 and 608 wins), seed by seed. |
 
 All were run beside the training at Idle priority, on at most 2 threads.
