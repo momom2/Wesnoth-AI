@@ -8,7 +8,9 @@ kill criterion 1 is not met** (Results). **The first two matches from
 the switch read +161.7 ± 13.6 (round 624) and +212.0 ± 14.6 (round 640),
 +186.9 ± 10.0 together; rounds 609 to 640 check out.** Six matches are
 left before the registered verdict (round 736).
-Neither branch is merged into `main`: that is the user's to approve. The user answered the question of
+Both branches are in `main` since 2026-11-26, merged on the user's word
+("Commit, merge and push."): `feature/audit-fixes` at 0.37.0 and
+`feature/advancement-choice` at 0.38.0. The user answered the question of
 the switch's time with "Otherwise, approved", on a message that
 recommended that evening; that reading was put back to them. It is
 departure 11 of the simple loop (`docs/simple_loop_prereg_20261117.md`).

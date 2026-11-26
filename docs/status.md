@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-25.
+Last updated 2026-11-26.
 
 ## In one paragraph
 
@@ -136,8 +136,7 @@ night's training is clearly flawed or stalled."
 - **In `main` since 0.36.0** (merged 2026-11-25 on the user's word, "Yes,
   merge", after 32 rounds on it). The run executed from the branch's
   worktree (`C:\Users\momom2\wesnoth_worktrees\input-facts`, at
-  2a523b56, the code that was merged) through round 608; `main`'s core is
-  that of phase 40.
+  2a523b56, the code that was merged) through round 608.
 - **A unit attacks only an enemy on a hex that touches its own.** The
   simulator no longer moves a unit before its attack. The reference at
   its pinned decode ordered no such attack in 1,660, so the yardstick
@@ -184,9 +183,13 @@ night's training is clearly flawed or stalled."
   The run executes from the worktree of `feature/advancement-choice`
   (`C:\Users\momom2\wesnoth_worktrees\advancement`, at bec71da6), whose
   branch is not to be switched or deleted while the run lives. Both venvs
-  hold the core of phase 42. **Neither `feature/audit-fixes` nor
-  `feature/advancement-choice` is merged into `main`:** both are green in
-  CI, and the merge is the user's to approve.
+  hold the core of phase 42. **Both branches are in `main` since
+  2026-11-26** (on the user's word, "Commit, merge and push."):
+  `feature/audit-fixes` at 0.37.0 and `feature/advancement-choice` at
+  0.38.0. `main`'s code is the run's, the version line apart, and its
+  source, its adapter and the installed core are all of phase 42. The
+  run's records keep `code_version` 0.36.2, the version the branch was
+  cut at.
   - **The switch match:** round 608's network read +161.7 ± 13.6 on the
     old code and +183.7 ± 14.0 on the new, so D0 = +22.0 ± 19.5 where
     the kill criterion asked for under −60. The matches do not chain
@@ -603,15 +606,12 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
-- **Merge the audit's fixes into `main`.** `feature/audit-fixes`
-  (e2107544) and `feature/advancement-choice` (bec71da6, which holds the
-  first) are green in CI and are the code the run executes since round
-  609. `main` still holds the rules of before.
-- **Move the run back to the main checkout, at a stop after that merge**
-  (not the user's to decide; a chore). It executes from the worktree of
-  `feature/advancement-choice`. Once it runs from the main checkout, the
-  worktrees `input-facts`, `audit-fixes` and `advancement` and their
-  branches can go.
+- **Move the run back to the main checkout, at a stop** (not the user's
+  to decide; a chore, possible since the merge of 2026-11-26). It
+  executes from the worktree of `feature/advancement-choice`, whose code
+  is `main`'s. Once it runs from the main checkout, the worktrees
+  `input-facts`, `audit-fixes` and `advancement` and their branches can
+  go.
 - **Zero or random for the pointer's new weights.** The user asked on
   2026-11-25 whether to randomise them. The answer recorded in
   `docs/audit_fixes_prereg_20261125.md` recommends zero (a weight's

@@ -293,7 +293,8 @@ These were settled while building, before the launch.
       player of a game. The code is the branch
       `feature/advancement-choice` in its own worktree
       (`C:\Users\momom2\wesnoth_worktrees\advancement`), not merged into
-      `main`, on the core of phase 42; games are recorded as format 8 at
+      `main` at the switch (merged on 2026-11-26, at 0.37.0 and 0.38.0),
+      on the core of phase 42; games are recorded as format 8 at
       observation epoch 14.
     - **What does not:** the learning rate and the optimizer (whose state
       carries over), λ = 0.99, the number of games, the pool, the
