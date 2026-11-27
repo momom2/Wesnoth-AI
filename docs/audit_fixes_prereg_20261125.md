@@ -963,3 +963,33 @@ the same split is the control.
 **`main` holds the run's code since 2026-11-26** (0.37.0 and 0.38.0, on
 the user's word), and CI is green on it at 0.38.1 (14657e7e, both tiers).
 The run still executes from the branch's worktree.
+
+### After the verdict: the run goes on (written 2026-11-27 17:50, before the match at round 736)
+
+The user, on 2026-11-27: "Well, I'll be back in two days. Let's see it
+keep training until then." So the run is not stopped at round 736. It has
+no round limit (`--max-rounds` is 0), holds the machine awake
+(`--keep-awake`), and a round with its games takes at most 190 MB of the
+disk's 1,577 GB free.
+
+- **What is read, as before:** each match, with its rounds' checks, in
+  the table above; the value head's cross-entropy with each.
+- **One number, written before its matches exist:** the mean of the
+  matches from round 752 on, as many as have landed when the user is
+  back (eight are expected, rounds 752 to 864), less the mean of the
+  seven matches of rounds 640 to 736, with its standard error (about 7.6
+  for eight against seven, the matches taken as independent). It answers
+  "has the level risen since round 640?". Over 2 standard errors either
+  way is said so; otherwise it is recorded as "no change read". It is a
+  reading, not a kill criterion.
+- **If the run stops:**
+  - by a kill criterion of its own (a round that does not check out, a
+    refusal): it stays stopped, and the round is recorded;
+  - by dying with no message, as on 2026-11-19: it is relaunched with the
+    launch's command from the same worktree, which resumes from its
+    markers, and the gap is recorded. The user's words above are taken
+    to cover that, and nothing else;
+  - by a restart of the machine: nothing can relaunch it before the user
+    signs in.
+- **Nothing else changes:** no merge, no move of the run to the main
+  checkout, no new measurement that needs the GPU.

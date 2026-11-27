@@ -293,6 +293,15 @@ night's training is clearly flawed or stalled."
       it is 0.31 under the results, against 0.07 where it has not.
     - The cause is not established, and what it costs in play is not
       measured.
+  - **The run goes on after the verdict** (the user, 2026-11-27: "I'll be
+    back in two days. Let's see it keep training until then."). It has
+    no round limit and holds the machine awake. Each match is recorded
+    as before. One number was written before its matches exist: the mean
+    of the matches from round 752 on, less that of rounds 640 to 736
+    (`docs/audit_fixes_prereg_20261125.md`, "After the verdict"). A
+    silent death is relaunched from its markers; a stop by a kill
+    criterion is left stopped; a restart of the machine waits for the
+    user's sign-in.
   - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
     `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no
