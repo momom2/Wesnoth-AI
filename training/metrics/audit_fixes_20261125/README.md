@@ -12,6 +12,7 @@ the four changes at round 609; the switch's own files are in
 | `round_games.py` | The shape of a round's games from their summaries: outcomes, turns, turns ended for a side, turns left unplayed. |
 | `round_checks.py` | A span of rounds' crash barriers (measurement 2): the exact check, the gradient's and the update's norms whole and by parameter group, the value head's cross-entropy, the pass's time. |
 | `match_pairs.py` | Two matches set seed by seed: the same setup, the same player, the same outcome, and the correlation of the two outcomes on a seed. |
+| `match_line.py` | The matches from the switch as a mean and as a line through the rounds, each against the switch match, with standard errors (matches taken as independent). |
 
 | Output | Of |
 |---|---|
@@ -42,5 +43,11 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_round_0672.json` | Round 672's 128 games. |
 | `advance_choices_match_0672.json` | The 800 games of the match after round 672. |
 | `match_pairs_0656_0672.json` | The matches at rounds 656 and 672 (614 and 608 wins), seed by seed. |
+| `round_checks_609_to_688.json` | Rounds 593 to 608, 657 to 672 and 673 to 688, side by side. |
+| `pointer_weights_round_0688.json` | The pointer at rounds 672 and 688. |
+| `advance_choices_round_0688.json` | Round 688's 128 games. |
+| `advance_choices_match_0688.json` | The 800 games of the match after round 688. |
+| `match_pairs_0672_0688.json` | The matches at rounds 672 and 688 (608 and 625 wins), seed by seed. |
+| `match_line_to_0688.json` | The five matches of rounds 624 to 688: their mean, and the line through them with and without the switch match. |
 
 All were run beside the training at Idle priority, on at most 2 threads.

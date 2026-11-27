@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-26.
+Last updated 2026-11-27.
 
 ## In one paragraph
 
@@ -237,6 +237,18 @@ night's training is clearly flawed or stalled."
     cross-entropy 0.399 ± 0.007). The weapon head's group, which holds
     the pointer, takes larger steps than before (0.0018 against 0.0013),
     and the pointer's keys stand at 8.2e-5.
+  - **The fifth, after round 688: +220.8 ± 14.8** (625 of 800,
+    2026-11-27 02:00), the highest of the run's 45 matches and the first
+    of the four the verdict sets against +195.2 ± 7.1. For "the loop
+    loses strength", matches 6 to 8 would have to average under +160.5.
+    Since the switch: the five average +200.3 ± 6.4 (+16.6 ± 15.4 over
+    the switch match), the four after the first +210.0 ± 7.3 (+26.3 ±
+    15.8, 1.7 standard errors), and a line through the switch match and
+    the five rises 0.54 ± 0.21 Elo a round. A gain since the switch is
+    likelier than at match 4 and still under 3 standard errors on every
+    reading; none of these comparisons was registered. Rounds 673 to 688
+    check out (exact check 7.5e-6 to 8.5e-6; value head's cross-entropy
+    0.391 ± 0.007).
   - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
     `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no
