@@ -13,6 +13,7 @@ the four changes at round 609; the switch's own files are in
 | `round_checks.py` | A span of rounds' crash barriers (measurement 2): the exact check, the gradient's and the update's norms whole and by parameter group, the value head's cross-entropy, the pass's time. |
 | `match_pairs.py` | Two matches set seed by seed: the same setup, the same player, the same outcome, and the correlation of the two outcomes on a seed. |
 | `match_line.py` | The matches from the switch as a mean and as a line through the rounds, each against the switch match, with standard errors (matches taken as independent). |
+| `past_self.py` | The current network's wins against the past self each round draws (26 games a round), by where the self comes from and by its age. |
 
 | Output | Of |
 |---|---|
@@ -71,6 +72,11 @@ the four changes at round 609; the switch's own files are in
 | `match_line_0640_to_0736.json` | The seven matches of rounds 640 to 736 alone. |
 | `input_audit_round_0736_summary.txt` | Measurement 5: the input audit's readings (`training/metrics/input_audit_20261124/summarise.py`) on 24 games of round 736's network, seeds 20261202 to 20261225, played from the branch `fix/inprocess-advance-mask` at b3f9bb12. |
 | `input_audit_round_0736_games.jsonl` | Those 24 games' results. |
+| `round_checks_721_to_752.json` | Rounds 593 to 608, 721 to 736 and 737 to 752, side by side. |
+| `pointer_weights_round_0752.json` | The pointer at rounds 736 and 752. |
+| `advance_choices_round_0752.json`, `advance_choices_match_0752.json` | Round 752's 128 games and its match's 800. |
+| `match_pairs_0736_0752.json` | The matches at rounds 736 and 752 (583 and 594 wins), seed by seed. |
+| `past_self_609_to_752.json` | The current network against its past selves over rounds 609 to 752, split at round 609, with each round's draw and wins. |
 
 The value estimate's reading on rounds 609 to 704 (`where_609_640.json`,
 `where_641_672.json`, `where_673_704.json`) is with the earlier windows,

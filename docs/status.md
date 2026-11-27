@@ -7,7 +7,7 @@ Earlier status logs: `docs/archive/claude_md_20261109.md` (CLAUDE.md's
 "Current status", 2026-10-08 to 2026-10-21) and the files listed in
 `docs/archive/README.md`.
 
-Last updated 2026-11-27.
+Last updated 2026-11-28.
 
 ## In one paragraph
 
@@ -280,6 +280,23 @@ night's training is clearly flawed or stalled."
     8.5e-6 to 9.4e-6); the value head's gradient is the largest of any
     span since the switch (46.7 against 29 to 42) and its cross-entropy
     reads 0.407 ± 0.007.
+  - **After the verdict, round 752: +183.7 ± 14.0** (594 of 800,
+    2026-11-28 00:26), the second low match in a row. It is −21.9 ± 15.1
+    against the level of rounds 640 to 736 (+205.6 ± 5.5), the first of
+    the matches the number fixed on 2026-11-27 will pool. No kill
+    criterion is met. Rounds 737 to 752 check out (exact check 8.8e-6 to
+    9.7e-6; value head's cross-entropy 0.395 ± 0.008); the update's norm
+    is at its highest (0.0094).
+  - **Against its own selves of the new rules the current network has
+    lost more than it has won** (read 2026-11-28 from the rounds' games
+    against a past self, not registered): 134 of 312 over twelve rounds,
+    42.9% ± 2.8, where the same kind of game read 52 to 53% before the
+    switch. It holds against a self a few rounds older, so if real it is
+    not a loss of strength but something in how such a game is played.
+    The self games are symmetric (49.7% for either player). Cause not
+    established. A number is fixed before its games exist: the same
+    share over the rounds from 753 on, against one half
+    (`docs/audit_fixes_prereg_20261125.md`).
   - **The attacks on round 736's network** (the registration's
     measurement 5; 24 games on the seeds of round 513's count, 2,654
     attacks). The policy's most likely weapon is beaten by another in

@@ -367,6 +367,7 @@ against each other, never against the matches before round 609.
 | 6 | 704 | +218.3 ± 14.8 | 623 | 2026-11-27 07:41 |
 | 7 | 720 | +209.6 ± 14.6 | 616 | 2026-11-27 13:11 |
 | 8 | 736 | +171.4 ± 13.8 | 583 | 2026-11-27 18:54 |
+| 9, after the verdict | 752 | +183.7 ± 14.0 | 594 | 2026-11-28 00:26 |
 
 **Match 2 (round 640) is the highest of the run's 42 matches, and it is
 one match.** Nothing decides before round 736.
@@ -1169,3 +1170,104 @@ disk's 1,577 GB free.
     signs in.
 - **Nothing else changes:** no merge, no move of the run to the main
   checkout, no new measurement that needs the GPU.
+
+#### Match 9 (round 752, 2026-11-28 00:26): +183.7 ± 14.0, the second low match in a row
+
+594 of 800. The count is the switch match's, a coincidence again: the
+checkpoint is round 752's own (`9ee420f3…`), and seed by seed it shares
+595 outcomes with match 8 (`match_pairs_0736_0752.json`). Its games are
+ordinary: 800 decided by a leader's death, no turn ended for a side or
+left unplayed, 18.4 turns on average.
+
+- **Against the level fixed in "After the verdict"** (the seven matches
+  of rounds 640 to 736, +205.6 ± 5.5): −21.9 ± 15.1, 1.5 standard errors.
+  It is the first of the matches that number will pool.
+- **Matches 8 and 9 average +177.6 ± 9.8,** where the six before them
+  (rounds 640 to 720) average +211.3 ± 6.0: −33.7 ± 11.5. The split was
+  chosen after seeing the matches, as on 2026-11-27, so its 2.9 standard
+  errors overstate the evidence; and the same caution failed the other
+  way twice that day. It is recorded, not read.
+- **No kill criterion is met.** The loop's criterion 1 is two matches in
+  a row more than 3 standard errors under its first match (+39.2 ±
+  12.4).
+
+**Rounds 737 to 752 check out** (2026-11-27 18:54 to 2026-11-28 00:13,
+19.9 minutes a round; `round_checks_721_to_752.json`).
+
+| | Rounds 593 to 608 | Rounds 721 to 736 | Rounds 737 to 752 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 9.0e-6 | 9.2e-6 (8.8e-6 to 9.7e-6) |
+| Gradient's norm | 50.0 | 62.7 | 60.7 (48.8 to 95.0) |
+| of which the value head | 35.2 | 46.7 | 44.6 (27.5 to 84.7) |
+| Update's norm | 0.0068 | 0.0091 | 0.0094 (0.0091 to 0.0097) |
+| of which the value head | 0.0032 | 0.0041 | 0.0047 |
+| of which the trunk | 0.0057 | 0.0076 | 0.0076 |
+| of which the weapon head | 0.0007 | 0.0020 | 0.0022 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.407 ± 0.007 | 0.395 ± 0.008 (0.359 to 0.473) |
+| Decisions in the pass | 58,180 | 62,210 | 62,090 |
+| Pass, seconds | 912 | 1,021 | 982 |
+
+- **The exact check holds,** every gradient is finite, and the console
+  holds no warning. The check's reading goes on creeping up (9.7e-6 at
+  its largest, ten times under the limit).
+- **The update's norm is at its highest** (0.0094, 39% over the level
+  before the switch), and the value head's gradient stays large for a
+  second span (44.6, eleven rounds of sixteen over 40.1). Its
+  cross-entropy reads 0.395 ± 0.008, as before the switch.
+- **The pointer's weights at round 752**
+  (`pointer_weights_round_0752.json`): keys 1.31e-4 (1.15e-4 at round
+  736); the queries have moved 1.64e-4 (weights) and 1.89e-4 (bias).
+- **Advancements chosen:** 93 in round 752's 128 games (0.73 a game),
+  57% another type than the first; 564 in the match's 800 games (0.71 a
+  game), 53% another type than the first
+  (`advance_choices_round_0752.json`, `advance_choices_match_0752.json`).
+
+#### The current network against its own recent selves (read 2026-11-28, not registered)
+
+Read because two matches came in low: a second view of strength that
+costs nothing, from the run's own games. Each round plays 26 games
+against one past self drawn from the pool, both sampling at temperature
+1 under the round's rules (`past_self.py`, `past_self_609_to_752.json`).
+
+| Rounds | Past self | Rounds that met one | Won by the current network |
+|---|---|---|---|
+| 609 to 752 | from the switch on (rounds 624 to 736), 2 to 123 rounds older | 12 | 134 of 312 (42.9% ± 2.8) |
+| 609 to 752 | at most 16 rounds older | 5 | 55 of 130 (42.3% ± 4.3) |
+| 609 to 752 | from before the switch | 132 | 2,043 of 3,432 (59.5% ± 0.8) |
+| 465 to 608 | at most 96 rounds older | 25 | 339 of 650 (52.2% ± 2.0) |
+| 1 to 544 | at most 16 rounds older | 63 | 868 of 1,638 (53.0% ± 1.2) |
+
+- **Since the switch the current network has lost more than it has won
+  against its own selves of the new rules:** 42.9% over twelve rounds,
+  2.5 standard errors under one half (2.9 with the standard error taken
+  over the twelve rounds, 2.4 points). Before the switch the same kind
+  of game read 52 to 53%.
+- **It holds against a self that is nearly the same network** (2 to 14
+  rounds older: 11, 10, 10, 14 and 10 wins of 26). A network cannot lose
+  that much in a few steps, so if the reading is real it is not a loss
+  of strength. It would be something in how such a game is played.
+- **It is not the runner's two seats.** In the self games, where one
+  network plays both, the player the runner calls A wins 49.6% and 49.9%
+  of the 14,688 games since the switch (50.8% before): no asymmetry
+  between the two players when both are the current network.
+- **What differs in a game against a past self** is that the two
+  players are two checkpoints. Both sample at temperature 1 with the
+  same settings and both are logged (checked on round 752's games); only
+  the current one's decisions are trained on. Whether a game between two
+  checkpoints treats its two players alike under the new rules is not
+  established.
+- **What it would mean for the matches, if real:** a match is also a
+  game between two checkpoints, with the candidate as the player the
+  runner calls A. A handicap on that place would lower every match since
+  the switch alike and leave the differences between matches as they
+  are.
+- **It is twelve rounds, found by looking after two low matches.** Twice
+  on 2026-11-27 a pattern of this size did not survive the next match.
+
+**A second number, fixed before its games exist:** the share the current
+network wins against past selves from round 624 on, over the rounds from
+753 on only (six of rounds 737 to 752 drew one, 26 games each), against
+one half, with its standard error over rounds. Under one half by
+2 standard errors when the user is back: reported as "the current
+network loses to its recent selves", and the cause is looked for before
+any match is read further. Otherwise: "not confirmed".

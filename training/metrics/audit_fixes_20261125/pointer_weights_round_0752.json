@@ -1,0 +1,57 @@
+{
+ "lr": 1e-05,
+ "switch_checkpoint": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0608\\pi.pt",
+ "rounds": [
+  {
+   "checkpoint": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0608\\pi.pt",
+   "weapon_target": 64,
+   "keys_rms": 0.0,
+   "keys_rms_in_learning_rates": 0.0,
+   "keys_share_nonzero": 0.0,
+   "weapon_q_proj.weight": {
+    "rms": 0.02952936986512819,
+    "moved_rms": 0.0,
+    "moved_rms_in_learning_rates": 0.0
+   },
+   "weapon_q_proj.bias": {
+    "rms": 0.029094222591222373,
+    "moved_rms": 0.0,
+    "moved_rms_in_learning_rates": 0.0
+   }
+  },
+  {
+   "checkpoint": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0736\\pi.pt",
+   "weapon_target": 64,
+   "keys_rms": 0.00011534394725654302,
+   "keys_rms_in_learning_rates": 11.5343947256543,
+   "keys_share_nonzero": 1.0,
+   "weapon_q_proj.weight": {
+    "rms": 0.02952897945266342,
+    "moved_rms": 0.00014920078220504056,
+    "moved_rms_in_learning_rates": 14.920078220504054
+   },
+   "weapon_q_proj.bias": {
+    "rms": 0.029092443364155077,
+    "moved_rms": 0.00017617292045284894,
+    "moved_rms_in_learning_rates": 17.61729204528489
+   }
+  },
+  {
+   "checkpoint": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0752\\pi.pt",
+   "weapon_target": 64,
+   "keys_rms": 0.00013082775564417462,
+   "keys_rms_in_learning_rates": 13.08277556441746,
+   "keys_share_nonzero": 1.0,
+   "weapon_q_proj.weight": {
+    "rms": 0.029529268684198647,
+    "moved_rms": 0.00016369091151425448,
+    "moved_rms_in_learning_rates": 16.369091151425447
+   },
+   "weapon_q_proj.bias": {
+    "rms": 0.029093973687758283,
+    "moved_rms": 0.00018897050580501582,
+    "moved_rms_in_learning_rates": 18.89705058050158
+   }
+  }
+ ]
+}
