@@ -49,5 +49,15 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_match_0688.json` | The 800 games of the match after round 688. |
 | `match_pairs_0672_0688.json` | The matches at rounds 672 and 688 (608 and 625 wins), seed by seed. |
 | `match_line_to_0688.json` | The five matches of rounds 624 to 688: their mean, and the line through them with and without the switch match. |
+| `round_checks_609_to_704.json` | Rounds 593 to 608, 673 to 688 and 689 to 704, side by side. |
+| `pointer_weights_round_0704.json` | The pointer at rounds 688 and 704. |
+| `advance_choices_round_0704.json` | Round 704's 128 games. |
+| `advance_choices_match_0704.json` | The 800 games of the match after round 704. |
+| `match_pairs_0688_0704.json` | The matches at rounds 688 and 704 (625 and 623 wins), seed by seed. |
+| `match_line_to_0704.json` | The six matches of rounds 624 to 704: their mean, and the line through them with and without the switch match. |
+
+The value estimate's reading on rounds 609 to 704 (`where_609_640.json`,
+`where_641_672.json`, `where_673_704.json`) is with the earlier windows,
+in `training/metrics/value_reliability_20261120/`.
 
 All were run beside the training at Idle priority, on at most 2 threads.

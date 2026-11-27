@@ -249,6 +249,28 @@ night's training is clearly flawed or stalled."
     reading; none of these comparisons was registered. Rounds 673 to 688
     check out (exact check 7.5e-6 to 8.5e-6; value head's cross-entropy
     0.391 ± 0.007).
+  - **The sixth, after round 704: +218.3 ± 14.8** (623 of 800,
+    2026-11-27 07:41), the run's second highest after the fifth. For
+    "the loop loses strength", matches 7 and 8 would have to average
+    under +131.7. Since the switch: the six average +203.3 ± 5.9 (+19.6
+    ± 15.2 over the switch match), the five after the first +211.6 ± 6.5
+    (+27.9 ± 15.5, 1.8 standard errors), and a line through the switch
+    match and the six rises 0.48 ± 0.17 Elo a round (2.8 standard
+    errors). None reaches 3, and none was registered.
+  - **The update is growing, and most of it is the value head** (rounds
+    689 to 704). The update's norm went from 0.0076 at round 681 to
+    0.0092 at round 704 on a gradient of the same norm; the value head's
+    step went from 0.0034 to 0.0052. Its cross-entropy has not moved
+    (0.400 ± 0.005) and the exact check holds (8.0e-6 to 9.3e-6). What
+    the head is being pushed toward is not established.
+  - **The value estimate since the switch** (read 2026-11-27, not
+    registered; `where_optimism.py` on rounds 609 to 704). Its overall
+    optimism has not grown (+0.013 to +0.032, against +0.030 before).
+    At the start of its early turns it is more pessimistic than before
+    the switch: 0.17 under the results at the first decision of own turn
+    3, against 0.11, and about 0.05 lower at turns 2, 4 and 5. A
+    candidate cause, not established: a side no longer knows the enemy's
+    faction before it sees an enemy unit.
   - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
     `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no

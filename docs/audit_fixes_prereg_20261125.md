@@ -7,9 +7,10 @@ match reads +22.0 ± 19.5 against the loop's own match of the same network:
 kill criterion 1 is not met** (Results). **The first four matches from
 the switch read +161.7 ± 13.6 (round 624), +212.0 ± 14.6 (round 640),
 +207.1 ± 14.5 (round 656) and +199.9 ± 14.4 (round 672): +195.2 ± 7.1
-together, the first half of the registered comparison. The fifth reads
-+220.8 ± 14.8 (round 688), the run's highest. Rounds 609 to 688 check
-out.** Three matches are left before the registered verdict (round 736).
+together, the first half of the registered comparison. The fifth and
+sixth read +220.8 ± 14.8 (round 688) and +218.3 ± 14.8 (round 704), the
+run's two highest. Rounds 609 to 704 check out.** Two matches are left
+before the registered verdict (round 736).
 Both branches are in `main` since 2026-11-26, merged on the user's word
 ("Commit, merge and push."): `feature/audit-fixes` at 0.37.0 and
 `feature/advancement-choice` at 0.38.0. The user answered the question of
@@ -360,6 +361,7 @@ against each other, never against the matches before round 609.
 | 3 | 656 | +207.1 ± 14.5 | 614 | 2026-11-26 14:59 |
 | 4 | 672 | +199.9 ± 14.4 | 608 | 2026-11-26 20:26 |
 | 5 | 688 | +220.8 ± 14.8 | 625 | 2026-11-27 02:00 |
+| 6 | 704 | +218.3 ± 14.8 | 623 | 2026-11-27 07:41 |
 
 **Match 2 (round 640) is the highest of the run's 42 matches, and it is
 one match.** Nothing decides before round 736.
@@ -459,6 +461,34 @@ sets against +195.2 ± 7.1.** Nothing decides before round 736.
   (`07c92639…`) on the same code, seeds and reference. They are a little
   shorter than the earlier matches' (17.7 turns on average, against 18.1
   to 18.8 in the four before).
+
+**Match 6 (round 704): +218.3 ± 14.8 (623 of 800, 2026-11-27 07:41), the
+second highest of the run's 46 matches, after match 5.** Nothing decides
+before round 736.
+
+- **Toward the verdict:** matches 5 and 6 average +219.5. For "the loop
+  loses strength" (matches 5 to 8 more than 19.6 under +195.2), matches
+  7 and 8 would have to average under +131.7; the lowest match since the
+  switch read +161.7.
+- **Since the switch** (`match_line_to_0704.json`, the matches taken as
+  independent):
+  - the six matches average +203.3 ± 5.9, +19.6 ± 15.2 over the switch
+    match's reading of round 608's network (+183.7 ± 14.0);
+  - the five after the first average +211.6 ± 6.5, +27.9 ± 15.5 over the
+    switch match, 1.8 standard errors;
+  - a line through the switch match and the six rises 0.48 ± 0.17 Elo a
+    round (2.8 standard errors); through the six alone, 0.56 ± 0.21.
+- **What that says:** each reading is a little firmer than at match 5
+  and none reaches 3 standard errors. The comparison with the switch
+  match stays limited by that one match's standard error (14.0); the
+  line is the reading that the run's own matches can sharpen, and it
+  leans on match 1.
+- **Match 6 against match 5 is −2.5 ± 20.9.** Seed by seed they share
+  612 outcomes, correlation 0.32 (`match_pairs_0688_0704.json`).
+- **The match's games are ordinary:** 800 decided by a leader's death,
+  no turn ended for a side or left unplayed, round 704's own checkpoint
+  (`328e4030…`) on the same code, seeds and reference; 18.0 turns on
+  average.
 
 **Match 1 (round 624): nothing decides yet, and no kill criterion is
 met.** Against the switch match (round 608's network on the same code,
@@ -678,6 +708,97 @@ a round; `round_checks_609_to_672.json`).
   (`advance_choices_round_0688.json`); 464 in the match's 800 games (0.58
   a game, where the four matches before read 0.66 to 0.71), 280 of them
   (60%) another type than the first (`advance_choices_match_0688.json`).
+
+**Rounds 689 to 704 check out, and the update keeps growing**
+(2026-11-27 02:00 to 07:28, 20.4 minutes a round;
+`round_checks_609_to_704.json`).
+
+| | Rounds 593 to 608 | Rounds 673 to 688 | Rounds 689 to 704 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 8.1e-6 | 8.5e-6 (8.0e-6 to 9.3e-6) |
+| Gradient's norm | 50.0 | 50.3 | 50.9 (42.0 to 67.4) |
+| of which the value head | 35.2 | 33.0 | 31.4 (14.8 to 55.1) |
+| Update's norm | 0.0068 | 0.0078 | 0.0089 (0.0081 to 0.0094) |
+| of which the value head | 0.0032 | 0.0037 | 0.0049 (0.0043 to 0.0053) |
+| of which the trunk | 0.0057 | 0.0065 | 0.0070 |
+| of which the memory's write | 0.0010 | 0.0010 | 0.0013 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.391 ± 0.007 | 0.400 ± 0.005 (0.354 to 0.436) |
+| Decisions in the pass | 58,180 | 61,230 | 63,420 |
+| Pass, seconds | 912 | 992 | 1,004 |
+
+- **The exact check holds,** every gradient is finite, and the console
+  holds no warning. The check's reading has crept up since the switch
+  (7.6e-6, 7.8e-6, 7.9e-6, 7.9e-6, 8.1e-6, 8.5e-6 over the six spans of
+  sixteen rounds); it is eleven times under the limit.
+- **The update's norm has grown by 14% in sixteen rounds, on a gradient
+  that has not.** It read 0.0076 at round 681 and 0.0092 at round 704;
+  rounds 697 to 704 are the highest of the run since at least round 545. Most of it is the
+  value head, whose step went from 0.0034 at round 681 to 0.0052 at
+  rounds 701 to 703 while its gradient's norm fell; the trunk and the
+  memory's write grew less.
+  - With Adam, a step that grows on an unchanged gradient means the
+    gradients of successive rounds agree more: the value head is being
+    pushed the same way round after round. Toward what is not
+    established.
+  - The head's cross-entropy on its games has not moved (0.400 ± 0.005).
+  - It is no kill criterion. It is reported to the user because the
+    value estimate is their first priority.
+- **The rounds are longer:** 63,420 decisions a round, 9% over the level
+  before the switch, and the pass with them.
+- **The pointer's weights at round 704**
+  (`pointer_weights_round_0704.json`): the keys' root mean square is
+  1.07e-4 (9.9e-5 at round 688), and the queries have moved 1.09e-4
+  (weights) and 1.25e-4 (bias) from the switch's.
+- **Advancements chosen:** 102 in round 704's 128 games (0.80 a game),
+  46 of them (45%) a type other than the first
+  (`advance_choices_round_0704.json`); 539 in the match's 800 games (0.67
+  a game), 302 of them (56%) another type than the first
+  (`advance_choices_match_0704.json`). Match 5's lower count (0.58 a
+  game) did not repeat.
+
+### The value estimate since the switch (read 2026-11-27, not registered)
+
+Read because the value head's step grew (above). It is the reading of
+`docs/value_reliability_prereg_20261120.md`, "What was found":
+`training/metrics/value_reliability_20261120/where_optimism.py` on the
+decision logs of 32 rounds, no game played and no network run. v is the
+estimate at a decision and z the game's result for the side that
+decides, both from −1 to +1; v − z over many decisions is the estimate's
+optimism. The windows before the switch are that document's.
+
+| v − z | Rounds 433 to 464 | 497 to 528 | 609 to 640 | 641 to 672 | 673 to 704 |
+|---|---|---|---|---|---|
+| All decisions (± 0.003) | +0.030 | +0.032 | +0.017 | +0.032 | +0.013 |
+| Self games (± 0.001) | +0.037 | +0.036 | +0.025 | +0.035 | +0.021 |
+| Against a past self (± 0.022) | −0.025 | +0.002 | −0.046 | +0.012 | −0.051 |
+| First decision of own turn 2 (± 0.004) | −0.013 | −0.022 | −0.063 | −0.055 | −0.086 |
+| First decision of own turn 3 | −0.095 | −0.111 | −0.155 | −0.142 | −0.171 |
+| First decision of own turn 4 | −0.043 | −0.061 | −0.110 | −0.086 | −0.128 |
+| First decision of own turn 5 | −0.025 | −0.037 | −0.090 | −0.061 | −0.095 |
+| First decision of own turn 10 | +0.048 | +0.044 | +0.020 | +0.034 | +0.013 |
+| The end-turn decision (± 0.003) | +0.026 | +0.033 | +0.030 | +0.046 | +0.034 |
+
+- **The estimate's overall optimism has not grown since the switch.** It
+  reads +0.013 to +0.032, against +0.030 and +0.032 in the two windows
+  before.
+- **At the start of its early turns the estimate is pessimistic, and
+  more so since the switch.** At the first decision of own turn 3 it
+  reads 0.17 under the results in the last window, against 0.10 and 0.11
+  before the switch; the same holds at turns 2, 4 and 5, each about 0.05
+  lower than before. It did not come back over the 96 rounds: the last
+  window is the lowest of the three.
+- **A candidate cause, not established:** since the switch a side does
+  not know the enemy's faction until it sees an enemy unit, which early
+  turns rarely do, and the value document found that the estimate
+  follows the enemy's faction. Telling this cause from another needs the
+  early decisions split by whether an enemy has been seen, which this
+  tool does not do.
+- **Whether this is what the head's growing step is working on is not
+  established either.** The early pessimism is larger in the last window
+  than in the one before, so if the head is being pushed against it, it
+  has not shown yet.
+- The outputs are `where_609_640.json`, `where_641_672.json` and
+  `where_673_704.json` in `training/metrics/value_reliability_20261120/`.
 
 **`main` holds the run's code since 2026-11-26** (0.37.0 and 0.38.0, on
 the user's word), and CI is green on it at 0.38.1 (14657e7e, both tiers).

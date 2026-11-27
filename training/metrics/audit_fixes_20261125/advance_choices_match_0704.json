@@ -1,0 +1,26 @@
+{
+ "sets": [
+  {
+   "directory": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\matches\\step_0704\\games",
+   "games": 800,
+   "games_played_with_the_asking": 800,
+   "games_with_a_choice": 292,
+   "choices": 539,
+   "choices_per_game": 0.674,
+   "not_first": 302,
+   "share_not_first": 0.56,
+   "by_option_index": {
+    "0": 237,
+    "1": 262,
+    "2": 40
+   }
+  }
+ ],
+ "total": {
+  "games": 800,
+  "choices": 539,
+  "not_first": 302,
+  "choices_per_game": 0.674,
+  "share_not_first": 0.56
+ }
+}
