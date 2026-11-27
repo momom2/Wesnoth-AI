@@ -55,6 +55,13 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_match_0704.json` | The 800 games of the match after round 704. |
 | `match_pairs_0688_0704.json` | The matches at rounds 688 and 704 (625 and 623 wins), seed by seed. |
 | `match_line_to_0704.json` | The six matches of rounds 624 to 704: their mean, and the line through them with and without the switch match. |
+| `round_checks_609_to_720.json` | Rounds 593 to 608, 689 to 704 and 705 to 720, side by side. |
+| `pointer_weights_round_0720.json` | The pointer at rounds 704 and 720. |
+| `advance_choices_round_0720.json` | Round 720's 128 games. |
+| `advance_choices_match_0720.json` | The 800 games of the match after round 720. |
+| `match_pairs_0704_0720.json` | The matches at rounds 704 and 720 (623 and 616 wins), seed by seed. |
+| `match_line_to_0720.json` | The seven matches of rounds 624 to 720: their mean, and the line through them with and without the switch match. |
+| `match_line_0640_to_0720.json` | The six matches of rounds 640 to 720 alone: a flat line. |
 
 The value estimate's reading on rounds 609 to 704 (`where_609_640.json`,
 `where_641_672.json`, `where_673_704.json`) is with the earlier windows,

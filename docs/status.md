@@ -257,7 +257,17 @@ night's training is clearly flawed or stalled."
     (+27.9 ± 15.5, 1.8 standard errors), and a line through the switch
     match and the six rises 0.48 ± 0.17 Elo a round (2.8 standard
     errors). None reaches 3, and none was registered.
-  - **The update is growing, and most of it is the value head** (rounds
+  - **The seventh, after round 720: +209.6 ± 14.6** (616 of 800,
+    2026-11-27 13:11). One match is left before the verdict, and "the
+    loop loses strength" would need it under +53.8. **Since round 640
+    the matches sit on one level, not on a rise:** the six from round
+    640 average +211.3 ± 6.0 and a line through them is flat (+0.07 ±
+    0.22 Elo a round). That level is +27.6 ± 15.2 over the switch match
+    (1.8 standard errors). If there was a gain, it came in the first 32
+    rounds on the new rules. Rounds 705 to 720 check out (exact check
+    8.2e-6 to 9.4e-6; value head's cross-entropy 0.394 ± 0.005), and the
+    update's norm has levelled off at 0.0092.
+  - **The update grew, and most of it is the value head** (rounds
     689 to 704). The update's norm went from 0.0076 at round 681 to
     0.0092 at round 704 on a gradient of the same norm; the value head's
     step went from 0.0034 to 0.0052. Its cross-entropy has not moved

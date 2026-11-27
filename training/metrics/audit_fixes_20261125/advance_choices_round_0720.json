@@ -1,0 +1,41 @@
+{
+ "sets": [
+  {
+   "directory": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0720\\games_self",
+   "games": 102,
+   "games_played_with_the_asking": 102,
+   "games_with_a_choice": 42,
+   "choices": 76,
+   "choices_per_game": 0.745,
+   "not_first": 30,
+   "share_not_first": 0.395,
+   "by_option_index": {
+    "0": 46,
+    "1": 28,
+    "2": 2
+   }
+  },
+  {
+   "directory": "C:\\Users\\momom2\\wesnoth_runs\\simple_loop\\round_0720\\games_past",
+   "games": 26,
+   "games_played_with_the_asking": 26,
+   "games_with_a_choice": 10,
+   "choices": 20,
+   "choices_per_game": 0.769,
+   "not_first": 12,
+   "share_not_first": 0.6,
+   "by_option_index": {
+    "0": 8,
+    "1": 10,
+    "2": 2
+   }
+  }
+ ],
+ "total": {
+  "games": 128,
+  "choices": 96,
+  "not_first": 42,
+  "choices_per_game": 0.75,
+  "share_not_first": 0.438
+ }
+}
