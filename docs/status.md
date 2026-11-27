@@ -267,6 +267,19 @@ night's training is clearly flawed or stalled."
     rounds on the new rules. Rounds 705 to 720 check out (exact check
     8.2e-6 to 9.4e-6; value head's cross-entropy 0.394 ± 0.005), and the
     update's norm has levelled off at 0.0092.
+  - **The verdict (round 736, 2026-11-27 18:54): the loop does not lose
+    strength under the new rules, and no change is read between the two
+    halves.** Match 8 read +171.4 ± 13.8 (583 of 800), a low one. The
+    second half (matches 5 to 8) averages +205.0 ± 7.3, the first +195.2
+    ± 7.1: +9.8 ± 10.2, where "loses strength" asked for under −19.6.
+    All eight average +200.1 ± 5.1, +16.4 ± 14.9 over the switch match:
+    a gain since the switch is not established. Match 8 undid two
+    readings recorded earlier (a rise at match 5, a level of +211 at
+    match 7); eight matches of 800 games tell apart about 20 Elo between
+    halves and nothing finer. Rounds 721 to 736 check out (exact check
+    8.5e-6 to 9.4e-6); the value head's gradient is the largest of any
+    span since the switch (46.7 against 29 to 42) and its cross-entropy
+    reads 0.407 ± 0.007.
   - **The update grew, and most of it is the value head** (rounds
     689 to 704). The update's norm went from 0.0076 at round 681 to
     0.0092 at round 704 on a gradient of the same norm; the value head's

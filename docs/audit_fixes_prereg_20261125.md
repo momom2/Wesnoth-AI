@@ -7,10 +7,13 @@ match reads +22.0 ± 19.5 against the loop's own match of the same network:
 kill criterion 1 is not met** (Results). **The first four matches from
 the switch read +161.7 ± 13.6 (round 624), +212.0 ± 14.6 (round 640),
 +207.1 ± 14.5 (round 656) and +199.9 ± 14.4 (round 672): +195.2 ± 7.1
-together, the first half of the registered comparison. The fifth, sixth
-and seventh read +220.8 ± 14.8 (round 688), +218.3 ± 14.8 (round 704)
-and +209.6 ± 14.6 (round 720). Rounds 609 to 720 check out.** One match
-is left before the registered verdict (round 736).
+together, the first half of the registered comparison. The second half
+reads +220.8 ± 14.8 (round 688), +218.3 ± 14.8 (round 704), +209.6 ±
+14.6 (round 720) and +171.4 ± 13.8 (round 736): +205.0 ± 7.3. The
+verdict: the second half less the first is +9.8 ± 10.2, so "the loop
+loses strength under the new rules" is not met, and no change is read
+between the halves. Rounds 609 to 736 check out.** The run goes on on
+the user's word of 2026-11-27 ("After the verdict").
 Both branches are in `main` since 2026-11-26, merged on the user's word
 ("Commit, merge and push."): `feature/audit-fixes` at 0.37.0 and
 `feature/advancement-choice` at 0.38.0. The user answered the question of
@@ -363,6 +366,7 @@ against each other, never against the matches before round 609.
 | 5 | 688 | +220.8 ± 14.8 | 625 | 2026-11-27 02:00 |
 | 6 | 704 | +218.3 ± 14.8 | 623 | 2026-11-27 07:41 |
 | 7 | 720 | +209.6 ± 14.6 | 616 | 2026-11-27 13:11 |
+| 8 | 736 | +171.4 ± 13.8 | 583 | 2026-11-27 18:54 |
 
 **Match 2 (round 640) is the highest of the run's 42 matches, and it is
 one match.** Nothing decides before round 736.
@@ -521,6 +525,50 @@ One match is left before the verdict.
   no turn ended for a side or left unplayed, round 720's own checkpoint
   (`ade44719…`) on the same code, seeds and reference; 18.7 turns on
   average.
+
+### The verdict (round 736, 2026-11-27 18:54): the loop does not lose strength under the new rules; no change is read between the two halves
+
+Match 8 reads +171.4 ± 13.8 (583 of 800).
+
+| | Matches | Mean |
+|---|---|---|
+| First half | 1 to 4 (rounds 624 to 672) | +195.2 ± 7.1 |
+| Second half | 5 to 8 (rounds 688 to 736) | +205.0 ± 7.3 |
+| **Second less first** | | **+9.8 ± 10.2** |
+
+The registration asked for the second half less the first, and named one
+outcome: under −2 standard errors (−19.6 with the registered 9.8) is "the
+loop loses strength under the new rules". It reads +9.8, one standard
+error above zero. The named outcome is not met, and the difference is
+recorded as it reads: no change between the halves.
+
+**What the eight matches say beyond the verdict** (none of it
+registered; `match_line_to_0736.json`, `match_line_0640_to_0736.json`):
+
+- **All eight average +200.1 ± 5.1,** +16.4 ± 14.9 over the switch
+  match's reading of round 608's network (+183.7 ± 14.0). A gain since
+  the switch is not established.
+- **Match 8 is a low one, as match 1 was.** It is 38.1 ± 20.1 under
+  match 7 and 39.9 ± 15.0 under the mean of the six before it (2.7
+  standard errors). Seed by seed against match 7, it shares 591
+  outcomes; of the 209 others, round 720's network won 121 and round
+  736's 88 (`match_pairs_0720_0736.json`). Its games are ordinary: 800
+  decided by a leader's death, no turn ended for a side or left
+  unplayed, round 736's own checkpoint (`470f6fcb…`), 18.0 turns on
+  average.
+- **With it, the level since round 640 is +205.6 ± 5.5** over seven
+  matches, and a line through those seven falls 0.24 ± 0.17 Elo a round
+  (1.4 standard errors): not a fall read, and no longer flat. A line
+  through all eight is flat (+0.09 ± 0.14).
+- **Two readings written earlier do not survive it.** At match 5 a line
+  through the matches rose 0.54 ± 0.21 Elo a round, and at match 7 "a
+  level since round 640" stood at +211.3 ± 6.0. One match moved both.
+  What eight matches of 800 games can tell apart is a difference of
+  about 20 Elo between halves, and nothing finer.
+- **Whether match 8 is chance or the start of a fall is for the next
+  matches.** The number fixed in "After the verdict" (the matches from
+  round 752 on against those of rounds 640 to 736) is the one that will
+  say.
 
 **Match 1 (round 624): nothing decides yet, and no kill criterion is
 met.** Against the switch match (round 608's network on the same code,
@@ -824,6 +872,44 @@ a round; `round_checks_609_to_672.json`).
   (`advance_choices_round_0720.json`); 588 in the match's 800 games (0.74
   a game), 358 of them (61%) another type than the first
   (`advance_choices_match_0720.json`).
+
+**Rounds 721 to 736 check out; the value head's gradient is larger**
+(2026-11-27 13:11 to 18:42, 20.6 minutes a round;
+`round_checks_609_to_736.json`).
+
+| | Rounds 593 to 608 | Rounds 705 to 720 | Rounds 721 to 736 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 8.8e-6 | 9.0e-6 (8.5e-6 to 9.4e-6) |
+| Gradient's norm | 50.0 | 54.4 | 62.7 (48.2 to 87.4) |
+| of which the value head | 35.2 | 36.6 | 46.7 (26.2 to 76.0) |
+| Update's norm | 0.0068 | 0.0092 | 0.0091 (0.0089 to 0.0092) |
+| of which the value head | 0.0032 | 0.0049 | 0.0041 |
+| of which the trunk | 0.0057 | 0.0074 | 0.0076 |
+| of which the weapon head | 0.0007 | 0.0018 | 0.0020 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.394 ± 0.005 | 0.407 ± 0.007 (0.364 to 0.472) |
+| Decisions in the pass | 58,180 | 61,470 | 62,210 |
+| Pass, seconds | 912 | 972 | 1,021 |
+
+- **The exact check holds,** every gradient is finite, and the console
+  holds no warning.
+- **The value head's gradient is the largest of any span since the
+  switch** (46.7, with nine of the sixteen rounds over 40.1 where the
+  spans before held none to six), and the round's whole gradient with
+  it. Its cross-entropy reads 0.407 ± 0.007, the highest of the spans
+  since the switch by a hair (they read 0.391 to 0.406) and one standard
+  error over the rounds before it (0.398 ± 0.008); round 731 read 0.472,
+  the highest since round 609's 0.511. Its step is
+  smaller than over the two spans before (0.0041 against 0.0049).
+- **The update's norm stays level** at 0.0091.
+- **The pointer's weights at round 736**
+  (`pointer_weights_round_0736.json`): the keys' root mean square is
+  1.15e-4 (1.04e-4 at round 720), and the queries have moved 1.49e-4
+  (weights) and 1.76e-4 (bias) from the switch's.
+- **Advancements chosen:** 111 in round 736's 128 games (0.87 a game),
+  57 of them (51%) a type other than the first
+  (`advance_choices_round_0736.json`); 566 in the match's 800 games (0.71
+  a game), 322 of them (57%) another type than the first
+  (`advance_choices_match_0736.json`).
 
 ### The value estimate since the switch (read 2026-11-27, not registered)
 
