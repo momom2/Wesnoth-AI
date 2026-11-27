@@ -143,6 +143,71 @@ def test_any_other_order_is_refused_while_the_unit_waits():
     assert sim.core.core.advance_options(1) is None
 
 
+def _tiny_policy():
+    import torch
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    torch.manual_seed(1)
+    return TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64, device=torch.device("cpu"))
+
+
+def test_a_player_that_builds_its_masks_in_python_is_offered_the_options_alone():
+    """The masks built in Python (`action_sampler._build_legality_masks`,
+    read by a player that is not served its masks by the core) follow the
+    core's rule while a unit waits: the options on the unit's hex, no unit
+    and no end of turn. Before 2026-11-27 they offered the turn's ordinary
+    orders, which the simulator refuses, and an in-process game stopped on
+    "a mask/simulator disagreement"."""
+    import torch
+    from wesnoth_ai.action_sampler import (_build_legality_masks, _enumerate_legal_actions_reference,
+                                           enumerate_legal_actions_with_priors)
+    sim = _sim(attacker_exp=22, defender_hp=1)
+    _attack(sim)
+    policy = _tiny_policy()
+    with torch.no_grad():
+        encoded = policy._inference_encoder.encode(sim.gs)
+        output = policy._inference_model(encoded)
+        masks = _build_legality_masks(encoded, sim.gs)
+        legal = enumerate_legal_actions_with_priors(encoded, output, sim.gs)
+        reference = _enumerate_legal_actions_reference(encoded, output, sim.gs)
+    assert list(encoded.recruit_types) == OPTIONS
+    U, R = encoded.unit_tokens.size(1), encoded.recruit_tokens.size(1)
+    valid = masks.actor_valid[0].tolist()
+    assert valid[:U] == [0.0] * U and valid[U:U + R] == [1.0] * R and valid[U + R] == 0.0
+    here = [k for k, p in enumerate(encoded.hex_positions) if (p.x, p.y) == (AT.x, AT.y)]
+    for r in range(R):
+        assert masks.target_valid[U + r].nonzero().flatten().tolist() == here
+    assert not masks.target_valid_move.any() and not masks.target_valid_attack.any()
+
+    assert [la.action for la in legal] == [la.action for la in reference]
+    assert sorted(la.action["unit_type"] for la in legal) == sorted(OPTIONS)
+    assert all(la.action["type"] == "recruit" and la.action["target_hex"] == AT for la in legal)
+    assert abs(sum(la.prior for la in legal) - 1.0) < 1e-5
+
+    sim.step(legal[1].action)
+    assert not sim.last_step_rejected and sim.command_history[-1].kind == "advance"
+    assert _unit_at(sim, AT).name == legal[1].action["unit_type"]
+    with torch.no_grad():
+        after = policy._inference_encoder.encode(sim.gs)
+        assert _build_legality_masks(after, sim.gs).actor_valid[0, -1] == 1.0, "the turn goes on"
+
+
+def test_an_in_process_player_chooses_and_is_not_refused():
+    """The raw player deciding in process, the one a game without the
+    inference server plays with: its order while the unit waits is one of
+    the options, at any seed."""
+    from tools.raw_player import RawPolicyPlayer
+    policy = _tiny_policy()
+    for seed in range(6):
+        sim = _sim(attacker_exp=22, defender_hp=1)
+        _attack(sim)
+        player = RawPolicyPlayer(policy, 1.0, seed=seed)
+        action = player.select_action(sim.gs, game_label=f"wait{seed}", sim=sim)
+        assert action["type"] == "recruit" and action["unit_type"] in OPTIONS
+        sim.step(action)
+        assert not sim.last_step_rejected and sim.last_step_refusal is None
+        assert _unit_at(sim, AT).name == action["unit_type"]
+
+
 def test_a_unit_that_levels_up_on_the_enemys_turn_takes_the_first_type():
     """Side 2's Skeleton, one experience short, is attacked by side 1's
     and gains its level's worth: nobody is asked."""

@@ -65,7 +65,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.classes import GameState, Position, Unit
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.model import ActorKind, ModelOutput
 
@@ -1098,6 +1098,36 @@ def _build_legality_masks(encoded: EncodedState, game_state: GameState) -> Legal
     # enumerate_legal_actions_with_priors hits the same encoded
     # state multiple times.
     pos_to_hex = encoded.pos_to_hex
+
+    # A unit of the side waits for the type it becomes: the side's legal
+    # orders are its options alone. They stand in the recruit rows
+    # (game_core's view), each on the unit's own hex; no unit acts and the
+    # turn does not end before the choice. It is the core's rule
+    # (core_masks.rs, the masks the served players read), kept here for a
+    # player that builds its masks in Python. Without it such a player
+    # was offered the turn's ordinary orders, which the simulator refuses
+    # while the unit waits (found 2026-11-27).
+    waits = _advance_wait(game_state, current_side)
+    if waits is not None:
+        where, options = waits
+        j = pos_to_hex.get((where.x, where.y))
+        rows = [r for r in range(R) if encoded.recruit_types[r] in options]
+        if j is None or sorted(encoded.recruit_types[r] for r in rows) != sorted(options):
+            raise ValueError(
+                f"the unit that waits to advance at ({where.x}, {where.y}) has no hex token, or the "
+                f"recruit rows {list(encoded.recruit_types)} do not hold its options {list(options)}")
+        actor_valid_np[A - 1] = 0.0
+        for r in rows:
+            target_valid_np[U + r, j] = 1.0
+            actor_valid_np[U + r] = 1.0
+        return LegalityMasks(
+            actor_valid  = torch.from_numpy(actor_valid_np).to(device).unsqueeze(0),
+            target_valid = torch.from_numpy(target_valid_np).to(device),
+            target_valid_attack = torch.from_numpy(target_attack_np).to(device),
+            target_valid_move   = torch.from_numpy(target_move_np).to(device),
+            type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
+        )
+
     # `occupancy`: 0=empty, 1=friendly, 2=attackable enemy, 3=inert
     # (occupies a hex for movement/recruit purposes but cannot be
     # attacked). Inert covers petrified scenery units (statues on
@@ -1182,6 +1212,24 @@ def _build_legality_masks(encoded: EncodedState, game_state: GameState) -> Legal
         target_valid_move   = torch.from_numpy(target_move_np).to(device),
         type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
     )
+
+
+def _advance_wait(game_state: GameState, side: int):
+    """(the hex of the unit of `side` whose advancement waits for the
+    side's choice, the types it may become in the order a choice indexes),
+    or None when nothing waits on `side`. The core that answers for the
+    state decides (`advance_options`); the state's own record of a wait
+    (`_pending_advance`, game_core.py) is read first, so that a state with
+    none costs no call."""
+    if getattr(game_state.global_info, "_pending_advance", None) is None:
+        return None
+    from wesnoth_ai.game_core import core_for
+    waits = core_for(game_state).core.advance_options(int(side))
+    if waits is None:
+        return None
+    unit = next((u for u in game_state.map.units if u.id == waits[0]), None)
+    where = unit.position if unit is not None else Position(int(waits[1]), int(waits[2]))
+    return where, list(waits[3])
 
 
 def _observation_with_reach(encoded, game_state: GameState, side: int):
