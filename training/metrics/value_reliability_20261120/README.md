@@ -21,6 +21,14 @@ The follow-ups of 2026-11-21 and 2026-11-23 (the document's two
 - `hidden_enemy.py`, `hidden_crosstabs.py` (`hidden_177_208.json`,
   `seen_177_208.json`): the same by what the side cannot see, from
   replayed games.
+- `early_faction.py` (`early_faction_577_608.json`,
+  `early_faction_673_704.json`; 2026-11-27, for
+  `docs/audit_fixes_prereg_20261125.md`, "The value estimate since the
+  switch"): the estimate less the result at the first decision of a
+  side's first ten turns, split by whether the enemy unit types the side
+  has seen name the enemy's faction, from replayed games. The windows
+  `where_545_576.json` to `where_673_704.json` were read for the same
+  section.
 - `lambda_clock.py` (`clock_177_208.json`, `clock_393_424.json`): what a
   weight with λ under 1 becomes, fading by the decision or by the turn,
   and how it differs from today's by kind of decision.

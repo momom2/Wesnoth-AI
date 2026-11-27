@@ -276,11 +276,23 @@ night's training is clearly flawed or stalled."
   - **The value estimate since the switch** (read 2026-11-27, not
     registered; `where_optimism.py` on rounds 609 to 704). Its overall
     optimism has not grown (+0.013 to +0.032, against +0.030 before).
-    At the start of its early turns it is more pessimistic than before
-    the switch: 0.17 under the results at the first decision of own turn
-    3, against 0.11, and about 0.05 lower at turns 2, 4 and 5. A
-    candidate cause, not established: a side no longer knows the enemy's
-    faction before it sees an enemy unit.
+  - **The value estimate is too low over the opening, and has been
+    falling there since about round 250** (corrected 2026-11-27; the
+    first write-up gave it to the switch, wrongly). At the first
+    decision of a side's third turn it reads 0.17 under the results in
+    rounds 673 to 704; it read +0.03 over them at rounds 177 to 208,
+    −0.10 at 393 to 424, −0.14 just before the switch. Turns 2 to 8
+    follow, and the gap is back near zero by the ninth turn.
+    - It is not the enemy's faction being unknown, the cause first
+      proposed: by its fourth turn a side can name the faction in 95% of
+      positions and the pessimism is there all the same
+      (`early_faction.py`, 1,365 replayed games on each side of the
+      switch).
+    - The estimate reads an early sighting of the enemy as worse than it
+      turns out: where a side has named the faction by its second turn
+      it is 0.31 under the results, against 0.07 where it has not.
+    - The cause is not established, and what it costs in play is not
+      measured.
   - **CI is green on `main` at 0.38.1** (14657e7e), the first commit of
     `main` that holds the run's code.
   - **Rounds 609 to 624 check out:** exact check 7.2e-6 to 8.0e-6, no

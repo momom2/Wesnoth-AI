@@ -851,12 +851,14 @@ optimism. The windows before the switch are that document's.
   reads +0.013 to +0.032, against +0.030 and +0.032 in the two windows
   before.
 - **At the start of its early turns the estimate is pessimistic, and
-  more so since the switch.** At the first decision of own turn 3 it
+  more so since the switch** (the second half is corrected below: it was
+  falling long before the switch). At the first decision of own turn 3 it
   reads 0.17 under the results in the last window, against 0.10 and 0.11
   before the switch; the same holds at turns 2, 4 and 5, each about 0.05
   lower than before. It did not come back over the 96 rounds: the last
   window is the lowest of the three.
-- **A candidate cause, not established:** since the switch a side does
+- **A candidate cause, not established (refuted the same day, below):**
+  since the switch a side does
   not know the enemy's faction until it sees an enemy unit, which early
   turns rarely do, and the value document found that the estimate
   follows the enemy's faction. Telling this cause from another needs the
@@ -868,6 +870,95 @@ optimism. The windows before the switch are that document's.
   has not shown yet.
 - The outputs are `where_609_640.json`, `where_641_672.json` and
   `where_673_704.json` in `training/metrics/value_reliability_20261120/`.
+
+#### Corrected the same day: the pessimism is the run's, not the switch's, and not the faction's
+
+Two things written above are wrong, and both were told to the user that
+morning: that the early pessimism grew at the switch, and the candidate
+cause. Two readings show it, neither registered.
+
+**1. It grew through the whole run.** The table above set the rounds
+after the switch against windows that ended 80 and 144 rounds before it.
+The two windows just before the switch were then read
+(`where_545_576.json`, `where_577_608.json`), and with the value
+document's earlier windows they give, at the first decision of a side's
+own turn (v − z, each ± 0.004):
+
+| Rounds | Turn 2 | Turn 3 | Turn 4 | Turn 5 |
+|---|---|---|---|---|
+| 1 to 32 | +0.043 | +0.053 | +0.049 | +0.016 |
+| 177 to 208 | +0.057 | +0.025 | +0.062 | +0.074 |
+| 241 to 272 | +0.032 | −0.037 | −0.004 | −0.012 |
+| 283 to 314 | +0.010 | −0.075 | −0.036 | −0.035 |
+| 393 to 424 | −0.002 | −0.096 | −0.063 | −0.049 |
+| 465 to 496 | −0.029 | −0.122 | −0.074 | −0.053 |
+| 497 to 528 | −0.022 | −0.111 | −0.061 | −0.037 |
+| 545 to 576 | −0.027 | −0.117 | −0.068 | −0.051 |
+| 577 to 608 | −0.043 | −0.141 | −0.094 | −0.072 |
+| 609 to 640, after the switch | −0.063 | −0.155 | −0.110 | −0.090 |
+| 641 to 672 | −0.055 | −0.142 | −0.086 | −0.061 |
+| 673 to 704 | −0.086 | −0.171 | −0.128 | −0.095 |
+
+At the third turn the estimate was optimistic until about round 200 and
+pessimistic from round 250; the turns around it followed, and all have
+gone on falling since. The last window before the switch already read −0.141 at turn 3.
+The three windows after it read −0.155, −0.142 and −0.171: a
+continuation, with no step that the switch can be given.
+
+**2. It does not follow what the side knows of the enemy's faction**
+(`early_faction.py`, written for this; a third of the games of rounds
+673 to 704 and of rounds 577 to 608 replayed through the simulator, 1,365
+games each, no network run; `early_faction_673_704.json`,
+`early_faction_577_608.json`). At the first decision of each own turn,
+the positions are split by whether the enemy unit types the side has
+seen name the enemy's faction. That is what the faction input knows
+since the switch; before it the side was told the faction outright, and
+the same split is the control.
+
+| v − z at the turn's first decision | Share named | All | Types name the faction | They do not |
+|---|---|---|---|---|
+| **After the switch, rounds 673 to 704** | | | | |
+| Own turn 2 | 8% | −0.085 ± 0.007 | −0.313 ± 0.047 | −0.066 ± 0.008 |
+| Own turn 3 | 55% | −0.170 ± 0.007 | −0.205 ± 0.018 | −0.128 ± 0.022 |
+| Own turn 4 | 95% | −0.126 ± 0.007 | −0.120 ± 0.008 | −0.254 ± 0.083 |
+| Own turn 5 | 100% | −0.095 ± 0.007 | −0.096 ± 0.008 | (1 position) |
+| **Before the switch, rounds 577 to 608** | | | | |
+| Own turn 2 | 8% | −0.052 ± 0.007 | −0.166 ± 0.045 | −0.043 ± 0.008 |
+| Own turn 3 | 54% | −0.149 ± 0.007 | −0.171 ± 0.018 | −0.123 ± 0.020 |
+| Own turn 4 | 95% | −0.101 ± 0.007 | −0.101 ± 0.009 | −0.107 ± 0.085 |
+| Own turn 5 | 100% | −0.084 ± 0.007 | −0.084 ± 0.007 | (none) |
+
+- **The candidate cause is refuted.** By its fourth turn a side can name
+  the enemy's faction in 95% of positions, and by its fifth in all of
+  them; the pessimism is there all the same (−0.126 and −0.095). I had
+  written that early turns rarely see an enemy unit. That was a guess,
+  and it is wrong from the third turn on.
+- **Where the two groups can be told apart, the estimate is lower where
+  the faction is named, not where it is unknown** (turn 2: −0.313
+  against −0.066; turn 3: −0.205 against −0.128). A side that names the
+  faction that early has seen an enemy unit early. So the estimate reads
+  an early sighting as worse than it turns out. That holds before the
+  switch too (−0.166 against −0.043 at turn 2), on 185 positions.
+- **After against before, the same turns read 0.01 to 0.03 lower**
+  (−0.033 ± 0.010 at turn 2, −0.021 at turn 3, −0.025 at turn 4, −0.011
+  at turn 5): the size of one window's step in the run-long fall above.
+
+**What stands after the correction.**
+- The estimate is too low at the start of a side's second to eighth
+  turns, by up to 0.17 at the third, and it has been falling there for
+  some 450 rounds. It is the opening of the game: by the ninth turn the
+  gap is back near zero.
+- Its cause is not established. It is not the switch, and not the
+  enemy's faction being unknown.
+- Why it may matter for training (my reading, not measured): the weight
+  of a decision is built from the result and the estimates that follow
+  the decision (λ = 0.99). An estimate that dips over the opening and
+  comes back by the ninth turn adds the same push to every decision made
+  at a given point of the opening, whatever its merit: against the
+  decisions made before the bottom of the dip, for those made after it.
+  What that costs in play is not measured.
+- Whether the value head's larger step of rounds 689 to 704 has to do
+  with it is not established.
 
 **`main` holds the run's code since 2026-11-26** (0.37.0 and 0.38.0, on
 the user's word), and CI is green on it at 0.38.1 (14657e7e, both tiers).
