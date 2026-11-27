@@ -911,6 +911,96 @@ a round; `round_checks_609_to_672.json`).
   a game), 322 of them (57%) another type than the first
   (`advance_choices_match_0736.json`).
 
+### Measurement 5: the attacks themselves, on round 736's network (2026-11-27)
+
+The input audit's 24 games (`training/metrics/input_audit_20261124/`:
+`measure_games.py` at seeds 20261202 to 20261225, then `summarise.py`),
+played with round 736's network at the loop's decode, on the CPU beside
+the run. The same seeds give the same maps, factions and leaders as the
+games of round 513's network, which is what the registration set it
+against; the rules are the run's (the four changes), where round 513's
+were the old ones.
+
+| | Round 513's network | Round 736's network |
+|---|---|---|
+| Attacks | 2,637 | 2,654 |
+| by a unit with two weapons or more | 2,196 | 1,994 |
+| the policy's most likely weapon is beaten by another | 22 (1.0%) | 15 (0.8%) |
+| the weapon used is beaten by another | 28 (1.3%) | 24 (1.2%) |
+| mean probability put on a beaten weapon | 0.012 | 0.010 |
+| with several enemies next to the unit, most likely weapon beaten | 3 of 308 (1.0%) | 1 of 316 (0.3%) |
+| with one enemy next to it | 19 of 1,888 (1.0%) | 14 of 1,678 (0.8%) |
+| Attacks into a resistance of 40% or more | 96 (3.6%) | 63 (2.4%) |
+| of those, another weapon would deal 1.5 times as much | 20 of 96 | 16 of 63 |
+
+("Beaten": another weapon deals 25% more and takes no more, or deals as
+much and takes 3 less.)
+
+- **The weapon's choice was already right in 99 attacks of 100 before
+  the pointer, and still is.** The two readings the registration named
+  go from 1.0% to 0.8% and from 3.6% to 2.4%. With the attacks counted
+  as independent the first difference is −0.2 ± 0.3 points and the
+  second −1.3 ± 0.5; they are not independent (24 games, the same
+  matchups twice), so neither is read as a change.
+- **The case the pointer was built for is too rare to read here.** With
+  several enemies next to the unit, the best weapon differs between them
+  in 68 of 316 attacks (76 of 308 before), and the most likely weapon is
+  beaten in 1 (3 before).
+- **So this measurement does not say whether the weapon now follows its
+  target.** It says the weapon choice was not a weak point to begin
+  with, which the audit's own reading of round 513 had already shown;
+  the pointer was added on principle (gap 3), not on these counts.
+- **The games:** 23 of 24 ended by a leader's death and one at the 40
+  turns the tool allows. The summary's count of advancements (42) holds
+  only the units that changed type within their fight; one that waited
+  for its side's choice is not in it. Its recruit section counts a
+  choice of advancement as a recruit (the options stand in the recruit
+  rows), and is not read.
+- The outputs are `input_audit_round_0736_summary.txt` and
+  `input_audit_round_0736_games.jsonl` in
+  `training/metrics/audit_fixes_20261125/`. The log itself (7.9 MB) is
+  not kept.
+
+**Departure 2 (2026-11-27): the 24 games were played from the code of a
+fix that is not in `main`.** The first attempt, on `main`'s code, stopped
+at its fifth game on a defect (next heading). The count above is from the
+branch `fix/inprocess-advance-mask` (b3f9bb12), which differs from `main`
+by that fix alone.
+
+### A defect found on the way: a game played without the inference server stops when a unit waits for its advancement
+
+**In `main` since 0.38.0; the run is not touched; fixed on a branch that
+is not merged.**
+
+- **What happened.** `measure_games.py` plays in process: its player
+  builds the legality masks in Python
+  (`action_sampler._build_legality_masks`). In its fifth game (seed
+  20261206, turn 9) a Spearman of side 2 had made a kill, had three
+  types to become, and waited for its side's choice. The simulator
+  refuses every other order while a unit waits. The Python masks did not
+  know the wait: on the test's waiting state they offer one attack, 42
+  moves and the end of turn, and none of the options. The player ordered
+  a Cavalryman's move, the simulator refused it, and the game loop
+  stopped on "a mask/simulator disagreement", as it is written to.
+- **Why the run never met it.** Its games are served: the masks come
+  from the core (`core_masks.rs`), which offers the options alone while
+  a unit waits. The run's logs hold no refusal in the 16,384 round games
+  and 6,400 match games played since round 609, and every game has its
+  result.
+- **What it touches.** Any game played without `--shared-inference`
+  since the advancement choice was merged: it stops, loudly, at the
+  first such advancement (the first four of the audit's games held
+  none). No recorded result came from such a game.
+- **Why the branch's gate did not catch it.** The advancement's tests
+  checked the core's masks and the simulator, not the masks built in
+  Python on a waiting state.
+- **The fix** (`fix/inprocess-advance-mask`, b3f9bb12, pushed; CI green
+  on both tiers): while a unit of the side waits, the recruit rows that
+  hold its options are the only legal actors, each on the unit's hex, as
+  the core has it. Two tests on the waiting state: the masks and both
+  enumerations, and the raw player deciding in process at six seeds.
+- **The merge is the user's to approve.**
+
 ### The value estimate since the switch (read 2026-11-27, not registered)
 
 Read because the value head's step grew (above). It is the reading of

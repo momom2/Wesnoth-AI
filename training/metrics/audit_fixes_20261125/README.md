@@ -69,6 +69,8 @@ the four changes at round 609; the switch's own files are in
 | `match_pairs_0720_0736.json` | The matches at rounds 720 and 736 (616 and 583 wins), seed by seed. |
 | `match_line_to_0736.json` | The eight matches of the registered reading: their mean, and the line through them with and without the switch match. |
 | `match_line_0640_to_0736.json` | The seven matches of rounds 640 to 736 alone. |
+| `input_audit_round_0736_summary.txt` | Measurement 5: the input audit's readings (`training/metrics/input_audit_20261124/summarise.py`) on 24 games of round 736's network, seeds 20261202 to 20261225, played from the branch `fix/inprocess-advance-mask` at b3f9bb12. |
+| `input_audit_round_0736_games.jsonl` | Those 24 games' results. |
 
 The value estimate's reading on rounds 609 to 704 (`where_609_640.json`,
 `where_641_672.json`, `where_673_704.json`) is with the earlier windows,

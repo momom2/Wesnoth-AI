@@ -280,6 +280,22 @@ night's training is clearly flawed or stalled."
     8.5e-6 to 9.4e-6); the value head's gradient is the largest of any
     span since the switch (46.7 against 29 to 42) and its cross-entropy
     reads 0.407 ± 0.007.
+  - **The attacks on round 736's network** (the registration's
+    measurement 5; 24 games on the seeds of round 513's count, 2,654
+    attacks). The policy's most likely weapon is beaten by another in
+    0.8% of the attacks of a unit with two weapons (1.0% on round 513's
+    network), and 2.4% of attacks go into a resistance of 40% or more
+    (3.6%). Neither is read as a change: the weapon's choice was right
+    in 99 attacks of 100 before the pointer and still is, and the case
+    the pointer was built for (several enemies next to the unit, with
+    different best weapons) is 68 attacks of the 2,654.
+  - **A defect in `main` since 0.38.0, found by that count: a game
+    played without the inference server stops when a unit waits for its
+    advancement.** The masks built in Python offered ordinary orders
+    and none of the options, and the simulator refuses those. The run
+    is not touched: its games are served the core's masks, and its logs
+    hold no refusal in 22,784 games. Fixed on
+    `fix/inprocess-advance-mask` (b3f9bb12, CI green), not merged.
   - **The update grew, and most of it is the value head** (rounds
     689 to 704). The update's norm went from 0.0076 at round 681 to
     0.0092 at round 704 on a gradient of the same norm; the value head's
@@ -705,6 +721,16 @@ both sides, 3,200 decisive games on the same seeds:
 
 ## Open (for the user unless noted)
 
+- **Merge `fix/inprocess-advance-mask` into `main`** (b3f9bb12, CI
+  green on both tiers; found and fixed 2026-11-27). Until then a game
+  played on `main` without `--shared-inference` stops at the first unit
+  that waits for its advancement. The run does not need it.
+- **The value estimate is too low over the opening** (up to 0.17 at a
+  side's third turn, falling since about round 250;
+  `docs/audit_fixes_prereg_20261125.md`, "Corrected the same day").
+  Cause not established, cost in play not measured. Where it
+  sits (by faction, map and side at turns 2 to 5) can be read from the
+  logs on disk.
 - **Move the run back to the main checkout, at a stop** (not the user's
   to decide; a chore, possible since the merge of 2026-11-26). It
   executes from the worktree of `feature/advancement-choice`, whose code
