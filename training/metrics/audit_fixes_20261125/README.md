@@ -77,6 +77,9 @@ the four changes at round 609; the switch's own files are in
 | `advance_choices_round_0752.json`, `advance_choices_match_0752.json` | Round 752's 128 games and its match's 800. |
 | `match_pairs_0736_0752.json` | The matches at rounds 736 and 752 (583 and 594 wins), seed by seed. |
 | `past_self_609_to_752.json` | The current network against its past selves over rounds 609 to 752, split at round 609, with each round's draw and wins. |
+| `round_checks_737_to_768.json`, `pointer_weights_round_0768.json`, `advance_choices_round_0768.json`, `advance_choices_match_0768.json`, `match_pairs_0752_0768.json` | The match after round 768 and its rounds, as for the matches before. |
+| `match_line_0752_on.json` | The matches from round 752 on (the first number fixed in "After the verdict"); rewritten at each match. |
+| `past_self_753_to_768.json` | The current network against its past selves over rounds 753 to 768, split at round 624 (the second number fixed there). |
 
 The value estimate's reading on rounds 609 to 704 (`where_609_640.json`,
 `where_641_672.json`, `where_673_704.json`) is with the earlier windows,

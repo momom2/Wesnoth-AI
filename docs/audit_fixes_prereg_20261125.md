@@ -368,6 +368,7 @@ against each other, never against the matches before round 609.
 | 7 | 720 | +209.6 ± 14.6 | 616 | 2026-11-27 13:11 |
 | 8 | 736 | +171.4 ± 13.8 | 583 | 2026-11-27 18:54 |
 | 9, after the verdict | 752 | +183.7 ± 14.0 | 594 | 2026-11-28 00:26 |
+| 10 | 768 | +195.2 ± 14.3 | 604 | 2026-11-28 06:02 |
 
 **Match 2 (round 640) is the highest of the run's 42 matches, and it is
 one match.** Nothing decides before round 736.
@@ -1271,3 +1272,45 @@ one half, with its standard error over rounds. Under one half by
 2 standard errors when the user is back: reported as "the current
 network loses to its recent selves", and the cause is looked for before
 any match is read further. Otherwise: "not confirmed".
+
+#### Match 10 (round 768, 2026-11-28 06:02): +195.2 ± 14.3
+
+604 of 800; round 768's own checkpoint (`8ceefcdb…`), 800 games decided
+by a leader's death, no turn ended for a side or left unplayed, 18.2
+turns on average; 606 outcomes shared with match 9
+(`match_pairs_0752_0768.json`).
+
+**The two numbers fixed before their data, so far** (both are read when
+the user is back; these are running counts):
+
+| | So far | Against |
+|---|---|---|
+| Matches from round 752 on | 2 matches, +189.5 ± 10.0 | rounds 640 to 736, +205.6 ± 5.5: −16.1 ± 11.4 |
+| Wins against past selves from round 624 on, rounds 753 on | 52 of 104 over 4 rounds (12, 12, 13 and 15 of 26), 50.0% ± 2.7 over rounds | one half |
+
+**Rounds 753 to 768 check out** (2026-11-28 00:26 to 05:49, 20.2 minutes
+a round; `round_checks_737_to_768.json`).
+
+| | Rounds 593 to 608 | Rounds 737 to 752 | Rounds 753 to 768 |
+|---|---|---|---|
+| Exact check (limit 1e-4) | 7.4e-6 | 9.2e-6 | 9.0e-6 (8.4e-6 to 9.7e-6) |
+| Gradient's norm | 50.0 | 60.7 | 57.0 (45.7 to 70.7) |
+| of which the value head | 35.2 | 44.6 | 39.6 (21.6 to 59.2) |
+| Update's norm | 0.0068 | 0.0094 | 0.0088 (0.0083 to 0.0094) |
+| of which the value head | 0.0032 | 0.0047 | 0.0040 |
+| Value head's cross-entropy | 0.398 ± 0.008 | 0.395 ± 0.008 | 0.390 ± 0.006 (0.341 to 0.418) |
+| Decisions in the pass | 58,180 | 62,090 | 63,160 |
+| Pass, seconds | 912 | 982 | 993 |
+
+- **The exact check holds,** every gradient is finite, and the console
+  holds no warning.
+- **The update's norm has come down through the span,** from 0.0094 at
+  round 753 to 0.0083 at round 768, and the value head's step with it
+  (0.0040).
+- **The pointer's weights at round 768**
+  (`pointer_weights_round_0768.json`): keys 1.50e-4 (1.31e-4 at round
+  752); the queries have moved 1.85e-4 (weights) and 2.10e-4 (bias).
+- **Advancements chosen:** 139 in round 768's 128 games (1.09 a game),
+  54% another type than the first; 573 in the match's 800 games (0.72 a
+  game), 60% another type than the first
+  (`advance_choices_round_0768.json`, `advance_choices_match_0768.json`).

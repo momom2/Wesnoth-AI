@@ -1,0 +1,170 @@
+{
+ "rounds": [
+  753,
+  768
+ ],
+ "since": 624,
+ "table": [
+  {
+   "past_self": "all",
+   "age_in_rounds": "all ages",
+   "wins": 242,
+   "decided": 416,
+   "rounds": 16,
+   "share": 0.5817307692307693,
+   "standard_error": 0.024184789470513175
+  },
+  {
+   "past_self": "before the switch",
+   "age_in_rounds": "all ages",
+   "wins": 190,
+   "decided": 312,
+   "rounds": 12,
+   "share": 0.6089743589743589,
+   "standard_error": 0.0276264336607987
+  },
+  {
+   "past_self": "before the switch",
+   "age_in_rounds": "161 to 320",
+   "wins": 63,
+   "decided": 104,
+   "rounds": 4,
+   "share": 0.6057692307692307,
+   "standard_error": 0.04791949075738361
+  },
+  {
+   "past_self": "before the switch",
+   "age_in_rounds": "321 or more",
+   "wins": 127,
+   "decided": 208,
+   "rounds": 8,
+   "share": 0.6105769230769231,
+   "standard_error": 0.033810326716936095
+  },
+  {
+   "past_self": "from the switch on",
+   "age_in_rounds": "all ages",
+   "wins": 52,
+   "decided": 104,
+   "rounds": 4,
+   "share": 0.5,
+   "standard_error": 0.04902903378454601
+  },
+  {
+   "past_self": "from the switch on",
+   "age_in_rounds": "65 to 96",
+   "wins": 15,
+   "decided": 26,
+   "rounds": 1,
+   "share": 0.5769230769230769,
+   "standard_error": 0.09689066801072671
+  },
+  {
+   "past_self": "from the switch on",
+   "age_in_rounds": "97 to 160",
+   "wins": 37,
+   "decided": 78,
+   "rounds": 3,
+   "share": 0.47435897435897434,
+   "standard_error": 0.05653935976482544
+  }
+ ],
+ "by_round": [
+  {
+   "round": 753,
+   "past": 544,
+   "wins": 17,
+   "decided": 26
+  },
+  {
+   "round": 754,
+   "past": 304,
+   "wins": 12,
+   "decided": 26
+  },
+  {
+   "round": 755,
+   "past": 432,
+   "wins": 13,
+   "decided": 26
+  },
+  {
+   "round": 756,
+   "past": 288,
+   "wins": 16,
+   "decided": 26
+  },
+  {
+   "round": 757,
+   "past": 192,
+   "wins": 17,
+   "decided": 26
+  },
+  {
+   "round": 758,
+   "past": 352,
+   "wins": 17,
+   "decided": 26
+  },
+  {
+   "round": 759,
+   "past": 288,
+   "wins": 19,
+   "decided": 26
+  },
+  {
+   "round": 760,
+   "past": 624,
+   "wins": 12,
+   "decided": 26
+  },
+  {
+   "round": 761,
+   "past": 656,
+   "wins": 12,
+   "decided": 26
+  },
+  {
+   "round": 762,
+   "past": 176,
+   "wins": 17,
+   "decided": 26
+  },
+  {
+   "round": 763,
+   "past": 128,
+   "wins": 16,
+   "decided": 26
+  },
+  {
+   "round": 764,
+   "past": 576,
+   "wins": 14,
+   "decided": 26
+  },
+  {
+   "round": 765,
+   "past": 496,
+   "wins": 15,
+   "decided": 26
+  },
+  {
+   "round": 766,
+   "past": 544,
+   "wins": 17,
+   "decided": 26
+  },
+  {
+   "round": 767,
+   "past": 656,
+   "wins": 13,
+   "decided": 26
+  },
+  {
+   "round": 768,
+   "past": 688,
+   "wins": 15,
+   "decided": 26
+  }
+ ]
+}

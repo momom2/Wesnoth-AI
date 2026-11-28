@@ -297,6 +297,13 @@ night's training is clearly flawed or stalled."
     established. A number is fixed before its games exist: the same
     share over the rounds from 753 on, against one half
     (`docs/audit_fixes_prereg_20261125.md`).
+  - **Round 768: +195.2 ± 14.3** (604 of 800, 2026-11-28 06:02). The
+    two numbers fixed before their data, so far: the matches from round
+    752 on average +189.5 ± 10.0, −16.1 ± 11.4 against rounds 640 to
+    736; against past selves from round 624 on, the rounds from 753 on
+    read 52 of 104, one half exactly. Rounds 753 to 768 check out (exact
+    check 8.4e-6 to 9.7e-6; value head's cross-entropy 0.390 ± 0.006),
+    and the update's norm has come back down to 0.0083.
   - **The attacks on round 736's network** (the registration's
     measurement 5; 24 games on the seeds of round 513's count, 2,654
     attacks). The policy's most likely weapon is beaten by another in

@@ -1,0 +1,56 @@
+{
+ "matches": [
+  {
+   "round": 752,
+   "elo": 183.69272118491622,
+   "se": 14.032162428333875,
+   "wins": 594
+  },
+  {
+   "round": 768,
+   "elo": 195.21350019413805,
+   "se": 14.26530727207493,
+   "wins": 604
+  }
+ ],
+ "switch_match": {
+  "round": 608,
+  "elo": 183.7,
+  "se": 14.0
+ },
+ "mean_all": {
+  "rounds": [
+   752,
+   768
+  ],
+  "elo": 189.45311068952714,
+  "standard_error": 10.005005921810575
+ },
+ "line_all": null,
+ "line_with_switch": {
+  "rounds": [
+   608,
+   752,
+   768
+  ],
+  "elo_per_round": 0.04281567183572454,
+  "standard_error": 0.11283858167927448,
+  "mean_round": 708.5365816495114,
+  "elo_at_mean_round": 187.4457203512336
+ },
+ "mean_without_first": {
+  "rounds": [
+   768
+  ],
+  "elo": 195.21350019413805,
+  "standard_error": 14.26530727207493
+ },
+ "mean_all_less_switch": {
+  "elo": 5.753110689527148,
+  "standard_error": 17.207560649187457
+ },
+ "mean_without_first_less_switch": {
+  "elo": 11.51350019413806,
+  "standard_error": 19.987470864687054
+ }
+}
